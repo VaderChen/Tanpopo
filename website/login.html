@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Llama Loader 登入</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20260825-4">
+  <script src="/assets/login.js?v=20260825-4" defer></script>
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="brand brand-login">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div>
+        <div class="brand-name">Llama Loader</div>
+        <div class="brand-caption">LOCAL MODEL CONTROL</div>
+      </div>
+    </div>
+    <div class="login-heading">
+      <p class="eyebrow">管理介面</p>
+      <h1>歡迎回來</h1>
+      <p>使用本機設定檔中的管理帳號登入。</p>
+    </div>
+    <form id="loginForm" class="stack-form">
+      <label class="field">
+        <span>帳號</span>
+        <input id="account" class="latin-input" name="account" type="text" inputmode="email" lang="en" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
+      </label>
+      <label class="field">
+        <span>密碼</span>
+        <input id="password" class="latin-input" name="password" type="password" inputmode="email" lang="en" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      </label>
+      <p class="helper">輸入欄位會優先使用英數鍵盤，不限制帳號密碼可用字元。</p>
+      <div id="loginMessage" class="form-message" role="alert"></div>
+      <button id="loginButton" class="button primary wide" type="submit">登入</button>
+    </form>
+    <p class="login-footnote">帳號密碼由 <code>agent.properties</code> 管理；服務不建立使用者資料庫。</p>
+  </main>
+</body>
+</html>

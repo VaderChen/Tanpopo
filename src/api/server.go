@@ -1,0 +1,454 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"LlamaLoader/src/config"
+	"LlamaLoader/src/directorybrowser"
+	"LlamaLoader/src/domain"
+	"LlamaLoader/src/download"
+	"LlamaLoader/src/llamacpp"
+	"LlamaLoader/src/session"
+	"LlamaLoader/src/startupcommand"
+)
+
+type Server struct {
+	ctx             context.Context
+	webPath         string
+	settings        *config.Store
+	startupCommands *startupcommand.Store
+	sessions        *session.Store
+	downloads       *download.Manager
+	llama           *llamacpp.Manager
+}
+
+func NewServer(
+	ctx context.Context,
+	webPath string,
+	settings *config.Store,
+	startupCommands *startupcommand.Store,
+	sessions *session.Store,
+	downloads *download.Manager,
+	llama *llamacpp.Manager,
+) *Server {
+	return &Server{
+		ctx:             ctx,
+		webPath:         webPath,
+		settings:        settings,
+		startupCommands: startupCommands,
+		sessions:        sessions,
+		downloads:       downloads,
+		llama:           llama,
+	}
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.handleRoot)
+	mux.HandleFunc("GET /login.html", s.handleLoginPage)
+	for _, pageName := range []string{"main.html", "commands.html", "download.html", "settings.html"} {
+		mux.HandleFunc("GET /"+pageName, s.requirePage(s.pageHandler(pageName)))
+	}
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.webPath, "assets")))))
+
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/settings", s.requireAPI(s.handleSettings))
+	mux.HandleFunc("PUT /api/settings", s.requireAPI(s.handleSettingsUpdate))
+	mux.HandleFunc("POST /api/system/directories", s.requireAPI(s.handleDirectories))
+	mux.HandleFunc("GET /api/models", s.requireAPI(s.handleModels))
+	mux.HandleFunc("GET /api/startup-commands", s.requireAPI(s.handleStartupCommands))
+	mux.HandleFunc("POST /api/startup-commands", s.requireAPI(s.handleStartupCommandCreate))
+	mux.HandleFunc("PUT /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandUpdate))
+	mux.HandleFunc("DELETE /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandDelete))
+	mux.HandleFunc("GET /api/downloads", s.requireAPI(s.handleDownloads))
+	mux.HandleFunc("POST /api/downloads", s.requireAPI(s.handleDownloadStart))
+	mux.HandleFunc("GET /api/llama/status", s.requireAPI(s.handleLlamaStatus))
+	mux.HandleFunc("GET /api/llama/logs", s.requireAPI(s.handleLlamaLogs))
+	mux.HandleFunc("DELETE /api/llama/logs", s.requireAPI(s.handleLlamaLogsClear))
+	mux.HandleFunc("POST /api/llama/start", s.requireAPI(s.handleLlamaStart))
+	mux.HandleFunc("POST /api/llama/stop", s.requireAPI(s.handleLlamaStop))
+	mux.HandleFunc("GET /api/runtime/status", s.requireAPI(s.handleLlamaStatus))
+	mux.HandleFunc("GET /api/runtime/logs", s.requireAPI(s.handleLlamaLogs))
+	mux.HandleFunc("DELETE /api/runtime/logs", s.requireAPI(s.handleLlamaLogsClear))
+	mux.HandleFunc("POST /api/runtime/start", s.requireAPI(s.handleLlamaStart))
+	mux.HandleFunc("POST /api/runtime/stop", s.requireAPI(s.handleLlamaStop))
+	return s.securityHeaders(mux)
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if s.sessions.Authenticated(r) {
+		http.Redirect(w, r, "/main.html", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/login.html", http.StatusFound)
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if s.sessions.Authenticated(r) {
+		http.Redirect(w, r, "/main.html", http.StatusFound)
+		return
+	}
+	s.servePage(w, r, "login.html")
+}
+
+func (s *Server) pageHandler(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.servePage(w, r, name)
+	}
+}
+
+func (s *Server) servePage(w http.ResponseWriter, r *http.Request, name string) {
+	path := filepath.Join(s.webPath, name)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		http.Error(w, "找不到網站檔案: "+name, http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now()})
+}
+
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.sessions.Authenticated(r)})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Account  string `json:"account"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !s.sessions.Login(w, r, request.Account, request.Password) {
+		writeError(w, http.StatusUnauthorized, errors.New("帳號或密碼錯誤"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.sessions.Logout(w, r)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.settings.Public())
+}
+
+type settingsUpdateRequest struct {
+	ModelDirectory        string `json:"model_directory"`
+	MLXModelDirectory     string `json:"mlx_model_directory"`
+	HuggingFaceEndpoint   string `json:"huggingface_endpoint"`
+	HuggingFaceToken      string `json:"huggingface_token"`
+	ClearHuggingFaceToken bool   `json:"clear_huggingface_token"`
+	DefaultRevision       string `json:"default_revision"`
+}
+
+func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
+	var request settingsUpdateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	current := s.settings.Get()
+	token := current.HuggingFaceToken
+	if request.ClearHuggingFaceToken {
+		token = ""
+	} else if strings.TrimSpace(request.HuggingFaceToken) != "" {
+		token = strings.TrimSpace(request.HuggingFaceToken)
+	}
+	value := domain.Settings{
+		ModelDirectory:      request.ModelDirectory,
+		MLXModelDirectory:   request.MLXModelDirectory,
+		HuggingFaceEndpoint: request.HuggingFaceEndpoint,
+		HuggingFaceToken:    token,
+		DefaultRevision:     request.DefaultRevision,
+		ServerHost:          current.ServerHost,
+		ServerPort:          current.ServerPort,
+		ContextSize:         current.ContextSize,
+		GPULayers:           current.GPULayers,
+		Threads:             current.Threads,
+		ExtraArgs:           current.ExtraArgs,
+	}
+	if err := s.settings.Save(value); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.settings.Public())
+}
+
+func (s *Server) handleDirectories(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		CurrentPath string `json:"current_path"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	listing, err := directorybrowser.List(request.CurrentPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, listing)
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	settings := s.settings.Get()
+	runtimeName := strings.TrimSpace(r.URL.Query().Get("runtime"))
+	var models []domain.ModelFile
+	var err error
+	if runtimeName == domain.RuntimeMLXServer {
+		models, err = llamacpp.ListMLXModels(settings.MLXModelDirectory)
+	} else {
+		models, err = llamacpp.ListModels(settings.ModelDirectory)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+type startupCommandRequest struct {
+	Name        string   `json:"name"`
+	Runtime     string   `json:"runtime"`
+	DraftModel  string   `json:"draft_model"`
+	ServerHost  string   `json:"server_host"`
+	ServerPort  int      `json:"server_port"`
+	ContextSize int      `json:"context_size"`
+	GPULayers   int      `json:"gpu_layers"`
+	Threads     int      `json:"threads"`
+	ExtraArgs   []string `json:"extra_args"`
+}
+
+func (r startupCommandRequest) command() domain.StartupCommand {
+	return domain.StartupCommand{
+		Name:        r.Name,
+		Runtime:     r.Runtime,
+		DraftModel:  r.DraftModel,
+		ServerHost:  r.ServerHost,
+		ServerPort:  r.ServerPort,
+		ContextSize: r.ContextSize,
+		GPULayers:   r.GPULayers,
+		Threads:     r.Threads,
+		ExtraArgs:   r.ExtraArgs,
+	}
+}
+
+func (s *Server) handleStartupCommands(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"commands": s.startupCommands.List()})
+}
+
+func (s *Server) handleStartupCommandCreate(w http.ResponseWriter, r *http.Request) {
+	var request startupCommandRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	command, err := s.startupCommands.Create(request.command())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, command)
+}
+
+func (s *Server) handleStartupCommandUpdate(w http.ResponseWriter, r *http.Request) {
+	var request startupCommandRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	command, err := s.startupCommands.Update(r.PathValue("id"), request.command())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, command)
+}
+
+func (s *Server) handleStartupCommandDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	status := s.llama.Status()
+	if status.Running && status.StartupCommandID == id {
+		writeError(w, http.StatusConflict, errors.New("此啟動參數正在使用中，請先停止模型服務"))
+		return
+	}
+	if err := s.startupCommands.Delete(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDownloads(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"downloads": s.downloads.List()})
+}
+
+func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Runtime    string `json:"runtime"`
+		Repository string `json:"repository"`
+		Filename   string `json:"filename"`
+		Revision   string `json:"revision"`
+		Overwrite  bool   `json:"overwrite"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	settings := s.settings.Get()
+	if strings.TrimSpace(request.Revision) == "" {
+		request.Revision = settings.DefaultRevision
+	}
+	downloadRequest := download.Request{
+		Runtime:        request.Runtime,
+		Repository:     request.Repository,
+		Filename:       request.Filename,
+		Revision:       request.Revision,
+		ModelDirectory: settings.ModelDirectory,
+		Endpoint:       settings.HuggingFaceEndpoint,
+		Token:          settings.HuggingFaceToken,
+		Overwrite:      request.Overwrite,
+	}
+	var result download.BatchResult
+	var err error
+	if strings.TrimSpace(request.Runtime) == domain.RuntimeMLXServer {
+		downloadRequest.ModelDirectory = settings.MLXModelDirectory
+		result, err = s.downloads.StartRepository(s.ctx, downloadRequest)
+	} else {
+		downloadRequest.Runtime = domain.RuntimeLlamaServer
+		result, err = s.downloads.StartWithCompanions(s.ctx, downloadRequest)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) handleLlamaStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.llama.Status())
+}
+
+func (s *Server) handleLlamaLogs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"logs": s.llama.Logs()})
+}
+
+func (s *Server) handleLlamaLogsClear(w http.ResponseWriter, _ *http.Request) {
+	s.llama.ClearLogs()
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Model            string `json:"model"`
+		MMProj           string `json:"mmproj"`
+		StartupCommandID string `json:"startup_command_id"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	startupCommand, err := s.startupCommands.Get(request.StartupCommandID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	status, err := s.llama.Start(request.Model, request.MMProj, startupCommand)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, status)
+}
+
+func (s *Server) handleLlamaStop(w http.ResponseWriter, _ *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	if err := s.llama.Stop(ctx); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.llama.Status())
+}
+
+func (s *Server) requireAPI(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.sessions.Authenticated(r) {
+			writeError(w, http.StatusUnauthorized, errors.New("登入狀態已失效"))
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) requirePage(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.sessions.Authenticated(r) {
+			http.Redirect(w, r, "/login.html", http.StatusFound)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") || strings.HasSuffix(r.URL.Path, ".html") {
+			w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func decodeJSON(r *http.Request, destination any) error {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1024*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("JSON 格式錯誤: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("請求只能包含一個 JSON 物件")
+		}
+		return fmt.Errorf("JSON 結尾格式錯誤: %w", err)
+	}
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]any{
+		"error": map[string]string{"message": err.Error()},
+	})
+}

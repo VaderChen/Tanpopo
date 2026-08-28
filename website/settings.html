@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>環境設定 · Llama Loader</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-4">
+  <script src="/assets/common.js?v=20260825-2" defer></script>
+  <script src="/assets/settings.js?v=20260828-5" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/main.html">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div>
+        <div class="brand-name">Llama Loader</div>
+        <div class="brand-caption">LOCAL MODEL CONTROL</div>
+      </div>
+    </a>
+    <nav class="nav" aria-label="主選單">
+      <a href="/main.html">執行狀態</a>
+      <a href="/commands.html">啟動命令</a>
+      <a href="/download.html">模型下載</a>
+      <a class="active" href="/settings.html" aria-current="page">環境設定</a>
+    </nav>
+    <button id="logoutButton" class="button quiet" type="button">登出</button>
+  </header>
+
+  <main class="page-shell">
+    <div id="globalMessage" class="toast page-toast" hidden></div>
+    <section class="section-block">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">CONFIGURATION</p>
+          <h2>環境設定</h2>
+        </div>
+        <p class="section-note">儲存於本機 <code>data/settings.json</code></p>
+      </div>
+      <form id="settingsForm" class="panel form-panel settings-form">
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>模型存放位置</h3>
+            <p>Runtime 由應用程式自動管理；此處只設定兩種模型格式的掃描與下載目錄。</p>
+          </div>
+          <div class="form-group-fields">
+            <div class="two-columns">
+              <div class="field">
+                <label for="modelDirectory">GGUF 模型目錄（llama-server）</label>
+                <div class="directory-picker">
+                  <input id="modelDirectory" required>
+                  <button id="selectModelDirectory" class="directory-picker-button" type="button" aria-label="選擇 GGUF 模型目錄" title="選擇 GGUF 模型目錄">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h4.1l1.8 2h7.6a1.75 1.75 0 0 1 1.75 1.75v8.5A1.75 1.75 0 0 1 18.75 19H5.25a1.75 1.75 0 0 1-1.75-1.75V6.75Z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="mlxModelDirectory">MLX 模型目錄（Apple Silicon）</label>
+                <div class="directory-picker">
+                  <input id="mlxModelDirectory" required>
+                  <button id="selectMLXModelDirectory" class="directory-picker-button" type="button" aria-label="選擇 MLX 模型目錄" title="選擇 MLX 模型目錄">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h4.1l1.8 2h7.6a1.75 1.75 0 0 1 1.75 1.75v8.5A1.75 1.75 0 0 1 18.75 19H5.25a1.75 1.75 0 0 1-1.75-1.75V6.75Z"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p id="directorySelectionMessage" class="helper directory-selection-message" aria-live="polite">按資料夾按鈕選擇服務主機上的模型目錄，選取後再儲存設定。</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>Hugging Face</h3>
+            <p>Token 僅在存取 gated 或 private repository 時需要。</p>
+          </div>
+          <div class="form-group-fields">
+            <label class="field">
+              <span>Endpoint</span>
+              <input id="hfEndpoint" type="url" required>
+            </label>
+            <div class="two-columns">
+              <label class="field">
+                <span>預設 Revision</span>
+                <input id="defaultRevision" required>
+              </label>
+              <label class="field">
+                <span>Access Token</span>
+                <input id="hfToken" type="password" autocomplete="off" placeholder="留空即保留目前設定">
+              </label>
+            </div>
+            <label class="check-field">
+              <input id="clearHFToken" type="checkbox">
+              <span id="tokenState">清除已保存的 Token</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <span id="settingsMessage" class="form-message"></span>
+          <button id="saveSettingsButton" class="button primary" type="submit">儲存設定</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="directoryBrowserDialog" class="directory-browser-dialog" aria-labelledby="directoryBrowserTitle">
+    <div class="directory-browser-card">
+      <div class="directory-browser-heading">
+        <div>
+          <p class="section-kicker">DIRECTORY</p>
+          <h3 id="directoryBrowserTitle">選擇模型目錄</h3>
+        </div>
+        <button id="closeDirectoryBrowser" class="directory-close-button" type="button" aria-label="關閉目錄選擇器">×</button>
+      </div>
+      <div class="directory-browser-toolbar">
+        <button id="directoryParentButton" class="button secondary compact" type="button">上一層</button>
+        <code id="directoryCurrentPath" class="directory-current-path">讀取中…</code>
+      </div>
+      <div class="directory-browser-content">
+        <nav id="directoryRoots" class="directory-roots" aria-label="常用位置"></nav>
+        <div id="directoryEntries" class="directory-entries" aria-label="子目錄"></div>
+      </div>
+      <p id="directoryBrowserMessage" class="helper directory-browser-message" aria-live="polite"></p>
+      <div class="directory-browser-actions">
+        <button id="cancelDirectoryBrowser" class="button secondary" type="button">取消</button>
+        <button id="confirmDirectoryBrowser" class="button primary" type="button">選擇此目錄</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

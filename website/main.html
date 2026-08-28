@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Llama Loader</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-5">
+  <script src="/assets/common.js?v=20260825-5" defer></script>
+  <script src="/assets/runtime.js?v=20260828-3" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/main.html">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div>
+        <div class="brand-name">Llama Loader</div>
+        <div class="brand-caption">LOCAL MODEL CONTROL</div>
+      </div>
+    </a>
+    <nav class="nav" aria-label="主選單">
+      <a class="active" href="/main.html" aria-current="page">執行狀態</a>
+      <a href="/commands.html">啟動命令</a>
+      <a href="/download.html">模型下載</a>
+      <a href="/settings.html">環境設定</a>
+    </nav>
+    <button id="logoutButton" class="button quiet" type="button">登出</button>
+  </header>
+
+  <main class="page-shell">
+    <section class="section-block">
+      <div class="section-heading runtime-section-heading">
+        <div>
+          <p class="section-kicker">RUNTIME</p>
+          <h2>執行狀態</h2>
+        </div>
+        <div id="globalMessage" class="toast page-toast" role="status" aria-live="polite" hidden></div>
+        <button id="refreshButton" class="button secondary" type="button">重新整理</button>
+      </div>
+
+      <div class="runtime-grid">
+        <article class="panel status-panel">
+          <div class="status-row">
+            <span id="statusDot" class="status-dot"></span>
+            <div class="status-summary">
+              <div id="statusLabel" class="status-title">讀取中</div>
+              <div id="statusDetail" class="muted">正在取得模型服務狀態…</div>
+            </div>
+          </div>
+          <div class="status-runtime-controls">
+            <label class="status-command-field">
+              <span>Runtime</span>
+              <select id="runtimeSelect">
+                <option value="llama-server">llama-server</option>
+                <option value="mlx-server">mlx-server</option>
+              </select>
+            </label>
+            <label class="status-command-field">
+              <span>啟動參數</span>
+              <select id="commandSelect"></select>
+            </label>
+          </div>
+          <dl class="status-list">
+            <div><dt>Runtime</dt><dd id="runningRuntime">—</dd></div>
+            <div><dt>模型</dt><dd id="runningModel">—</dd></div>
+            <div id="runningMMProjRow"><dt>mmproj</dt><dd id="runningMMProj">—</dd></div>
+            <div><dt>PID</dt><dd id="runningPID">—</dd></div>
+            <div><dt>API 位置</dt><dd><a id="serverURL" href="#" target="_blank" rel="noreferrer">—</a></dd></div>
+          </dl>
+        </article>
+
+        <article class="panel launch-panel">
+          <label class="field">
+            <span id="modelFieldLabel">選擇 llama-server 支援的 GGUF 模型</span>
+            <select id="modelSelect"></select>
+          </label>
+          <p id="modelMeta" class="helper">模型清單讀取中…</p>
+          <label id="mmprojField" class="field">
+            <span>選擇 mmproj（選用）</span>
+            <select id="mmprojSelect"></select>
+          </label>
+          <p id="mmprojMeta" class="helper mmproj-helper">mmproj 清單讀取中…</p>
+          <div class="button-row">
+            <button id="startButton" class="button primary" type="button">載入並啟動</button>
+            <button id="stopButton" class="button danger" type="button">停止服務</button>
+          </div>
+        </article>
+      </div>
+
+      <article class="panel log-panel">
+        <div class="panel-title-row">
+          <div>
+            <p class="section-kicker">OUTPUT</p>
+            <h3 id="logTitle">模型服務日誌</h3>
+          </div>
+          <div class="log-toolbar">
+            <span class="muted">保留最近 128 KiB</span>
+            <button id="clearLogsButton" class="button secondary compact" type="button">清除</button>
+          </div>
+        </div>
+        <pre id="logOutput">尚無日誌。</pre>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

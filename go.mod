@@ -1,0 +1,4 @@
+module LlamaLoader
+
+go 1.25.6
+

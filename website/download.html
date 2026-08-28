@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模型下載 · Llama Loader</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-2">
+  <script src="/assets/common.js?v=20260825-2" defer></script>
+  <script src="/assets/download.js?v=20260828-2" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/main.html">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div>
+        <div class="brand-name">Llama Loader</div>
+        <div class="brand-caption">LOCAL MODEL CONTROL</div>
+      </div>
+    </a>
+    <nav class="nav" aria-label="主選單">
+      <a href="/main.html">執行狀態</a>
+      <a href="/commands.html">啟動命令</a>
+      <a class="active" href="/download.html" aria-current="page">模型下載</a>
+      <a href="/settings.html">環境設定</a>
+    </nav>
+    <button id="logoutButton" class="button quiet" type="button">登出</button>
+  </header>
+
+  <main class="page-shell">
+    <div id="globalMessage" class="toast page-toast" hidden></div>
+    <section class="section-block">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">HUGGING FACE</p>
+          <h2>下載模型</h2>
+        </div>
+        <p class="section-note">使用官方 repository / resolve / revision / filename 下載方式</p>
+      </div>
+      <div class="download-grid">
+        <form id="downloadForm" class="panel form-panel">
+          <label class="field">
+            <span>模型格式／Runtime</span>
+            <select id="downloadRuntime">
+              <option value="llama-server">GGUF（llama-server）</option>
+              <option value="mlx-server">MLX 模型目錄（Apple Silicon）</option>
+            </select>
+          </label>
+          <div class="two-columns">
+            <label class="field">
+              <span>Repository</span>
+              <input id="repository" placeholder="bartowski/Qwen2.5-7B-Instruct-GGUF" required>
+            </label>
+            <label class="field">
+              <span>Revision</span>
+              <input id="revision" placeholder="main">
+            </label>
+          </div>
+          <label id="filenameField" class="field">
+            <span>GGUF 檔名</span>
+            <input id="filename" placeholder="Qwen2.5-7B-Instruct-Q4_K_M.gguf" required>
+            <small class="helper">每個主 GGUF 會建立獨立目錄；下載前也會檢查相同 repository／revision，將配對的 mmproj 與 DFlash Draft 放進同一目錄。</small>
+          </label>
+          <p id="mlxDownloadHint" class="helper" hidden>會檢查 repository 內的 config.json 與 safetensors，並把 Tokenizer、Processor、Chat Template 及所有權重下載到獨立的 MLX 模型目錄。</p>
+          <label class="check-field">
+            <input id="overwrite" type="checkbox">
+            <span>目的檔案存在時覆寫</span>
+          </label>
+          <button id="downloadButton" class="button primary" type="submit">開始下載</button>
+        </form>
+        <article class="panel jobs-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="section-kicker">QUEUE</p>
+              <h3>下載進度</h3>
+            </div>
+          </div>
+          <div id="downloadJobs" class="job-list">
+            <p class="empty-state">目前沒有下載工作。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

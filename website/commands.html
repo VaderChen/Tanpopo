@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>啟動命令 · Llama Loader</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-2">
+  <script src="/assets/common.js?v=20260825-2" defer></script>
+  <script src="/assets/commands.js?v=20260828-2" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/main.html">
+      <div class="brand-mark" aria-hidden="true">L</div>
+      <div>
+        <div class="brand-name">Llama Loader</div>
+        <div class="brand-caption">LOCAL MODEL CONTROL</div>
+      </div>
+    </a>
+    <nav class="nav" aria-label="主選單">
+      <a href="/main.html">執行狀態</a>
+      <a class="active" href="/commands.html" aria-current="page">啟動命令</a>
+      <a href="/download.html">模型下載</a>
+      <a href="/settings.html">環境設定</a>
+    </nav>
+    <button id="logoutButton" class="button quiet" type="button">登出</button>
+  </header>
+
+  <main class="page-shell">
+    <div id="globalMessage" class="toast page-toast" hidden></div>
+    <section class="section-block">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">STARTUP PROFILES</p>
+          <h2>啟動命令</h2>
+        </div>
+        <p class="section-note">儲存參數組合，啟動時再與選定的 GGUF 動態組合</p>
+      </div>
+
+      <div class="commands-layout">
+        <aside class="panel command-sidebar">
+          <div class="panel-title-row command-sidebar-heading">
+            <div>
+              <p class="section-kicker">PROFILES</p>
+              <h3>參數列表</h3>
+            </div>
+            <button id="newCommandButton" class="button secondary compact" type="button">新增</button>
+          </div>
+          <div id="commandList" class="command-list"></div>
+        </aside>
+
+        <form id="commandForm" class="panel command-editor">
+          <div class="command-editor-heading">
+            <div>
+              <p class="section-kicker">PARAMETERS</p>
+              <h3 id="commandEditorTitle">編輯啟動參數</h3>
+            </div>
+            <span id="commandUpdatedAt" class="muted"></span>
+          </div>
+
+          <div class="command-fields">
+            <label class="field">
+              <span>Runtime</span>
+              <select id="commandRuntime" required>
+                <option value="llama-server">llama-server（跨平台／GGUF）</option>
+                <option value="mlx-server">mlx-server（Apple Silicon／MLX）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>參數名稱</span>
+              <input id="commandName" maxlength="100" required>
+            </label>
+            <label id="draftModelField" class="field">
+              <span>Draft GGUF（選用）</span>
+              <input id="commandDraftModel" list="draftModelOptions" maxlength="1024" placeholder="例如 Qwen3-4B-DFlash.gguf">
+              <datalist id="draftModelOptions"></datalist>
+              <small class="helper">DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。</small>
+            </label>
+            <div class="two-columns">
+              <label class="field">
+                <span>監聽 Host</span>
+                <input id="commandHost" required>
+              </label>
+              <label class="field">
+                <span>監聽 Port</span>
+                <input id="commandPort" type="number" min="1" max="65535" required>
+              </label>
+            </div>
+            <div class="three-columns">
+              <label id="gpuLayersField" class="field">
+                <span>Context Size</span>
+                <select id="commandContextSize" required>
+                  <option value="65536">64K</option>
+                  <option value="131072">128K</option>
+                  <option value="262144">256K</option>
+                  <option value="393216">384K</option>
+                  <option value="524288">512K</option>
+                  <option value="1048576">1M</option>
+                </select>
+              </label>
+              <label id="threadsField" class="field">
+                <span>GPU Layers</span>
+                <input id="commandGPULayers" type="number" min="-1" required>
+              </label>
+              <label class="field">
+                <span>Threads（0 = 自動）</span>
+                <input id="commandThreads" type="number" min="0" required>
+              </label>
+            </div>
+            <label class="field">
+              <span>額外參數（每行一個 argument）</span>
+              <textarea id="commandExtraArgs" rows="5" placeholder="--flash-attn=on&#10;--jinja"></textarea>
+            </label>
+          </div>
+
+          <div class="command-preview">
+            <span>命令預覽</span>
+            <pre id="commandPreview"></pre>
+          </div>
+
+          <div class="command-actions">
+            <button id="deleteCommandButton" class="button danger" type="button">刪除</button>
+            <span id="commandMessage" class="form-message"></span>
+            <button id="saveCommandButton" class="button primary" type="submit">儲存參數</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

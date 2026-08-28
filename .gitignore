@@ -1,0 +1,62 @@
+# 本機設定與執行資料
+agent.properties
+data/
+.env
+.env.*
+!.env.example
+
+# 編譯、封裝與 Runtime 成品
+bin/
+dist/
+llama-runtime/prebuilt/
+mlx-runtime/prebuilt/
+llama-server/tools/mtmd/test-1.jpeg
+llama-server/tools/mtmd/test-2.mp3
+llama-server/tools/mtmd/test-3.mp4
+**/build/
+**/build-*/
+mlx-server/.build/
+mlx-server/.swiftpm/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# 日誌、暫存與備份
+*.log
+*.pid
+*.tmp
+*.bak
+*.part-*
+.DS_Store
+
+# 編輯器與既有版本控制中繼資料
+.idea/
+.vscode/
+.svn/
+
+# 私密金鑰、憑證與簽章
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.der
+*.cer
+*.crt
+*.mobileprovision
+*.provisionprofile
+*.sig
+*.asc
+*.gpg
+id_rsa*
+id_ed25519*
+credentials*.json
+secrets*.json
