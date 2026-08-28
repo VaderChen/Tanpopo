@@ -1,9 +1,18 @@
 # 本機設定與執行資料
 agent.properties
 data/
+/.cache/
+/models/
+/mlx-models/
 .env
 .env.*
 !.env.example
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
 
 # 編譯、封裝與 Runtime 成品
 bin/
