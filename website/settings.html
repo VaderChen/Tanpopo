@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>環境設定 · Llama Loader</title>
-  <link rel="stylesheet" href="/assets/app.css?v=20260828-4">
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-5">
   <script src="/assets/common.js?v=20260825-2" defer></script>
-  <script src="/assets/settings.js?v=20260828-5" defer></script>
+  <script src="/assets/settings.js?v=20260828-6" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -97,6 +97,78 @@
         <div class="settings-actions">
           <span id="settingsMessage" class="form-message"></span>
           <button id="saveSettingsButton" class="button primary" type="submit">儲存設定</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="section-block security-section">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">MODEL API ACCESS</p>
+          <h2>模型 API 安全性</h2>
+        </div>
+        <p class="section-note">策略與金鑰雜湊保存於本機安全設定檔</p>
+      </div>
+      <form id="accessControlForm" class="panel form-panel settings-form">
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>存取策略</h3>
+            <p>金鑰與 IP 白名單可各自使用；兩者同時啟用時，請求必須同時通過兩項檢查。</p>
+          </div>
+          <div class="form-group-fields">
+            <div id="securityModeSummary" class="security-mode-summary">目前不使用額外限制</div>
+            <div class="security-option-grid">
+              <label class="security-option">
+                <input id="apiKeyEnabled" type="checkbox">
+                <span>
+                  <strong>要求存取金鑰</strong>
+                  <small>接受 Authorization Bearer 或 X-OpenLoader-Key</small>
+                </span>
+              </label>
+              <label class="security-option">
+                <input id="ipAllowlistEnabled" type="checkbox">
+                <span>
+                  <strong>啟用 IP 白名單</strong>
+                  <small>依實際連線來源 IP 判斷，不信任轉送標頭</small>
+                </span>
+              </label>
+            </div>
+            <label class="field">
+              <span>允許的 IP（每行一筆）</span>
+              <textarea id="ipAllowlist" rows="6" spellcheck="false" placeholder="127.0.0.1&#10;192.168.1.*&#10;2001:db8:*&#10;10.0.0.0/8"></textarea>
+            </label>
+            <p class="helper">支援完整 IPv4／IPv6、CIDR，以及 <code>*</code> 萬用字元；單獨輸入 <code>*</code> 代表允許所有 IP。</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>存取金鑰</h3>
+            <p>金鑰明文只在核發時顯示一次，系統僅保存 SHA-256 雜湊；兩個 Runtime 會在數秒內同步撤銷結果。</p>
+          </div>
+          <div class="form-group-fields">
+            <div class="access-key-issue">
+              <label class="field">
+                <span>金鑰名稱</span>
+                <input id="accessKeyName" maxlength="80" autocomplete="off" placeholder="例如：工作站、內部服務">
+              </label>
+              <button id="issueAccessKeyButton" class="button secondary" type="button">核發金鑰</button>
+            </div>
+            <div id="issuedKeyPanel" class="issued-key-panel" hidden>
+              <strong>請立即複製，關閉後無法再次查看</strong>
+              <div class="issued-key-value">
+                <input id="issuedAccessKey" readonly aria-label="新核發的模型 API 金鑰">
+                <button id="copyAccessKeyButton" class="button secondary compact" type="button">複製</button>
+              </div>
+              <button id="dismissIssuedKeyButton" class="issued-key-dismiss" type="button">我已保存，關閉</button>
+            </div>
+            <div id="accessKeyList" class="access-key-list" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <span id="accessControlMessage" class="form-message"></span>
+          <button id="saveAccessControlButton" class="button primary" type="submit">儲存安全設定</button>
         </div>
       </form>
     </section>

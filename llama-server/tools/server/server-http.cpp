@@ -1,11 +1,14 @@
 #include "common.h"
 #include "http.h"
+#include "openloader-access-control.h"
 #include "server-http.h"
 #include "server-common.h"
 #include "ui.h"
 
 #include <cpp-httplib/httplib.h>
 
+#include <algorithm>
+#include <cctype>
 #include <functional>
 #include <future>
 #include <memory>
@@ -55,6 +58,31 @@ static bool origin_is_localhost(const std::string & origin) {
     } catch (const std::exception &) {
         return false;
     }
+}
+
+static std::string openloader_trim(std::string value) {
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c); });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) { return std::isspace(c); }).base();
+    return first < last ? std::string(first, last) : std::string();
+}
+
+static std::string openloader_request_api_key(const httplib::Request & req) {
+    std::string key = openloader_trim(req.get_header_value("X-OpenLoader-Key"));
+    if (!key.empty()) {
+        return key;
+    }
+    std::string authorization = openloader_trim(req.get_header_value("Authorization"));
+    static const std::string bearer = "bearer ";
+    if (authorization.size() > bearer.size()) {
+        std::string scheme = authorization.substr(0, bearer.size());
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (scheme == bearer) {
+            return openloader_trim(authorization.substr(bearer.size()));
+        }
+    }
+    return openloader_trim(req.get_header_value("X-Api-Key"));
 }
 
 // For Google Cloud Platform deployment compatibility
@@ -203,6 +231,55 @@ bool server_http_context::init(const common_params & params) {
         return endpoints;
     }();
 
+    const auto openloader_access = std::make_shared<openloader_access_control>(params.openloader_access_control);
+    auto middleware_validate_openloader_access = [openloader_access](
+        const httplib::Request & req,
+        httplib::Response & res,
+        bool validate_api_key) {
+        const auto decision = openloader_access->authorize(
+            req.remote_addr,
+            openloader_request_api_key(req),
+            validate_api_key);
+        if (decision == openloader_access_decision::allowed) {
+            return true;
+        }
+
+        int status = 503;
+        std::string message = "OpenLoader access-control policy is unavailable";
+        std::string code = "access_control_unavailable";
+        std::string type = "server_error";
+        if (decision == openloader_access_decision::invalid_api_key) {
+            status = 401;
+            message = "Invalid or missing OpenLoader API key";
+            code = "invalid_api_key";
+            type = "authentication_error";
+            res.set_header("WWW-Authenticate", "Bearer realm=\"OpenLoader Model API\"");
+        } else if (decision == openloader_access_decision::ip_not_allowed) {
+            status = 403;
+            message = "Client IP is not in the OpenLoader allowlist";
+            code = "ip_not_allowed";
+            type = "permission_error";
+        }
+        res.status = status;
+        res.set_header("Cache-Control", "no-store");
+        res.set_content(
+            safe_json_to_str(json {
+                {"error", {
+                    {"message", message},
+                    {"type", type},
+                    {"code", code}
+                }}
+            }),
+            "application/json; charset=utf-8"
+        );
+        if (decision == openloader_access_decision::policy_unavailable) {
+            SRV_ERR("OpenLoader access-control snapshot unavailable: %s\n", openloader_access->last_error().c_str());
+        } else {
+            SRV_WRN("OpenLoader access denied for %s\n", req.remote_addr.c_str());
+        }
+        return false;
+    };
+
     auto middleware_validate_api_key = [api_keys = params.api_keys](const httplib::Request & req, httplib::Response & res) {
         // If API key is not set, skip validation
         if (api_keys.empty()) {
@@ -274,7 +351,7 @@ bool server_http_context::init(const common_params & params) {
     };
 
     // register server middlewares
-    srv->set_pre_routing_handler([&params, middleware_validate_api_key, middleware_server_state](const httplib::Request & req, httplib::Response & res) {
+    srv->set_pre_routing_handler([&params, middleware_validate_openloader_access, middleware_validate_api_key, middleware_server_state](const httplib::Request & req, httplib::Response & res) {
         if (params.cors_credentials && params.cors_origins == "*") {
             // special case: echo back the Origin header to allow any origin to access the server with credentials
             res.set_header("Access-Control-Allow-Origin", req.get_header_value("Origin"));
@@ -289,7 +366,11 @@ bool server_http_context::init(const common_params & params) {
         } else {
             res.set_header("Access-Control-Allow-Origin", params.cors_origins);
         }
-        // If this is OPTIONS request, skip validation because browsers don't include Authorization header
+        // CORS preflight has no API key, but its actual peer IP must still pass the allowlist.
+        if (!middleware_validate_openloader_access(req, res, req.method != "OPTIONS")) {
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        // If this is OPTIONS request, skip key validation because browsers don't include Authorization header
         if (req.method == "OPTIONS") {
             res.set_header("Access-Control-Allow-Credentials", params.cors_credentials ? "true" : "false");
             res.set_header("Access-Control-Allow-Methods",     params.cors_methods);

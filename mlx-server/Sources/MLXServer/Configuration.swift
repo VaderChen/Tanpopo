@@ -7,7 +7,7 @@ enum ModelKind: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.0.0-mlxswiftlm-3.31.4"
+    static let version = "1.0.1-mlxswiftlm-3.31.4"
 
     var modelPath = ""
     var host = "0.0.0.0"
@@ -27,6 +27,7 @@ struct ServerConfiguration: Sendable {
     var minP: Float = 0
     var repetitionPenalty: Float?
     var thinkingEnabled: Bool?
+    var accessControlPath: String?
 
     static func parse(_ arguments: [String]) throws -> Self {
         var result = Self()
@@ -89,6 +90,12 @@ struct ServerConfiguration: Sendable {
                 result.maximumRequestBytes = try parseInteger(nextValue(for: option), option: option, range: 1...1_073_741_824)
             case "--maximum-image-bytes":
                 result.maximumImageBytes = try parseInteger(nextValue(for: option), option: option, range: 1...1_073_741_824)
+            case "--openloader-access-control":
+                let value = try nextValue(for: option).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.accessControlPath = value
             case "--version", "-v":
                 print(Self.version)
                 Foundation.exit(EXIT_SUCCESS)
@@ -102,6 +109,9 @@ struct ServerConfiguration: Sendable {
         }
 
         result.modelPath = NSString(string: result.modelPath).expandingTildeInPath
+        if let accessControlPath = result.accessControlPath {
+            result.accessControlPath = NSString(string: accessControlPath).expandingTildeInPath
+        }
         guard !result.modelPath.isEmpty else {
             throw ConfigurationError.missingModel
         }
@@ -154,6 +164,8 @@ struct ServerConfiguration: Sendable {
       --repetition-penalty <數值>  重複懲罰
       --thinking                   強制開啟思考
       --no-thinking                強制關閉思考
+      --openloader-access-control <檔案>
+                                   OpenLoader 金鑰與 IP 白名單策略快照
     """
 }
 

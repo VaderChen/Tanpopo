@@ -1,6 +1,7 @@
 (() => {
-  const { api, byId, showMessage } = window.LlamaLoader;
+  const { api, byId, showMessage, formatTime } = window.LlamaLoader;
   const directoryState = { inputID: "", path: "", parent: "" };
+  let accessControlState = { policy: {}, keys: [] };
 
   async function loadSettings() {
     const settings = await api("/api/settings");
@@ -14,6 +15,87 @@
     byId("tokenState").textContent = settings.huggingface_token_set
       ? "清除已保存的 Token"
       : "目前沒有保存 Token";
+  }
+
+  function securityModeText() {
+    const useKey = byId("apiKeyEnabled").checked;
+    const useIP = byId("ipAllowlistEnabled").checked;
+    if (useKey && useIP) return "金鑰與 IP 白名單同時啟用（兩者皆須通過）";
+    if (useKey) return "只使用存取金鑰";
+    if (useIP) return "只使用 IP 白名單";
+    return "目前不使用額外限制";
+  }
+
+  function updateSecurityMode() {
+    const summary = byId("securityModeSummary");
+    summary.textContent = securityModeText();
+    summary.classList.toggle("active", byId("apiKeyEnabled").checked || byId("ipAllowlistEnabled").checked);
+  }
+
+  function renderAccessKeys() {
+    const container = byId("accessKeyList");
+    container.replaceChildren();
+    const keys = accessControlState.keys || [];
+    if (!keys.length) {
+      const empty = document.createElement("p");
+      empty.className = "access-key-empty";
+      empty.textContent = "尚未核發任何金鑰。";
+      container.append(empty);
+      return;
+    }
+    keys.forEach((key) => {
+      const row = document.createElement("div");
+      row.className = "access-key-item";
+      const details = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = key.name;
+      const meta = document.createElement("span");
+      meta.textContent = `${key.prefix}… · 核發於 ${formatTime(key.created_at)}`;
+      details.append(name, meta);
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "button danger compact";
+      revoke.textContent = "撤銷";
+      const isLastRequiredKey = byId("apiKeyEnabled").checked && keys.length === 1;
+      revoke.disabled = isLastRequiredKey;
+      revoke.title = isLastRequiredKey ? "金鑰驗證啟用中，不可撤銷最後一把金鑰" : `撤銷 ${key.name}`;
+      revoke.addEventListener("click", () => revokeAccessKey(key));
+      row.append(details, revoke);
+      container.append(row);
+    });
+  }
+
+  async function loadAccessControl() {
+    accessControlState = await api("/api/access-control");
+    const policy = accessControlState.policy || {};
+    byId("apiKeyEnabled").checked = Boolean(policy.api_key_enabled);
+    byId("ipAllowlistEnabled").checked = Boolean(policy.ip_allowlist_enabled);
+    byId("ipAllowlist").value = (policy.ip_allowlist || []).join("\n");
+    updateSecurityMode();
+    renderAccessKeys();
+  }
+
+  function allowlistValues() {
+    return byId("ipAllowlist").value
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  async function revokeAccessKey(key) {
+    if (!window.confirm(`確定撤銷金鑰「${key.name}」？撤銷後無法復原。`)) return;
+    try {
+      await api(`/api/access-control/keys/${encodeURIComponent(key.id)}`, { method: "DELETE" });
+      await loadAccessControl();
+      showMessage("金鑰已撤銷");
+    } catch (error) {
+      showMessage(error.message, "error");
+    }
+  }
+
+  function hideIssuedKey() {
+    byId("issuedAccessKey").value = "";
+    byId("issuedKeyPanel").hidden = true;
   }
 
   function createDirectoryButton(entry, className) {
@@ -149,5 +231,74 @@
     }
   });
 
-  loadSettings().catch((error) => showMessage(error.message, "error"));
+  byId("apiKeyEnabled").addEventListener("change", () => {
+    updateSecurityMode();
+    renderAccessKeys();
+  });
+  byId("ipAllowlistEnabled").addEventListener("change", updateSecurityMode);
+
+  byId("accessControlForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = byId("saveAccessControlButton");
+    const message = byId("accessControlMessage");
+    button.disabled = true;
+    message.textContent = "";
+    try {
+      accessControlState = await api("/api/access-control", {
+        method: "PUT",
+        body: JSON.stringify({
+          api_key_enabled: byId("apiKeyEnabled").checked,
+          ip_allowlist_enabled: byId("ipAllowlistEnabled").checked,
+          ip_allowlist: allowlistValues()
+        })
+      });
+      await loadAccessControl();
+      message.textContent = "安全設定已保存，執行中的 Runtime 將在數秒內套用。";
+      showMessage("模型 API 安全設定已保存");
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  byId("issueAccessKeyButton").addEventListener("click", async () => {
+    const button = byId("issueAccessKeyButton");
+    const name = byId("accessKeyName").value.trim();
+    button.disabled = true;
+    try {
+      const issued = await api("/api/access-control/keys", {
+        method: "POST",
+        body: JSON.stringify({ name })
+      });
+      byId("issuedAccessKey").value = issued.key || "";
+      byId("issuedKeyPanel").hidden = false;
+      byId("accessKeyName").value = "";
+      await loadAccessControl();
+      showMessage("新金鑰已核發，請立即保存");
+    } catch (error) {
+      showMessage(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  byId("copyAccessKeyButton").addEventListener("click", async () => {
+    const input = byId("issuedAccessKey");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(input.value);
+      } else {
+        input.select();
+        document.execCommand("copy");
+      }
+      showMessage("金鑰已複製");
+    } catch (_) {
+      input.select();
+      showMessage("請手動複製已選取的金鑰", "error");
+    }
+  });
+  byId("dismissIssuedKeyButton").addEventListener("click", hideIssuedKey);
+
+  Promise.all([loadSettings(), loadAccessControl()]).catch((error) => showMessage(error.message, "error"));
 })();

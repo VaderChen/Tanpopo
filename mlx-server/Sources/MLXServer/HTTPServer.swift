@@ -6,16 +6,19 @@ import Foundation
 final class HTTPServer {
     private let configuration: ServerConfiguration
     private let router: APIRouter
+    private let accessControl: RuntimeAccessControl
 
     init(configuration: ServerConfiguration, router: APIRouter) {
         self.configuration = configuration
         self.router = router
+        self.accessControl = RuntimeAccessControl(path: configuration.accessControlPath)
     }
 
     func run() async throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         do {
             let router = router
+            let accessControl = accessControl
             let maximumRequestBytes = configuration.maximumRequestBytes
             let bootstrap = ServerBootstrap(group: group)
                 .serverChannelOption(ChannelOptions.backlog, value: 128)
@@ -25,6 +28,7 @@ final class HTTPServer {
                         channel.pipeline.addHandler(
                             HTTPRequestHandler(
                                 router: router,
+                                accessControl: accessControl,
                                 maximumRequestBytes: maximumRequestBytes
                             )
                         )
@@ -58,11 +62,13 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
     }
 
     private let router: APIRouter
+    private let accessControl: RuntimeAccessControl
     private let maximumRequestBytes: Int
     private var state: RequestState?
 
-    init(router: APIRouter, maximumRequestBytes: Int) {
+    init(router: APIRouter, accessControl: RuntimeAccessControl, maximumRequestBytes: Int) {
         self.router = router
+        self.accessControl = accessControl
         self.maximumRequestBytes = maximumRequestBytes
     }
 
@@ -96,7 +102,14 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         context: ChannelHandlerContext
     ) async {
         let response: HTTPResponse
-        if state.tooLarge {
+        let accessDecision = accessControl.authorize(
+            remoteAddress: context.channel.remoteAddress?.ipAddress,
+            apiKey: requestAPIKey(from: state.head.headers),
+            validateAPIKey: state.head.method != .OPTIONS
+        )
+        if accessDecision != .allowed {
+            response = accessDeniedResponse(accessDecision)
+        } else if state.tooLarge {
             response = .json(status: 413, object: [
                 "error": ["message": "HTTP 請求內容超過大小限制。"]
             ])
@@ -116,6 +129,46 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
             )
         }
         write(response, version: state.head.version, context: context)
+    }
+
+    private func requestAPIKey(from headers: HTTPHeaders) -> String? {
+        if let value = headers.first(name: "X-OpenLoader-Key")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return value
+        }
+        if let authorization = headers.first(name: "Authorization") {
+            let parts = authorization.split(whereSeparator: { $0.isWhitespace })
+            if parts.count == 2, parts[0].lowercased() == "bearer" {
+                return String(parts[1])
+            }
+        }
+        return headers.first(name: "X-Api-Key")?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func accessDeniedResponse(_ decision: RuntimeAccessDecision) -> HTTPResponse {
+        var status = 503
+        var code = "access_control_unavailable"
+        var type = "server_error"
+        var message = "OpenLoader 安全策略暫時無法使用。"
+        if decision == .invalidAPIKey {
+            status = 401
+            code = "invalid_api_key"
+            type = "authentication_error"
+            message = "OpenLoader API 金鑰無效或未提供。"
+        } else if decision == .ipNotAllowed {
+            status = 403
+            code = "ip_not_allowed"
+            type = "permission_error"
+            message = "目前來源 IP 不在 OpenLoader 白名單。"
+        }
+        var response = HTTPResponse.json(status: status, object: [
+            "error": ["message": message, "type": type, "code": code]
+        ])
+        response.headers.append(("Cache-Control", "no-store"))
+        if decision == .invalidAPIKey {
+            response.headers.append(("WWW-Authenticate", "Bearer realm=\"OpenLoader Model API\""))
+        }
+        return response
     }
 
     private func write(

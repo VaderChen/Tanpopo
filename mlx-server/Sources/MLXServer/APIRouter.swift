@@ -59,7 +59,7 @@ actor APIRouter {
                 status: 204,
                 headers: [
                     ("Access-Control-Allow-Origin", "*"),
-                    ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
+                    ("Access-Control-Allow-Headers", "Content-Type, Authorization, X-OpenLoader-Key, X-Api-Key"),
                     ("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
                 ],
                 body: Data()

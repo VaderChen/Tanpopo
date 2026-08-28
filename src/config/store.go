@@ -20,6 +20,7 @@ func DefaultAgentConfig() domain.AgentConfig {
 		WebPath:             "./website",
 		SettingsPath:        "./data/settings.json",
 		StartupCommandsPath: "./data/startup_commands.json",
+		AccessControlPath:   "./data/access_control.json",
 		DefaultAccount:      "admin",
 		DefaultPassword:     "change-me",
 		SessionHours:        24,
@@ -81,8 +82,8 @@ func validateAgent(value domain.AgentConfig) error {
 	if value.HTTPPort < 1 || value.HTTPPort > 65535 {
 		return errors.New("http_port 必須介於 1 到 65535")
 	}
-	if strings.TrimSpace(value.WebPath) == "" || strings.TrimSpace(value.SettingsPath) == "" || strings.TrimSpace(value.StartupCommandsPath) == "" {
-		return errors.New("web_path、settings_path 與 startup_commands_path 不可為空")
+	if strings.TrimSpace(value.WebPath) == "" || strings.TrimSpace(value.SettingsPath) == "" || strings.TrimSpace(value.StartupCommandsPath) == "" || strings.TrimSpace(value.AccessControlPath) == "" {
+		return errors.New("web_path、settings_path、startup_commands_path 與 access_control_path 不可為空")
 	}
 	if value.SessionHours < 1 || value.SessionHours > 24*30 {
 		return errors.New("session_hours 必須介於 1 到 720")

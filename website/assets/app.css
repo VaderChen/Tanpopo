@@ -959,6 +959,154 @@ textarea:focus {
   margin-right: auto;
 }
 
+.security-section {
+  margin-top: 34px;
+}
+
+.security-mode-summary {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.security-mode-summary.active {
+  border-color: #b9d5c5;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.security-option-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.security-option {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.security-option input {
+  width: 17px;
+  min-height: 17px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.security-option span {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.security-option strong {
+  font-size: 13px;
+}
+
+.security-option small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.access-key-issue {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.issued-key-panel {
+  display: grid;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid #b9d5c5;
+  border-radius: 11px;
+  background: #f2fbf6;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.issued-key-panel[hidden] {
+  display: none;
+}
+
+.issued-key-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.issued-key-value input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.issued-key-dismiss {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.access-key-list {
+  display: grid;
+  gap: 8px;
+}
+
+.access-key-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.access-key-item > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.access-key-item strong,
+.access-key-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-key-item strong {
+  font-size: 13px;
+}
+
+.access-key-item span,
+.access-key-empty {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.access-key-empty {
+  margin: 8px 0;
+}
+
 .form-message {
   min-height: 20px;
   color: var(--danger);
@@ -1104,7 +1252,10 @@ textarea:focus {
   }
 
   .two-columns,
-  .three-columns {
+  .three-columns,
+  .security-option-grid,
+  .access-key-issue,
+  .issued-key-value {
     grid-template-columns: 1fr;
   }
 

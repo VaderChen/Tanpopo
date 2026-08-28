@@ -25,17 +25,26 @@ import (
 type SettingsProvider func() domain.Settings
 
 type Manager struct {
-	mu       sync.Mutex
-	settings SettingsProvider
-	cmd      *exec.Cmd
-	done     chan struct{}
-	stopping bool
-	status   domain.LlamaStatus
-	logs     *logBuffer
+	mu                sync.Mutex
+	settings          SettingsProvider
+	accessControlPath string
+	cmd               *exec.Cmd
+	done              chan struct{}
+	stopping          bool
+	status            domain.LlamaStatus
+	logs              *logBuffer
 }
 
-func NewManager(settings SettingsProvider) *Manager {
-	manager := &Manager{settings: settings, logs: newLogBuffer(128 * 1024)}
+func NewManager(settings SettingsProvider, accessControlPath string) *Manager {
+	accessControlPath = strings.TrimSpace(accessControlPath)
+	if absolute, err := filepath.Abs(accessControlPath); err == nil {
+		accessControlPath = absolute
+	}
+	manager := &Manager{
+		settings:          settings,
+		accessControlPath: accessControlPath,
+		logs:              newLogBuffer(128 * 1024),
+	}
 	manager.status.Runtime = domain.RuntimeLlamaServer
 	manager.refreshURL()
 	return manager
@@ -91,6 +100,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		"--port", strconv.Itoa(startupCommand.ServerPort),
 		"--ctx-size", strconv.Itoa(startupCommand.ContextSize),
 		"--n-gpu-layers", strconv.Itoa(startupCommand.GPULayers),
+		"--openloader-access-control", m.accessControlPath,
 	)
 	if startupCommand.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(startupCommand.Threads))
@@ -142,6 +152,7 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 		"--host", startupCommand.ServerHost,
 		"--port", strconv.Itoa(startupCommand.ServerPort),
 		"--max-kv-size", strconv.Itoa(startupCommand.ContextSize),
+		"--openloader-access-control", m.accessControlPath,
 	)
 
 	command := exec.Command(binary, args...)

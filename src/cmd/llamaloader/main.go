@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"LlamaLoader/src/accesscontrol"
 	"LlamaLoader/src/api"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/download"
@@ -52,6 +53,10 @@ func run(agentPath, samplePath string) error {
 	if err != nil {
 		return fmt.Errorf("載入啟動參數失敗: %w", err)
 	}
+	accessControl, err := accesscontrol.NewStore(agentConfig.AccessControlPath)
+	if err != nil {
+		return fmt.Errorf("載入模型 API 安全設定失敗: %w", err)
+	}
 	webPath, err := filepath.Abs(agentConfig.WebPath)
 	if err != nil {
 		return err
@@ -68,8 +73,8 @@ func run(agentPath, samplePath string) error {
 		time.Duration(agentConfig.SessionHours)*time.Hour,
 	)
 	downloads := download.NewManager(2)
-	llama := llamacpp.NewManager(settings.Get)
-	handler := api.NewServer(serviceContext, webPath, settings, startupCommands, sessions, downloads, llama).Handler()
+	llama := llamacpp.NewManager(settings.Get, agentConfig.AccessControlPath)
+	handler := api.NewServer(serviceContext, webPath, settings, startupCommands, accessControl, sessions, downloads, llama).Handler()
 	address := net.JoinHostPort(agentConfig.HTTPHost, strconv.Itoa(agentConfig.HTTPPort))
 	httpServer := &http.Server{
 		Addr:              address,

@@ -3530,6 +3530,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_API_KEY_FILE"));
     add_opt(common_arg(
+        {"--openloader-access-control"}, "FNAME",
+        "path to an OpenLoader access-control snapshot; enables hot-reloaded API key and IP allowlist checks",
+        [](common_params & params, const std::string & value) {
+            params.openloader_access_control = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("OPENLOADER_ACCESS_CONTROL"));
+    add_opt(common_arg(
         {"--ssl-key-file"}, "FNAME",
         "path to file a PEM-encoded SSL private key",
         [](common_params & params, const std::string & value) {

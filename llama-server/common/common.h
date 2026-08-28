@@ -653,6 +653,9 @@ struct common_params {
 
     std::vector<std::string> api_keys;
 
+    // OpenLoader-specific access control snapshot. Empty keeps upstream llama-server behavior.
+    std::string openloader_access_control;
+
     std::string ssl_file_key  = "";                                                                         // NOLINT
     std::string ssl_file_cert = "";                                                                         // NOLINT
 

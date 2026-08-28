@@ -257,6 +257,17 @@ llama_prebuilt_is_current() {
   [[ -x "${runtime_dir}/bin/llama-server" && "${runtime_version}" == "${LLAMA_VERSION}" ]]
 }
 
+mlx_prebuilt_is_current() {
+  local runtime_dir="${MLX_PREBUILT_DIR}/darwin-arm64"
+  local runtime_version=""
+  if [[ -f "${runtime_dir}/VERSION" ]]; then
+    runtime_version="$(tr -d '[:space:]' < "${runtime_dir}/VERSION")"
+  fi
+  [[ -x "${runtime_dir}/bin/mlx-server" \
+    && -f "${runtime_dir}/bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+    && "${runtime_version}" == "${MLX_VERSION}" ]]
+}
+
 if [[ "${1:-}" == "--check" ]]; then
   echo "llama.cpp 原始碼：${LLAMA_SOURCE_DIR}"
   echo "llama-server 版本：${LLAMA_VERSION}"
@@ -269,7 +280,7 @@ if [[ "${1:-}" == "--check" ]]; then
       echo "${platform}：部署包將攜帶原始碼，安裝時在該平台原生編譯"
     fi
   done
-  if [[ -x "${MLX_PREBUILT_DIR}/darwin-arm64/bin/mlx-server" ]]; then
+  if mlx_prebuilt_is_current; then
     echo "darwin-arm64：已有預編譯 mlx-server ${MLX_VERSION}"
   else
     echo "darwin-arm64：尚未建立預編譯 mlx-server ${MLX_VERSION}（封裝時會在 Apple Silicon 自動編譯）"
@@ -376,13 +387,7 @@ copy_mlx_source() {
 
 ensure_mlx_prebuilt_runtime() {
   local runtime_dir="${MLX_PREBUILT_DIR}/darwin-arm64"
-  local runtime_version=""
-  if [[ -f "${runtime_dir}/VERSION" ]]; then
-    runtime_version="$(tr -d '[:space:]' < "${runtime_dir}/VERSION")"
-  fi
-  if [[ -x "${runtime_dir}/bin/mlx-server" \
-    && -f "${runtime_dir}/bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
-    && "${runtime_version}" == "${MLX_VERSION}" ]]; then
+  if mlx_prebuilt_is_current; then
     return
   fi
   if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then

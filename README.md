@@ -15,7 +15,9 @@
 - 可建立多組啟動參數並指定 `llama-server` 或 `mlx-server` Runtime，執行時才與選定模型動態組合。
 - 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
-- 設定保存採原子替換；Hugging Face Token 不會由設定 API 回傳明文。
+- llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 OpenLoader 安全策略快照驗證請求，不增加反向代理層。
+- 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
+- 設定保存採原子替換；Hugging Face Token 與模型 API 金鑰不會由設定 API 回傳明文。
 
 ## 快速啟動
 
@@ -71,7 +73,7 @@ Runtime 位置不再由管理介面設定。後端會依序從部署包內的預
 <開發專案>/llama-runtime/prebuilt/<platform>/bin/llama-server
 ```
 
-啟動模型時會產生以下概念相同的命令：
+啟動模型時，OpenLoader 會把 Profile、模型與安全策略快照路徑動態組合後，直接讓 llama-server 監聽 Profile 指定的 Host／Port。實際命令概念如下：
 
 ```bash
 llama-server \
@@ -80,8 +82,11 @@ llama-server \
   --host 0.0.0.0 \
   --port 8080 \
   --ctx-size 262144 \
-  --n-gpu-layers -1
+  --n-gpu-layers -1 \
+  --openloader-access-control <安全策略快照>
 ```
+
+對外 API URL 直接使用 Profile 設定，例如 `http://<主機 IP>:8080`；一般 HTTP、OpenAI 相容 API 與 SSE 回應都由 llama-server 直接處理。
 
 管理介面的「啟動命令」可保存多組參數 Profile。執行狀態頁選定 Profile 與 GGUF 後，Go 後端才會動態組合命令列並直接啟動 `llama-server`，不會產生或執行 `.sh`。Profile 的「額外參數」採每行一個 argument，例如：
 
@@ -117,7 +122,7 @@ POST /v1/completions
 POST /completion
 ```
 
-`/v1/chat/completions` 支援 OpenAI 格式的文字 content，以及 `image_url` 多模態 content parts。`stream: true` 會回傳合法 SSE 相容回應；目前生成完成後一次送出內容，不保證逐 Token 即時傳輸。此服務預設不含身分驗證，應只在受信任網路使用。
+`/v1/chat/completions` 支援 OpenAI 格式的文字 content，以及 `image_url` 多模態 content parts。`stream: true` 會回傳合法 SSE 相容回應；目前生成完成後一次送出內容，不保證逐 Token 即時傳輸。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
 
 內建 MLX Profile 包含一般、KV Cache Q4 與強制關閉思考；Context Size 同樣預設 256K，由 Go 後端轉成 `--max-kv-size 262144`。常用原生參數包含 `--kv-bits`、`--kv-group-size`、`--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 
@@ -129,6 +134,42 @@ POST /completion
 ```
 
 後端會自動從部署包、上述 `current` 版本或開發專案的 `mlx-runtime/prebuilt/darwin-arm64` 尋找執行檔，並同時驗證相鄰的 MLX Metal Library；環境設定不需要也不提供 Runtime 路徑欄位。
+
+## 模型 API 安全性
+
+「環境設定」可獨立控制兩項模型 API 限制：
+
+| 存取金鑰 | IP 白名單 | 行為 |
+| --- | --- | --- |
+| 關閉 | 關閉 | 不增加額外限制，維持既有 API 相容性 |
+| 開啟 | 關閉 | 只驗證核發的模型 API 金鑰 |
+| 關閉 | 開啟 | 只驗證實際連線來源 IP |
+| 開啟 | 開啟 | 金鑰與 IP 必須同時通過 |
+
+金鑰使用密碼學安全亂數產生並加上 `olk_` 前綴，明文只在核發時顯示一次；設定檔只保存 SHA-256 雜湊。客戶端可使用標準 Bearer Header：
+
+```http
+Authorization: Bearer <核發的金鑰>
+```
+
+也可使用：
+
+```http
+X-OpenLoader-Key: <核發的金鑰>
+```
+
+IP 白名單每行一筆，支援完整 IPv4／IPv6、CIDR 與 `*` 萬用字元，例如：
+
+```text
+127.0.0.1
+192.168.1.*
+2001:db8:*
+10.0.0.0/8
+```
+
+單獨使用 `*` 代表允許所有 IP。llama-server 與 mlx-server 都只依 TCP 連線的實際來源位址判斷，不信任客戶端提供的 `X-Forwarded-For`；若前方另有反向代理，白名單應設定該受信任代理的來源 IP。
+
+Go 管理服務只負責核發金鑰並以原子替換方式更新安全策略快照，不參與模型 API 的資料轉送。兩個 Runtime 在第一次請求載入快照，之後每兩秒檢查一次更新；請求驗證使用 Runtime 記憶體內的快取，不會逐筆回主系統核對。啟用限制後若快照遺失、損壞或版本不相容，Runtime 會採 fail-closed 並回傳 `503`。策略更新與金鑰撤銷最遲在下一次重新載入週期生效，不需重新載入模型。
 
 ## Hugging Face 模型下載
 
@@ -166,6 +207,8 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
   "http_port": 10082,
   "web_path": "./website",
   "settings_path": "./data/settings.json",
+  "startup_commands_path": "./data/startup_commands.json",
+  "access_control_path": "./data/access_control.json",
   "default_account": "admin",
   "default_pwd": "change-me",
   "session_hours": 24
@@ -180,6 +223,10 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 由「啟動命令」頁保存多組模型 Runtime 啟動參數。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q4、強制關閉思考 Profile；Context 均預設 256K。舊版設定檔升級時也會補上缺少的內建 Profile。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
 
+### `data/access_control.json`
+
+保存模型 API 的金鑰開關、IP 白名單、金鑰名稱與 SHA-256 雜湊，檔案權限為 `0600`。金鑰明文不會寫入檔案，也不會由查詢 API 回傳。llama-server 與 mlx-server 只讀取這份快照，不會呼叫管理服務核對單一請求。既有安裝不需手動建立，首次啟動新版服務時會自動產生。
+
 ## REST API
 
 除健康檢查、登入與 Session 狀態外，其餘 API 都需要已登入的 Session Cookie。
@@ -190,6 +237,9 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 | `POST` | `/api/login` | 使用本機設定帳密登入 |
 | `POST` | `/api/logout` | 清除目前 Session |
 | `GET/PUT` | `/api/settings` | 讀取或保存模型目錄與 Hugging Face 設定 |
+| `GET/PUT` | `/api/access-control` | 讀取或保存模型 API 金鑰／IP 白名單策略 |
+| `POST` | `/api/access-control/keys` | 核發模型 API 金鑰；明文只在此回應一次 |
+| `DELETE` | `/api/access-control/keys/{id}` | 撤銷模型 API 金鑰 |
 | `POST` | `/api/system/directories` | 瀏覽服務主機的可用目錄 |
 | `GET` | `/api/models?runtime=...` | 依 Runtime 掃描 GGUF 或 MLX 模型 |
 | `GET/POST` | `/api/startup-commands` | 查詢或建立啟動參數 Profile |
@@ -206,6 +256,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 src/cmd/llamaloader/  服務進入點與關閉流程
 src/api/              HTTP 路由與網站入口
 src/config/           本機 JSON 設定讀寫與驗證
+src/accesscontrol/    模型 API 金鑰與 IP 白名單策略快照管理
 src/startupcommand/   llama-server 啟動參數 Profile 保存
 src/session/          最小化的記憶體登入 Session
 src/download/         Hugging Face 背景下載與進度
@@ -237,7 +288,7 @@ OpenLoader 中由專案著作權人擁有的原創程式碼採雙軌授權，適
 ./scripts/build-llama-server-runtime.sh \
   ./llama-server \
   ./llama-runtime/prebuilt/darwin-arm64 \
-  custom-4e97ac86ebe2
+  custom-4e97ac86ebe2-openloader.1
 ```
 
 Linux x64 使用相同命令，但輸出位置改為 `./llama-runtime/prebuilt/linux-amd64`。已有預編譯檔時，其 `VERSION` 必須與內建原始碼版本一致。若封裝主機沒有其他平台的預編譯檔，該平台不會造成封裝失敗；部署包仍會攜帶完整精簡原始碼，並在安裝到該平台時原生編譯。封裝時也可以指定自訂原始碼與鎖定版本：

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"LlamaLoader/src/accesscontrol"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/directorybrowser"
 	"LlamaLoader/src/domain"
@@ -26,6 +27,7 @@ type Server struct {
 	webPath         string
 	settings        *config.Store
 	startupCommands *startupcommand.Store
+	accessControl   *accesscontrol.Store
 	sessions        *session.Store
 	downloads       *download.Manager
 	llama           *llamacpp.Manager
@@ -36,6 +38,7 @@ func NewServer(
 	webPath string,
 	settings *config.Store,
 	startupCommands *startupcommand.Store,
+	accessControl *accesscontrol.Store,
 	sessions *session.Store,
 	downloads *download.Manager,
 	llama *llamacpp.Manager,
@@ -45,6 +48,7 @@ func NewServer(
 		webPath:         webPath,
 		settings:        settings,
 		startupCommands: startupCommands,
+		accessControl:   accessControl,
 		sessions:        sessions,
 		downloads:       downloads,
 		llama:           llama,
@@ -66,6 +70,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/settings", s.requireAPI(s.handleSettings))
 	mux.HandleFunc("PUT /api/settings", s.requireAPI(s.handleSettingsUpdate))
+	mux.HandleFunc("GET /api/access-control", s.requireAPI(s.handleAccessControl))
+	mux.HandleFunc("PUT /api/access-control", s.requireAPI(s.handleAccessControlUpdate))
+	mux.HandleFunc("POST /api/access-control/keys", s.requireAPI(s.handleAccessKeyIssue))
+	mux.HandleFunc("DELETE /api/access-control/keys/{id}", s.requireAPI(s.handleAccessKeyRevoke))
 	mux.HandleFunc("POST /api/system/directories", s.requireAPI(s.handleDirectories))
 	mux.HandleFunc("GET /api/models", s.requireAPI(s.handleModels))
 	mux.HandleFunc("GET /api/startup-commands", s.requireAPI(s.handleStartupCommands))
@@ -191,6 +199,56 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.settings.Public())
+}
+
+func (s *Server) handleAccessControl(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.accessControl.Public())
+}
+
+func (s *Server) handleAccessControlUpdate(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		APIKeyEnabled      bool     `json:"api_key_enabled"`
+		IPAllowlistEnabled bool     `json:"ip_allowlist_enabled"`
+		IPAllowlist        []string `json:"ip_allowlist"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	view, err := s.accessControl.UpdatePolicy(accesscontrol.Policy{
+		APIKeyEnabled:      request.APIKeyEnabled,
+		IPAllowlistEnabled: request.IPAllowlistEnabled,
+		IPAllowlist:        request.IPAllowlist,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) handleAccessKeyIssue(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	issued, err := s.accessControl.IssueKey(request.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, issued)
+}
+
+func (s *Server) handleAccessKeyRevoke(w http.ResponseWriter, r *http.Request) {
+	if err := s.accessControl.RevokeKey(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDirectories(w http.ResponseWriter, r *http.Request) {

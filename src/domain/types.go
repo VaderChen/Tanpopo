@@ -15,6 +15,7 @@ type AgentConfig struct {
 	WebPath             string `json:"web_path"`
 	SettingsPath        string `json:"settings_path"`
 	StartupCommandsPath string `json:"startup_commands_path"`
+	AccessControlPath   string `json:"access_control_path"`
 	DefaultAccount      string `json:"default_account"`
 	DefaultPassword     string `json:"default_pwd"`
 	SessionHours        int    `json:"session_hours"`
