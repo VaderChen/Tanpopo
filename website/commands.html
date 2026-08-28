@@ -6,7 +6,7 @@
   <title>啟動命令 · Llama Loader</title>
   <link rel="stylesheet" href="/assets/app.css?v=20260828-2">
   <script src="/assets/common.js?v=20260825-2" defer></script>
-  <script src="/assets/commands.js?v=20260828-2" defer></script>
+  <script src="/assets/commands.js?v=20260828-3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -71,10 +71,10 @@
               <input id="commandName" maxlength="100" required>
             </label>
             <label id="draftModelField" class="field">
-              <span>Draft GGUF（選用）</span>
+              <span id="commandDraftLabel">Draft GGUF（選用）</span>
               <input id="commandDraftModel" list="draftModelOptions" maxlength="1024" placeholder="例如 Qwen3-4B-DFlash.gguf">
               <datalist id="draftModelOptions"></datalist>
-              <small class="helper">DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。</small>
+              <small id="commandDraftHelp" class="helper">DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。</small>
             </label>
             <div class="two-columns">
               <label class="field">
@@ -87,7 +87,7 @@
               </label>
             </div>
             <div class="three-columns">
-              <label id="gpuLayersField" class="field">
+              <label id="contextSizeField" class="field">
                 <span>Context Size</span>
                 <select id="commandContextSize" required>
                   <option value="65536">64K</option>
@@ -98,11 +98,11 @@
                   <option value="1048576">1M</option>
                 </select>
               </label>
-              <label id="threadsField" class="field">
+              <label id="gpuLayersField" class="field">
                 <span>GPU Layers</span>
                 <input id="commandGPULayers" type="number" min="-1" required>
               </label>
-              <label class="field">
+              <label id="threadsField" class="field">
                 <span>Threads（0 = 自動）</span>
                 <input id="commandThreads" type="number" min="0" required>
               </label>

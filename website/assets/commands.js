@@ -2,7 +2,7 @@
   const { api, byId, showMessage, formatTime } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
-  const state = { commands: [], models: [], selectedID: "" };
+  const state = { commands: [], modelsByRuntime: {}, selectedID: "" };
 
   function commandPayload() {
     return {
@@ -68,10 +68,13 @@
       ...command.extra_args,
       "--model", isMLX ? "<選擇的 MLX 模型目錄>" : "<選擇的 GGUF>"
     ];
-    if (!isMLX && command.draft_model) args.push("--model-draft", command.draft_model);
+    if (command.draft_model) {
+      if (isMLX) args.push("--model-type", "text");
+      args.push(isMLX ? "--dflash-draft" : "--model-draft", command.draft_model);
+    }
     args.push("--host", command.server_host || "<Host>", "--port", String(command.server_port || "<Port>"));
     if (isMLX) {
-      args.push("--max-kv-size", String(command.context_size || "<Context>"));
+      if (!command.draft_model) args.push("--max-kv-size", String(command.context_size || "<Context>"));
     } else {
       args.push(
         "--ctx-size", String(command.context_size || "<Context>"),
@@ -84,10 +87,32 @@
 
   function renderRuntimeFields() {
     const isMLX = byId("commandRuntime").value === MLX_RUNTIME;
-    byId("draftModelField").hidden = isMLX;
     byId("gpuLayersField").hidden = isMLX;
     byId("threadsField").hidden = isMLX;
-    if (isMLX) byId("commandDraftModel").value = "";
+    byId("commandDraftLabel").textContent = isMLX
+      ? "DFlash Draft 模型目錄（選用）"
+      : "Draft GGUF（選用）";
+    byId("commandDraftHelp").textContent = isMLX
+      ? "選擇 MLX 模型根目錄內、與 Target 相容的 DFlash Draft 目錄；留空時使用一般生成。支援 Qwen3／Qwen3.5 Target、DFlash 1／2、Greedy 與 lossless sampling。"
+      : "DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。";
+    byId("commandDraftModel").placeholder = isMLX
+      ? "例如 z-lab/Qwen3.8-27B-DFlash2"
+      : "例如 Qwen3-4B-DFlash.gguf";
+    renderDraftOptions();
+  }
+
+  function renderDraftOptions() {
+    const runtimeName = byId("commandRuntime").value || LLAMA_RUNTIME;
+    const models = state.modelsByRuntime[runtimeName] || [];
+    const datalist = byId("draftModelOptions");
+    datalist.replaceChildren();
+    models
+      .filter((model) => runtimeName === MLX_RUNTIME || !/(^|[\/_.-])mmproj([\/_.-]|$)/i.test(model.path))
+      .forEach((model) => {
+        const option = document.createElement("option");
+        option.value = model.path;
+        datalist.append(option);
+      });
   }
 
   async function loadCommands(preferredID = "") {
@@ -100,15 +125,13 @@
   }
 
   async function loadModels() {
-    const payload = await api(`/api/models?runtime=${encodeURIComponent(LLAMA_RUNTIME)}`);
-    state.models = payload.models || [];
-    const datalist = byId("draftModelOptions");
-    datalist.replaceChildren();
-    state.models.filter((model) => !/(^|[\/_.-])mmproj([\/_.-]|$)/i.test(model.path)).forEach((model) => {
-      const option = document.createElement("option");
-      option.value = model.path;
-      datalist.append(option);
-    });
+    const [llamaPayload, mlxPayload] = await Promise.all([
+      api(`/api/models?runtime=${encodeURIComponent(LLAMA_RUNTIME)}`),
+      api(`/api/models?runtime=${encodeURIComponent(MLX_RUNTIME)}&role=draft`)
+    ]);
+    state.modelsByRuntime[LLAMA_RUNTIME] = llamaPayload.models || [];
+    state.modelsByRuntime[MLX_RUNTIME] = mlxPayload.models || [];
+    renderDraftOptions();
   }
 
   byId("newCommandButton").addEventListener("click", () => fillForm(null));

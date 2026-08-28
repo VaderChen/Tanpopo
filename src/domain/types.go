@@ -89,6 +89,7 @@ type LlamaStatus struct {
 	PID                int       `json:"pid,omitempty"`
 	Model              string    `json:"model,omitempty"`
 	MMProj             string    `json:"mmproj,omitempty"`
+	DraftModel         string    `json:"draft_model,omitempty"`
 	Binary             string    `json:"binary,omitempty"`
 	StartupCommandID   string    `json:"startup_command_id,omitempty"`
 	StartupCommandName string    `json:"startup_command_name,omitempty"`

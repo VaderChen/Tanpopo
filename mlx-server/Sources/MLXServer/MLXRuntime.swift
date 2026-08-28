@@ -12,6 +12,7 @@ actor MLXRuntime {
 
     private let configuration: ServerConfiguration
     private var container: ModelContainer?
+    private var dflashDrafter: (any DFlashDrafterModel)?
 
     init(configuration: ServerConfiguration) throws {
         self.configuration = configuration
@@ -35,6 +36,27 @@ actor MLXRuntime {
             container = try await VLMModelFactory.shared.loadContainer(
                 from: modelDirectory,
                 using: #huggingFaceTokenizerLoader()
+            )
+        }
+
+        if let draftPath = configuration.dflashDraftPath {
+            guard kind != .vision else {
+                throw DFlashError.unsupportedGeneration(
+                    "DFlash 目前只支援 language target model。")
+            }
+            let draftDirectory = URL(fileURLWithPath: draftPath, isDirectory: true)
+            let drafter = try DFlashModelFactory.load(from: draftDirectory)
+            guard let container else {
+                throw APIError.invalidRequest("MLX target model 尚未載入。")
+            }
+            _ = try await container.perform(nonSendable: drafter) { context, drafter in
+                try drafter.validate(target: context.model)
+                return true
+            }
+            dflashDrafter = drafter
+            fputs(
+                "DFlash loaded variant=\(drafter.dflashDescriptor.variant.rawValue) draft=\(draftDirectory.lastPathComponent) block_size=\(min(configuration.dflashBlockSize, drafter.dflashDescriptor.blockSize))\n",
+                stderr
             )
         }
     }
@@ -85,7 +107,21 @@ actor MLXRuntime {
             seed: options.seed
         )
 
-        let stream = try await container.generate(input: prepared, parameters: parameters)
+        let stream: AsyncStream<Generation>
+        if dflashDrafter != nil,
+           let fallbackReason = dflashFallbackReason(parameters: parameters) {
+            fputs("DFlash fallback to standard generation: \(fallbackReason)\n", stderr)
+            stream = try await container.generate(input: prepared, parameters: parameters)
+        } else if let drafter = dflashDrafter {
+            stream = try await container.generate(
+                input: prepared,
+                parameters: parameters,
+                dflashDrafter: drafter,
+                blockSize: configuration.dflashBlockSize
+            )
+        } else {
+            stream = try await container.generate(input: prepared, parameters: parameters)
+        }
         var output = ""
         var promptTokens = 0
         var completionTokens = 0
@@ -102,7 +138,7 @@ actor MLXRuntime {
                 case .stop, .cancelled: finishReason = "stop"
                 }
                 fputs(
-                    "generation prompt_tokens=\(info.promptTokenCount) completion_tokens=\(info.generationTokenCount) tokens_per_second=\(String(format: "%.2f", info.tokensPerSecond))\n",
+                    generationLog(info),
                     stderr
                 )
             case .toolCall:
@@ -120,6 +156,33 @@ actor MLXRuntime {
             completionTokens: completionTokens,
             finishReason: finishReason
         )
+    }
+
+    private func dflashFallbackReason(parameters: GenerateParameters) -> String? {
+        if parameters.maxKVSize != nil {
+            return "DFlash 目前不支援 rotating target KV Cache"
+        }
+        if parameters.kvBits != nil || parameters.kvScheme != nil {
+            return "DFlash 目前不支援量化 target KV Cache"
+        }
+        return nil
+    }
+
+    private func generationLog(_ info: GenerateCompletionInfo) -> String {
+        var fields = [
+            "generation",
+            "prompt_tokens=\(info.promptTokenCount)",
+            "completion_tokens=\(info.generationTokenCount)",
+            "tokens_per_second=\(String(format: "%.2f", info.tokensPerSecond))"
+        ]
+        if let proposed = info.proposedDraftTokens,
+           let accepted = info.acceptedDraftTokens {
+            let rate = proposed > 0 ? Double(accepted) / Double(proposed) : 0
+            fields.append("dflash_proposed=\(proposed)")
+            fields.append("dflash_accepted=\(accepted)")
+            fields.append("dflash_acceptance=\(String(format: "%.3f", rate))")
+        }
+        return fields.joined(separator: " ") + "\n"
     }
 
     private func makeChat(

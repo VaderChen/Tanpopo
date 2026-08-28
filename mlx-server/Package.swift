@@ -11,10 +11,9 @@ let package = Package(
         .executable(name: "mlx-server", targets: ["MLXServer"])
     ],
     dependencies: [
-        .package(
-            url: "https://github.com/ml-explore/mlx-swift-lm.git",
-            exact: "3.31.4"
-        ),
+        // 固定專案內維護的 3.31.4 fork；DFlash 需要 target 中間層輸出，
+        // 不能依賴 SwiftPM checkout 上的暫時性修改。
+        .package(path: "Vendor/mlx-swift-lm"),
         .package(
             url: "https://github.com/ml-explore/mlx-swift.git",
             exact: "0.31.6"

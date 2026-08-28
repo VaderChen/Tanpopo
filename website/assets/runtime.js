@@ -148,6 +148,8 @@
     byId("runningModel").textContent = status.model || "—";
     byId("runningMMProj").textContent = status.mmproj || "—";
     byId("runningMMProjRow").hidden = runtimeName === MLX_RUNTIME;
+    byId("runningDraft").textContent = status.draft_model || "—";
+    byId("runningDraftRow").hidden = !running || !status.draft_model;
     byId("runningPID").textContent = status.pid || "—";
     byId("logTitle").textContent = `${runtimeLabel} 日誌`;
     const link = byId("serverURL");

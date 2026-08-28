@@ -7,7 +7,7 @@ enum ModelKind: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.0.1-mlxswiftlm-3.31.4"
+    static let version = "1.3.0-mlxswiftlm-3.31.4-dflash2"
 
     var modelPath = ""
     var host = "0.0.0.0"
@@ -28,6 +28,8 @@ struct ServerConfiguration: Sendable {
     var repetitionPenalty: Float?
     var thinkingEnabled: Bool?
     var accessControlPath: String?
+    var dflashDraftPath: String?
+    var dflashBlockSize = 5
 
     static func parse(_ arguments: [String]) throws -> Self {
         var result = Self()
@@ -96,6 +98,15 @@ struct ServerConfiguration: Sendable {
                     throw ConfigurationError.invalidValue(option, value)
                 }
                 result.accessControlPath = value
+            case "--dflash-draft":
+                let value = try nextValue(for: option).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.dflashDraftPath = value
+            case "--dflash-block-size":
+                result.dflashBlockSize = try parseInteger(
+                    nextValue(for: option), option: option, range: 2...256)
             case "--version", "-v":
                 print(Self.version)
                 Foundation.exit(EXIT_SUCCESS)
@@ -112,6 +123,9 @@ struct ServerConfiguration: Sendable {
         if let accessControlPath = result.accessControlPath {
             result.accessControlPath = NSString(string: accessControlPath).expandingTildeInPath
         }
+        if let dflashDraftPath = result.dflashDraftPath {
+            result.dflashDraftPath = NSString(string: dflashDraftPath).expandingTildeInPath
+        }
         guard !result.modelPath.isEmpty else {
             throw ConfigurationError.missingModel
         }
@@ -119,6 +133,14 @@ struct ServerConfiguration: Sendable {
         guard FileManager.default.fileExists(atPath: result.modelPath, isDirectory: &isDirectory),
               isDirectory.boolValue else {
             throw ConfigurationError.invalidModelDirectory(result.modelPath)
+        }
+        if let dflashDraftPath = result.dflashDraftPath {
+            var isDraftDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: dflashDraftPath, isDirectory: &isDraftDirectory),
+                isDraftDirectory.boolValue else {
+                throw ConfigurationError.invalidDraftDirectory(dflashDraftPath)
+            }
         }
         return result
     }
@@ -166,12 +188,15 @@ struct ServerConfiguration: Sendable {
       --no-thinking                強制關閉思考
       --openloader-access-control <檔案>
                                    OpenLoader 金鑰與 IP 白名單策略快照
+      --dflash-draft <模型目錄>    啟用原生 MLX DFlash 1／2（Qwen3／Qwen3.5）
+      --dflash-block-size <數量>   DFlash block size，預設 5，且不超過訓練值
     """
 }
 
 enum ConfigurationError: LocalizedError {
     case missingModel
     case invalidModelDirectory(String)
+    case invalidDraftDirectory(String)
     case missingValue(String)
     case invalidValue(String, String)
     case unknownOption(String)
@@ -182,6 +207,8 @@ enum ConfigurationError: LocalizedError {
             "必須使用 --model 指定本機 MLX 模型目錄。"
         case .invalidModelDirectory(let path):
             "MLX 模型目錄不存在：\(path)"
+        case .invalidDraftDirectory(let path):
+            "DFlash draft 模型目錄不存在：\(path)"
         case .missingValue(let option):
             "啟動參數 \(option) 缺少數值。"
         case .invalidValue(let option, let value):

@@ -96,7 +96,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
     private func refreshIfNeeded() {
         let now = Date()
         guard now >= nextRefresh, let path else { return }
-        nextRefresh = now.addingTimeInterval(2)
+        nextRefresh = now.addingTimeInterval(10)
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: path), options: [.mappedIfSafe])
             let decoded = try JSONDecoder().decode(PolicyFile.self, from: data)

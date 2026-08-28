@@ -273,7 +273,11 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	var models []domain.ModelFile
 	var err error
 	if runtimeName == domain.RuntimeMLXServer {
-		models, err = llamacpp.ListMLXModels(settings.MLXModelDirectory)
+		if strings.TrimSpace(r.URL.Query().Get("role")) == "draft" {
+			models, err = llamacpp.ListMLXDFlashModels(settings.MLXModelDirectory)
+		} else {
+			models, err = llamacpp.ListMLXModels(settings.MLXModelDirectory)
+		}
 	} else {
 		models, err = llamacpp.ListModels(settings.ModelDirectory)
 	}

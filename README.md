@@ -13,7 +13,7 @@
 - 執行狀態頁依所選 Runtime 提供支援模型下拉清單，不接受任意模型路徑。
 - 環境設定提供服務主機目錄瀏覽器，可由 Home、檔案系統或掛載磁碟選擇 GGUF／MLX 模型目錄，不需要作業系統 Automation 權限或外部工具。
 - 可建立多組啟動參數並指定 `llama-server` 或 `mlx-server` Runtime，執行時才與選定模型動態組合。
-- 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile。
+- 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
 - llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 OpenLoader 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
@@ -124,9 +124,33 @@ POST /completion
 
 `/v1/chat/completions` 支援 OpenAI 格式的文字 content，以及 `image_url` 多模態 content parts。`stream: true` 會回傳合法 SSE 相容回應；目前生成完成後一次送出內容，不保證逐 Token 即時傳輸。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
 
-內建 MLX Profile 包含一般、KV Cache Q4 與強制關閉思考；Context Size 同樣預設 256K，由 Go 後端轉成 `--max-kv-size 262144`。常用原生參數包含 `--kv-bits`、`--kv-group-size`、`--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
+內建 MLX Profile 包含一般、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。一般 MLX Profile 的 Context Size 預設 256K，由 Go 後端轉成 `--max-kv-size 262144`。常用原生參數包含 `--kv-bits`、`--kv-group-size`、`--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 
-固定版本位於 `mlx-server/Package.swift`，目前鎖定 `mlx-swift-lm 3.31.4`、`mlx-swift 0.31.6`、`swift-transformers 1.1.9` 與 `swift-nio 2.101.3`。部署時安裝至：
+### 原生 MLX DFlash 1／2
+
+MLX DFlash 是直接整合在 Swift Runtime 與專案內維護的 `mlx-swift-lm 3.31.4` fork，不會呼叫 Python。Target 與 Draft 都放在可設定的 MLX 模型根目錄下；在「啟動命令」選擇 MLX DFlash Profile 後，再於「DFlash Draft 模型目錄」選擇與 Target 配對的 Draft。實際啟動時後端才會解析安全的相對路徑並加入：
+
+```text
+--dflash-draft <Draft 模型完整目錄>
+--dflash-block-size 5
+--temperature 0
+```
+
+目前採用可驗證、可精確回退的實作範圍：
+
+- 支援文生文 Qwen3 dense，以及相容的 Qwen3.5 hybrid Target；Draft 可為 `DFlashDraftModel` 或 `DFlash2DraftModel`。Qwen3.5 啟動時會明確使用文字模型路徑，不載入 Vision wrapper。
+- DFlash 2 實作 grouped dynamic causal convolution 與 candidate path selector；selector 只保存 top-k sparse proposal probability，避免為每個位置保留完整 vocabulary 分布。
+- Greedy 解碼使用精確 token 比對，結果與 Target Greedy 一致；Sampling 使用 exact rejection sampling，支援 temperature、top-p、top-k、min-p 與既有 penalty processor，保留 Target 條件分布。同一 seed 的 DFlash 與一般生成不保證逐 token 相同，因兩者消耗亂數的路徑不同。
+- DFlash 2 搭配 Qwen3.5／Qwen3.8 hybrid Target 且使用 Greedy 時，會自動把有效 Block Size 限制為 2，避免 Gated Delta Net 多 token 與逐 token 浮點累積順序造成 argmax 分歧；Sampling 仍使用 Profile 設定的完整 Block Size。
+- DFlash 1 Profile 的 Block Size 預設為 5，DFlash 2 Profile 預設為 8，且都不會超過 Draft checkpoint 的訓練值。
+- Draft 支援 full attention 與 sliding attention；Qwen3.5 Target 的 Gated Delta Net cache 會先還原驗證前狀態，再只重播已接受的 prefix，attention KV 則移除被拒絕的 suffix。
+- Target 僅使用可精確 trim／rollback 的一般 cache，不支援 rotating 或量化 target KV Cache。
+- DFlash Profile 雖保留全域 256K Context 選項供介面一致性使用，但啟用 Draft 時不會傳入 `--max-kv-size`；實際可用上下文仍受 Target 模型設定與記憶體限制。
+- 多模態 DFlash target 留待後續階段；未啟用 DFlash 時不影響既有多模態功能。
+
+若單筆 API 請求覆寫為不支援的 Target cache 設定，`mlx-server` 會記錄原因並安全回退到同一 Target 的一般生成，不會用近似演算法冒充 lossless speculative decoding。生成日誌會輸出 proposed、accepted 與 acceptance rate，方便比較 DFlash 是否真的帶來效益。技術流程依據 [DFlash 論文](https://arxiv.org/abs/2602.06036)與[官方 MLX 參考實作](https://github.com/z-lab/dflash/blob/main/dflash/model_mlx.py)。
+
+固定版本位於 `mlx-server/Package.swift`；`mlx-swift-lm 3.31.4` 以含 DFlash 擴充的專案內 fork 鎖定，其餘鎖定 `mlx-swift 0.31.6`、`swift-transformers 1.1.9` 與 `swift-nio 2.101.3`。部署時安裝至：
 
 ```text
 ~/services/mlx-server/versions/<mlx-server-version>/darwin-arm64/bin/mlx-server
@@ -134,6 +158,8 @@ POST /completion
 ```
 
 後端會自動從部署包、上述 `current` 版本或開發專案的 `mlx-runtime/prebuilt/darwin-arm64` 尋找執行檔，並同時驗證相鄰的 MLX Metal Library；環境設定不需要也不提供 Runtime 路徑欄位。
+
+`build.command` 與 `run.command` 會將第一次成功產生的 MLX Metal Library 保存於 `mlx-runtime/metal-cache/darwin-arm64/<fingerprint>/default.metallib`。指紋涵蓋平台、部署版本、Metal SDK／編譯器與全部 kernel 原始碼；相同指紋的後續建置會直接把預編譯檔注入 SwiftPM bundle，不再重編 Metal kernel。`clean.command` 不會刪除此快取；只有指紋改變，或明確設定 `MLX_METALLIB_REBUILD=1` 時才會重建。
 
 ## 模型 API 安全性
 
@@ -169,7 +195,7 @@ IP 白名單每行一筆，支援完整 IPv4／IPv6、CIDR 與 `*` 萬用字元�
 
 單獨使用 `*` 代表允許所有 IP。llama-server 與 mlx-server 都只依 TCP 連線的實際來源位址判斷，不信任客戶端提供的 `X-Forwarded-For`；若前方另有反向代理，白名單應設定該受信任代理的來源 IP。
 
-Go 管理服務只負責核發金鑰並以原子替換方式更新安全策略快照，不參與模型 API 的資料轉送。兩個 Runtime 在第一次請求載入快照，之後每兩秒檢查一次更新；請求驗證使用 Runtime 記憶體內的快取，不會逐筆回主系統核對。啟用限制後若快照遺失、損壞或版本不相容，Runtime 會採 fail-closed 並回傳 `503`。策略更新與金鑰撤銷最遲在下一次重新載入週期生效，不需重新載入模型。
+Go 管理服務只負責核發金鑰並以原子替換方式更新安全策略快照，不參與模型 API 的資料轉送。兩個 Runtime 在第一次請求載入快照，之後每 10 秒檢查一次更新；請求驗證使用 Runtime 記憶體內的快取，不會逐筆回主系統核對。啟用限制後若快照遺失、損壞或版本不相容，Runtime 會採 fail-closed 並回傳 `503`。策略更新與金鑰撤銷最遲在下一次重新載入週期生效，不需重新載入模型。
 
 ## Hugging Face 模型下載
 
@@ -221,7 +247,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `data/startup_commands.json`
 
-由「啟動命令」頁保存多組模型 Runtime 啟動參數。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q4、強制關閉思考 Profile；Context 均預設 256K。舊版設定檔升級時也會補上缺少的內建 Profile。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
+由「啟動命令」頁保存多組模型 Runtime 啟動參數。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q4、強制關閉思考、DFlash 1／2 Profile；Context 均預設 256K。舊版設定檔升級時也會補上缺少的內建 Profile。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
 
 ### `data/access_control.json`
 
@@ -241,7 +267,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 | `POST` | `/api/access-control/keys` | 核發模型 API 金鑰；明文只在此回應一次 |
 | `DELETE` | `/api/access-control/keys/{id}` | 撤銷模型 API 金鑰 |
 | `POST` | `/api/system/directories` | 瀏覽服務主機的可用目錄 |
-| `GET` | `/api/models?runtime=...` | 依 Runtime 掃描 GGUF 或 MLX 模型 |
+| `GET` | `/api/models?runtime=...` | 依 Runtime 掃描 GGUF 或 MLX Target 模型；MLX 可加 `role=draft` 取得支援的 DFlash Draft |
 | `GET/POST` | `/api/startup-commands` | 查詢或建立啟動參數 Profile |
 | `PUT/DELETE` | `/api/startup-commands/{id}` | 修改或刪除啟動參數 Profile |
 | `GET/POST` | `/api/downloads` | 查詢或建立下載工作 |
@@ -266,8 +292,8 @@ src/directorybrowser/ 服務主機目錄瀏覽資料
 scripts/              llama-server／mlx-server 原生建置工具
 llama-server/         鎖定版本、只供建置 llama-server 的精簡 llama.cpp 原始碼
 llama-runtime/        預編譯 Runtime 暫存與封裝規格
-mlx-server/            Swift／MLX 相容 API Server 原始碼
-mlx-runtime/           Apple Silicon 預編譯 Runtime 暫存與封裝規格
+mlx-server/            Swift／MLX 相容 API Server 與鎖定的 mlx-swift-lm fork
+mlx-runtime/           Apple Silicon 預編譯 Runtime 與持久化 Metal Library 快取
 website/              登入與主畫面靜態資源
 ```
 
@@ -288,7 +314,7 @@ OpenLoader 中由專案著作權人擁有的原創程式碼採雙軌授權，適
 ./scripts/build-llama-server-runtime.sh \
   ./llama-server \
   ./llama-runtime/prebuilt/darwin-arm64 \
-  custom-4e97ac86ebe2-openloader.1
+  custom-4e97ac86ebe2-openloader.2
 ```
 
 Linux x64 使用相同命令，但輸出位置改為 `./llama-runtime/prebuilt/linux-amd64`。已有預編譯檔時，其 `VERSION` 必須與內建原始碼版本一致。若封裝主機沒有其他平台的預編譯檔，該平台不會造成封裝失敗；部署包仍會攜帶完整精簡原始碼，並在安裝到該平台時原生編譯。封裝時也可以指定自訂原始碼與鎖定版本：

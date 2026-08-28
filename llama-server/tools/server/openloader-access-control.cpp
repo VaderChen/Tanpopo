@@ -20,7 +20,7 @@
 
 namespace {
 
-constexpr auto refresh_interval = std::chrono::seconds(2);
+constexpr auto refresh_interval = std::chrono::seconds(10);
 
 struct parsed_ip {
     int family = 0;

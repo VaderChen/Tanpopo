@@ -1,0 +1,25 @@
+--- a/Package.swift
++++ b/Package.swift
+@@ -217,7 +217,11 @@
+ let cmlx = Target.target(
+     name: "Cmlx",
+     path: "Source/Cmlx",
+-    exclude: platformExcludes + [
++    exclude: platformExcludes
++        + (Context.environment["LLAMA_LOADER_PREBUILT_METALLIB"] == "1"
++            ? ["mlx-generated/metal"]
++            : ["PrebuiltMetal"])
++        + [
+         // vendor docs
+         "vendor-README.md",
+ 
+@@ -276,6 +280,9 @@
+         "mlx/mlx/distributed/jaccl/ring.cpp",
+         "mlx/mlx/distributed/jaccl/utils.cpp",
+     ],
++    resources: Context.environment["LLAMA_LOADER_PREBUILT_METALLIB"] == "1"
++        ? [.copy("PrebuiltMetal/default.metallib")]
++        : [],
+     cSettings: [
+         .headerSearchPath("mlx"),
+         .headerSearchPath("mlx-c"),

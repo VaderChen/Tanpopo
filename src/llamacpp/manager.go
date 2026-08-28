@@ -123,6 +123,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		PID:                command.Process.Pid,
 		Model:              filepath.ToSlash(strings.TrimSpace(model)),
 		MMProj:             filepath.ToSlash(strings.TrimSpace(mmproj)),
+		DraftModel:         filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
 		StartupCommandName: startupCommand.Name,
@@ -145,15 +146,43 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 	if err != nil {
 		return m.status, err
 	}
+	if isMLXDFlashDraftDirectory(modelArgument) {
+		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
+	}
+	var draftModelArgument string
+	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
+		draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "DFlash Draft 模型")
+		if err != nil {
+			return m.status, err
+		}
+		if !isSupportedMLXDFlashDraftDirectory(draftModelArgument) {
+			return m.status, errors.New("只支援 Qwen3／Qwen3.5 的 DFlashDraftModel 或 DFlash2DraftModel")
+		}
+		if draftModelArgument == modelArgument {
+			return m.status, errors.New("DFlash Draft 模型不可與 Target 模型相同")
+		}
+	}
 
 	args := append([]string(nil), startupCommand.ExtraArgs...)
 	args = append(args, "--model", modelArgument)
+	if draftModelArgument != "" {
+		// Qwen3.5 的完整 checkpoint 可能同時帶有 Vision 設定；DFlash 目前只使用
+		// language target，因此明確覆寫自動偵測結果。
+		args = append(args,
+			"--model-type", "text",
+			"--dflash-draft", draftModelArgument,
+		)
+	}
 	args = append(args,
 		"--host", startupCommand.ServerHost,
 		"--port", strconv.Itoa(startupCommand.ServerPort),
-		"--max-kv-size", strconv.Itoa(startupCommand.ContextSize),
 		"--openloader-access-control", m.accessControlPath,
 	)
+	// DFlash 必須精確回退 target cache；設定 Draft 時不可用 --max-kv-size 建立
+	// rotating target cache。未使用 DFlash 時仍套用啟動設定的 Context Size。
+	if draftModelArgument == "" {
+		args = append(args, "--max-kv-size", strconv.Itoa(startupCommand.ContextSize))
+	}
 
 	command := exec.Command(binary, args...)
 	command.Stdout = m.logs
@@ -171,6 +200,7 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 		Runtime:            domain.RuntimeMLXServer,
 		PID:                command.Process.Pid,
 		Model:              strings.TrimSpace(model),
+		DraftModel:         filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
 		StartupCommandName: startupCommand.Name,
@@ -461,6 +491,16 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 }
 
 func ListMLXModels(directory string) ([]domain.ModelFile, error) {
+	return listMLXModels(directory, false)
+}
+
+// ListMLXDFlashModels 只列出目前原生 Swift Runtime 已支援的 DFlash Draft。
+// Target 與 Draft 使用相同模型根目錄，但透過 role 分流避免 Draft 被誤選為主模型。
+func ListMLXDFlashModels(directory string) ([]domain.ModelFile, error) {
+	return listMLXModels(directory, true)
+}
+
+func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error) {
 	directory = strings.TrimSpace(directory)
 	if directory == "" {
 		return nil, errors.New("請先設定 MLX 模型目錄")
@@ -490,6 +530,13 @@ func ListMLXModels(directory string) ([]domain.ModelFile, error) {
 		modelDirectory := filepath.Dir(path)
 		if !isMLXModelDirectory(modelDirectory) {
 			return nil
+		}
+		if draftsOnly {
+			if !isSupportedMLXDFlashDraftDirectory(modelDirectory) {
+				return filepath.SkipDir
+			}
+		} else if isMLXDFlashDraftDirectory(modelDirectory) {
+			return filepath.SkipDir
 		}
 		relative, err := filepath.Rel(base, modelDirectory)
 		if err != nil {
@@ -529,6 +576,83 @@ func ListMLXModels(directory string) ([]domain.ModelFile, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return strings.ToLower(result[i].Path) < strings.ToLower(result[j].Path) })
 	return result, nil
+}
+
+type mlxModelConfiguration struct {
+	Architectures []string `json:"architectures"`
+	ModelType     string   `json:"model_type"`
+	HiddenSize    int      `json:"hidden_size"`
+	LayerTypes    []string `json:"layer_types"`
+	SlidingWindow int      `json:"sliding_window"`
+	DFlash        struct {
+		ConvolutionKernelSize int `json:"conv_kernel_size"`
+		ConvolutionGroupSize  int `json:"conv_group_size"`
+		SelectorRank          int `json:"selector_rank"`
+		SelectorTopK          int `json:"selector_top_k"`
+	} `json:"dflash_config"`
+}
+
+func readMLXModelConfiguration(directory string) (mlxModelConfiguration, error) {
+	content, err := os.ReadFile(filepath.Join(directory, "config.json"))
+	if err != nil {
+		return mlxModelConfiguration{}, err
+	}
+	var configuration mlxModelConfiguration
+	if err := json.Unmarshal(content, &configuration); err != nil {
+		return mlxModelConfiguration{}, err
+	}
+	return configuration, nil
+}
+
+func isMLXDFlashDraftDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	if err != nil {
+		return false
+	}
+	for _, architecture := range configuration.Architectures {
+		if architecture == "DFlashDraftModel" || architecture == "DFlash2DraftModel" {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedMLXDFlashDraftDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	if err != nil || configuration.ModelType != "qwen3" && configuration.ModelType != "qwen3_5" {
+		return false
+	}
+	foundVariants := 0
+	isDFlash2 := false
+	for _, architecture := range configuration.Architectures {
+		if architecture == "DFlash2DraftModel" {
+			foundVariants++
+			isDFlash2 = true
+		}
+		if architecture == "DFlashDraftModel" {
+			foundVariants++
+		}
+	}
+	if foundVariants != 1 || len(configuration.LayerTypes) == 0 {
+		return false
+	}
+	for _, layerType := range configuration.LayerTypes {
+		if layerType != "full_attention" && layerType != "sliding_attention" {
+			return false
+		}
+		if layerType == "sliding_attention" && configuration.SlidingWindow <= 1 {
+			return false
+		}
+	}
+	if isDFlash2 {
+		config := configuration.DFlash
+		if config.ConvolutionKernelSize < 2 || config.ConvolutionGroupSize <= 0 ||
+			configuration.HiddenSize <= 0 || configuration.HiddenSize%config.ConvolutionGroupSize != 0 ||
+			config.SelectorRank <= 0 || config.SelectorTopK <= 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func isMLXModelDirectory(directory string) bool {

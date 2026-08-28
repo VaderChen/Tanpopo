@@ -90,20 +90,33 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         case .end:
             guard let current = state else { return }
             state = nil
-            nonisolated(unsafe) let context = context
+            // ChannelHandlerContext 只能在它所屬的 NIO event loop 使用。先在這裡
+            // 擷取純值與 thread-safe Channel，再把模型工作交給 MainActor。
+            let channel = context.channel
+            let remoteAddress = channel.remoteAddress?.ipAddress
             Task { @MainActor in
-                await self.process(current, context: context)
+                let response = await self.process(
+                    current,
+                    remoteAddress: remoteAddress
+                )
+                channel.eventLoop.execute {
+                    self.write(
+                        response,
+                        version: current.head.version,
+                        channel: channel
+                    )
+                }
             }
         }
     }
 
     private func process(
         _ state: RequestState,
-        context: ChannelHandlerContext
-    ) async {
+        remoteAddress: String?
+    ) async -> HTTPResponse {
         let response: HTTPResponse
         let accessDecision = accessControl.authorize(
-            remoteAddress: context.channel.remoteAddress?.ipAddress,
+            remoteAddress: remoteAddress,
             apiKey: requestAPIKey(from: state.head.headers),
             validateAPIKey: state.head.method != .OPTIONS
         )
@@ -128,7 +141,7 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
                 body: Data(bytes)
             )
         }
-        write(response, version: state.head.version, context: context)
+        return response
     }
 
     private func requestAPIKey(from headers: HTTPHeaders) -> String? {
@@ -174,7 +187,7 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
     private func write(
         _ response: HTTPResponse,
         version: HTTPVersion,
-        context: ChannelHandlerContext
+        channel: Channel
     ) {
         var head = HTTPResponseHead(
             version: version,
@@ -185,12 +198,12 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         }
         head.headers.add(name: "Content-Length", value: String(response.body.count))
         head.headers.add(name: "Connection", value: "keep-alive")
-        context.write(wrapOutboundOut(.head(head)), promise: nil)
+        channel.write(HTTPServerResponsePart.head(head), promise: nil)
         if !response.body.isEmpty {
-            var buffer = context.channel.allocator.buffer(capacity: response.body.count)
+            var buffer = channel.allocator.buffer(capacity: response.body.count)
             buffer.writeBytes(response.body)
-            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+            channel.write(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
         }
-        context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+        channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
     }
 }

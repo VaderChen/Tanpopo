@@ -21,7 +21,7 @@ type fileData struct {
 }
 
 const (
-	currentFileVersion = 5
+	currentFileVersion = 8
 	defaultContextSize = 256 * 1024
 )
 
@@ -88,6 +88,21 @@ func NewStore(path string, fallback domain.StartupCommand) (*Store, error) {
 				data.Commands[index].DraftModel = ""
 				data.Commands[index].ContextSize = defaultContextSize
 				data.Commands[index].ExtraArgs = []string{"--prefill-step-size", "2048"}
+				data.Commands[index].UpdatedAt = now
+			}
+			if data.Version < 7 && data.Commands[index].ID == "mlx-dflash" {
+				data.Commands[index].Name = "MLX DFlash 1（Qwen3／Qwen3.5，Block 5）"
+				data.Commands[index].Runtime = domain.RuntimeMLXServer
+				data.Commands[index].ContextSize = defaultContextSize
+				data.Commands[index].ExtraArgs = []string{
+					"--temperature", "0",
+					"--dflash-block-size", "5",
+					"--prefill-step-size", "2048",
+				}
+				data.Commands[index].UpdatedAt = now
+			}
+			if data.Version < 8 && data.Commands[index].ID == "mlx-dflash" {
+				data.Commands[index].Name = "MLX DFlash 1（Greedy，Block 5）"
 				data.Commands[index].UpdatedAt = now
 			}
 		}
@@ -203,6 +218,42 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 			Threads:     0,
 			ExtraArgs: []string{
 				"--no-thinking",
+				"--prefill-step-size", "2048",
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:          "mlx-dflash",
+			Name:        "MLX DFlash 1（Greedy，Block 5）",
+			Runtime:     domain.RuntimeMLXServer,
+			ServerHost:  "0.0.0.0",
+			ServerPort:  8080,
+			ContextSize: defaultContextSize,
+			GPULayers:   -1,
+			Threads:     0,
+			ExtraArgs: []string{
+				"--temperature", "0",
+				"--dflash-block-size", "5",
+				"--prefill-step-size", "2048",
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:          "mlx-dflash2",
+			Name:        "MLX DFlash 2（Sampling，Block 8）",
+			Runtime:     domain.RuntimeMLXServer,
+			ServerHost:  "0.0.0.0",
+			ServerPort:  8080,
+			ContextSize: defaultContextSize,
+			GPULayers:   -1,
+			Threads:     0,
+			ExtraArgs: []string{
+				"--temperature", "1",
+				"--top-p", "0.95",
+				"--top-k", "20",
+				"--dflash-block-size", "8",
 				"--prefill-step-size", "2048",
 			},
 			CreatedAt: now,
@@ -356,9 +407,6 @@ func Validate(command domain.StartupCommand) error {
 	}
 	if command.Runtime == domain.RuntimeLlamaServer && command.DraftModel != "" && !strings.EqualFold(filepath.Ext(command.DraftModel), ".gguf") {
 		return errors.New("Draft 模型必須是 .gguf 檔案")
-	}
-	if command.Runtime == domain.RuntimeMLXServer && command.DraftModel != "" {
-		return errors.New("MLX Runtime 目前不使用 Draft GGUF")
 	}
 	if command.ServerHost == "" || strings.ContainsAny(command.ServerHost, "\r\n\x00") {
 		return errors.New("監聽 Host 格式錯誤")
