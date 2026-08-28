@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 const (
 	currentFileVersion = 1
 	keyPrefix          = "olk_"
+	defaultLoopbackIP  = "127.0.0.1"
 	maxKeys            = 100
 	maxIPPatterns      = 256
 )
@@ -81,7 +83,11 @@ func NewStore(path string) (*Store, error) {
 	}
 	store := &Store{
 		path: path,
-		data: fileData{Version: currentFileVersion, Policy: Policy{}, Keys: []storedKey{}},
+		data: fileData{
+			Version: currentFileVersion,
+			Policy:  Policy{IPAllowlist: []string{defaultLoopbackIP}},
+			Keys:    []storedKey{},
+		},
 	}
 	content, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -100,11 +106,17 @@ func NewStore(path string) (*Store, error) {
 	if data.Version != currentFileVersion {
 		return nil, fmt.Errorf("不支援的模型 API 安全設定版本: %d", data.Version)
 	}
-	policy, err := normalizePolicy(data.Policy)
+	originalPolicy := clonePolicy(data.Policy)
+	policyInput := clonePolicy(data.Policy)
+	if policyInput.IPAllowlist == nil {
+		policyInput.IPAllowlist = []string{defaultLoopbackIP}
+	}
+	policy, err := normalizePolicy(policyInput)
 	if err != nil {
 		return nil, err
 	}
 	data.Policy = policy
+	keysWereNil := data.Keys == nil
 	if data.Keys == nil {
 		data.Keys = []storedKey{}
 	}
@@ -114,7 +126,11 @@ func NewStore(path string) (*Store, error) {
 	if data.Policy.APIKeyEnabled && len(data.Keys) == 0 {
 		return nil, errors.New("模型 API 已啟用金鑰驗證，但設定檔內沒有可用金鑰")
 	}
-	if err := os.Chmod(path, 0600); err != nil {
+	if !samePolicy(originalPolicy, data.Policy) || keysWereNil {
+		if err := store.persist(data); err != nil {
+			return nil, fmt.Errorf("更新模型 API 安全設定格式失敗: %w", err)
+		}
+	} else if err := os.Chmod(path, 0600); err != nil {
 		return nil, fmt.Errorf("設定模型 API 安全檔案權限失敗: %w", err)
 	}
 	store.data = data
@@ -129,7 +145,7 @@ func (s *Store) Public() View {
 		keys = append(keys, publicKey(key))
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i].CreatedAt.After(keys[j].CreatedAt) })
-	return View{Policy: clonePolicy(s.data.Policy), Keys: keys}
+	return View{Policy: publicPolicy(s.data.Policy), Keys: keys}
 }
 
 func (s *Store) Policy() Policy {
@@ -401,12 +417,26 @@ func publicView(data fileData) View {
 		keys = append(keys, publicKey(key))
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i].CreatedAt.After(keys[j].CreatedAt) })
-	return View{Policy: clonePolicy(data.Policy), Keys: keys}
+	return View{Policy: publicPolicy(data.Policy), Keys: keys}
+}
+
+func publicPolicy(value Policy) Policy {
+	value = clonePolicy(value)
+	if len(value.IPAllowlist) == 0 {
+		value.IPAllowlist = []string{defaultLoopbackIP}
+	}
+	return value
 }
 
 func clonePolicy(value Policy) Policy {
 	value.IPAllowlist = append([]string(nil), value.IPAllowlist...)
 	return value
+}
+
+func samePolicy(left, right Policy) bool {
+	return left.APIKeyEnabled == right.APIKeyEnabled &&
+		left.IPAllowlistEnabled == right.IPAllowlistEnabled &&
+		slices.Equal(left.IPAllowlist, right.IPAllowlist)
 }
 
 func cloneData(value fileData) fileData {

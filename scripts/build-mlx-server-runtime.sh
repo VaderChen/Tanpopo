@@ -143,7 +143,8 @@ else
 fi
 
 LLAMA_LOADER_PREBUILT_METALLIB="${USE_PREBUILT_METALLIB}" \
-  swift build -c release --package-path "${PACKAGE_DIR}"
+  swift build -c release --package-path "${PACKAGE_DIR}" \
+    -Xswiftc -suppress-warnings
 
 PRODUCT_DIR="$(LLAMA_LOADER_PREBUILT_METALLIB="${USE_PREBUILT_METALLIB}" \
   swift build -c release --package-path "${PACKAGE_DIR}" --show-bin-path)"

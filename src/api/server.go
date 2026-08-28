@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"LlamaLoader/src/accesscontrol"
@@ -25,17 +26,20 @@ import (
 type Server struct {
 	ctx             context.Context
 	webPath         string
+	agentConfigPath string
 	settings        *config.Store
 	startupCommands *startupcommand.Store
 	accessControl   *accesscontrol.Store
 	sessions        *session.Store
 	downloads       *download.Manager
 	llama           *llamacpp.Manager
+	credentialsMu   sync.Mutex
 }
 
 func NewServer(
 	ctx context.Context,
 	webPath string,
+	agentConfigPath string,
 	settings *config.Store,
 	startupCommands *startupcommand.Store,
 	accessControl *accesscontrol.Store,
@@ -46,6 +50,7 @@ func NewServer(
 	return &Server{
 		ctx:             ctx,
 		webPath:         webPath,
+		agentConfigPath: agentConfigPath,
 		settings:        settings,
 		startupCommands: startupCommands,
 		accessControl:   accessControl,
@@ -59,7 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleRoot)
 	mux.HandleFunc("GET /login.html", s.handleLoginPage)
-	for _, pageName := range []string{"main.html", "commands.html", "download.html", "settings.html"} {
+	for _, pageName := range []string{"main.html", "commands.html", "chat.html", "download.html", "settings.html"} {
 		mux.HandleFunc("GET /"+pageName, s.requirePage(s.pageHandler(pageName)))
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.webPath, "assets")))))
@@ -68,8 +73,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/admin-credentials", s.requireAPI(s.handleAdminCredentials))
+	mux.HandleFunc("PUT /api/admin-credentials", s.requireAPI(s.handleAdminCredentialsUpdate))
 	mux.HandleFunc("GET /api/settings", s.requireAPI(s.handleSettings))
 	mux.HandleFunc("PUT /api/settings", s.requireAPI(s.handleSettingsUpdate))
+	mux.HandleFunc("PUT /api/settings/resident-mode", s.requireAPI(s.handleResidentModeUpdate))
 	mux.HandleFunc("GET /api/access-control", s.requireAPI(s.handleAccessControl))
 	mux.HandleFunc("PUT /api/access-control", s.requireAPI(s.handleAccessControlUpdate))
 	mux.HandleFunc("POST /api/access-control/keys", s.requireAPI(s.handleAccessKeyIssue))
@@ -92,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/runtime/logs", s.requireAPI(s.handleLlamaLogsClear))
 	mux.HandleFunc("POST /api/runtime/start", s.requireAPI(s.handleLlamaStart))
 	mux.HandleFunc("POST /api/runtime/stop", s.requireAPI(s.handleLlamaStop))
+	mux.HandleFunc("POST /api/chat/completions", s.requireAPI(s.handleChatCompletion))
 	return s.securityHeaders(mux)
 }
 
@@ -131,19 +140,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.sessions.Authenticated(r)})
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"authenticated":          s.sessions.Authenticated(r),
+		"authentication_enabled": s.sessions.AuthenticationEnabled(),
+	})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Account  string `json:"account"`
-		Password string `json:"password"`
+		Account    string `json:"account"`
+		Password   string `json:"password"`
+		RememberMe bool   `json:"remember_me"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !s.sessions.Login(w, r, request.Account, request.Password) {
+	if !s.sessions.Login(w, r, request.Account, request.Password, request.RememberMe) {
 		writeError(w, http.StatusUnauthorized, errors.New("帳號或密碼錯誤"))
 		return
 	}
@@ -155,13 +168,104 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleAdminCredentials(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account":                s.sessions.Account(),
+		"authentication_enabled": s.sessions.AuthenticationEnabled(),
+	})
+}
+
+func (s *Server) handleAdminCredentialsUpdate(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Account                        string `json:"account"`
+		CurrentPassword                string `json:"current_password"`
+		Password                       string `json:"password"`
+		AuthenticationEnabled          bool   `json:"authentication_enabled"`
+		DisableAuthenticationConfirmed bool   `json:"disable_authentication_confirmed"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	request.Account = strings.TrimSpace(request.Account)
+	if request.Account == "" {
+		writeError(w, http.StatusBadRequest, errors.New("管理帳號不可為空"))
+		return
+	}
+
+	s.credentialsMu.Lock()
+	defer s.credentialsMu.Unlock()
+
+	currentAuthenticationEnabled := s.sessions.AuthenticationEnabled()
+	disablingAuthenticationOnly := currentAuthenticationEnabled &&
+		!request.AuthenticationEnabled &&
+		request.DisableAuthenticationConfirmed &&
+		request.Password == "" &&
+		request.Account == s.sessions.Account()
+	if currentAuthenticationEnabled && !disablingAuthenticationOnly && !s.sessions.VerifyPassword(request.CurrentPassword) {
+		writeError(w, http.StatusForbidden, errors.New("目前密碼不正確"))
+		return
+	}
+	if currentAuthenticationEnabled && !request.AuthenticationEnabled && !request.DisableAuthenticationConfirmed {
+		writeError(w, http.StatusBadRequest, errors.New("關閉登入驗證前必須明確確認"))
+		return
+	}
+	if !currentAuthenticationEnabled && request.AuthenticationEnabled && request.Password == "" {
+		writeError(w, http.StatusBadRequest, errors.New("重新啟用登入驗證時，請設定一組新密碼"))
+		return
+	}
+
+	updated, err := config.UpdateAgentSecurity(
+		s.agentConfigPath,
+		!request.AuthenticationEnabled,
+		request.Account,
+		request.Password,
+		request.Password != "",
+	)
+	if err == nil {
+		s.sessions.UpdateSecurity(
+			!updated.DisableAuthentication,
+			updated.DefaultAccount,
+			updated.DefaultPassword,
+		)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                     true,
+		"account":                updated.DefaultAccount,
+		"authentication_enabled": !updated.DisableAuthentication,
+	})
+}
+
 func (s *Server) handleSettings(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.settings.Public())
+}
+
+func (s *Server) handleResidentModeUpdate(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	value := s.settings.Get()
+	value.ResidentMode = request.Enabled
+	if err := s.settings.Save(value); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, s.settings.Public())
 }
 
 type settingsUpdateRequest struct {
 	ModelDirectory        string `json:"model_directory"`
 	MLXModelDirectory     string `json:"mlx_model_directory"`
+	ResidentMode          bool   `json:"resident_mode"`
+	UILanguage            string `json:"ui_language"`
 	HuggingFaceEndpoint   string `json:"huggingface_endpoint"`
 	HuggingFaceToken      string `json:"huggingface_token"`
 	ClearHuggingFaceToken bool   `json:"clear_huggingface_token"`
@@ -184,6 +288,8 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	value := domain.Settings{
 		ModelDirectory:      request.ModelDirectory,
 		MLXModelDirectory:   request.MLXModelDirectory,
+		ResidentMode:        request.ResidentMode,
+		UILanguage:          request.UILanguage,
 		HuggingFaceEndpoint: request.HuggingFaceEndpoint,
 		HuggingFaceToken:    token,
 		DefaultRevision:     request.DefaultRevision,
@@ -423,6 +529,8 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Model            string `json:"model"`
 		MMProj           string `json:"mmproj"`
+		DraftModel       string `json:"draft_model"`
+		DFlashEnabled    bool   `json:"dflash_enabled"`
 		StartupCommandID string `json:"startup_command_id"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
@@ -434,7 +542,13 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	status, err := s.llama.Start(request.Model, request.MMProj, startupCommand)
+	status, err := s.llama.Start(
+		request.Model,
+		request.MMProj,
+		request.DraftModel,
+		request.DFlashEnabled,
+		startupCommand,
+	)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -477,10 +591,10 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasSuffix(r.URL.Path, ".html") {
 			w.Header().Set("Cache-Control", "no-store")
-		} else if strings.HasPrefix(r.URL.Path, "/assets/") || strings.HasSuffix(r.URL.Path, ".html") {
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 		}
 		next.ServeHTTP(w, r)

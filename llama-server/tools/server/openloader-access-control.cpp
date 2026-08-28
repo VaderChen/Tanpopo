@@ -293,14 +293,17 @@ void openloader_access_control::refresh_locked() {
         }
         next.api_key_enabled = policy.at("api_key_enabled").get<bool>();
         next.ip_allowlist_enabled = policy.at("ip_allowlist_enabled").get<bool>();
-        next.ip_allowlist = policy.at("ip_allowlist").get<std::vector<std::string>>();
+        const common_json & ip_allowlist = policy.at("ip_allowlist");
+        if (!ip_allowlist.is_null()) {
+            next.ip_allowlist = ip_allowlist.get<std::vector<std::string>>();
+        }
         if (next.ip_allowlist.size() > 256
             || !std::all_of(next.ip_allowlist.begin(), next.ip_allowlist.end(), validate_pattern)) {
             throw std::runtime_error("access-control IP allowlist is invalid");
         }
 
         const common_json & keys = root.at("keys");
-        if (!keys.is_array() || keys.size() > 100) {
+        if ((!keys.is_null() && !keys.is_array()) || keys.size() > 100) {
             throw std::runtime_error("access-control keys are invalid");
         }
         for (size_t index = 0; index < keys.size(); ++index) {

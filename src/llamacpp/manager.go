@@ -28,6 +28,7 @@ type Manager struct {
 	mu                sync.Mutex
 	settings          SettingsProvider
 	accessControlPath string
+	stateStore        *runtimeStateStore
 	cmd               *exec.Cmd
 	done              chan struct{}
 	stopping          bool
@@ -35,32 +36,80 @@ type Manager struct {
 	logs              *logBuffer
 }
 
-func NewManager(settings SettingsProvider, accessControlPath string) *Manager {
+func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath string) (*Manager, error) {
 	accessControlPath = strings.TrimSpace(accessControlPath)
 	if absolute, err := filepath.Abs(accessControlPath); err == nil {
 		accessControlPath = absolute
 	}
+	stateStore, err := newRuntimeStateStore(runtimeStatePath)
+	if err != nil {
+		return nil, err
+	}
+	saved := stateStore.Get()
 	manager := &Manager{
 		settings:          settings,
 		accessControlPath: accessControlPath,
+		stateStore:        stateStore,
 		logs:              newLogBuffer(128 * 1024),
+		status: domain.LlamaStatus{
+			DesiredRunning:     saved.DesiredRunning,
+			Runtime:            saved.Runtime,
+			Model:              saved.Model,
+			MMProj:             saved.MMProj,
+			DraftModel:         saved.DraftModel,
+			DFlashEnabled:      saved.DFlashEnabled,
+			StartupCommandID:   saved.StartupCommandID,
+			StartupCommandName: saved.StartupCommandName,
+		},
 	}
-	manager.status.Runtime = domain.RuntimeLlamaServer
 	manager.refreshURL()
-	return manager
+	return manager, nil
 }
 
-func (m *Manager) Start(model, mmproj string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) Start(model, mmproj, draftModel string, dflashEnabled bool, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.status.Running {
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
-	settings := m.settings()
-	if startupCommand.Runtime == domain.RuntimeMLXServer {
-		return m.startMLXLocked(settings, model, startupCommand)
+	if dflashEnabled && startupCommand.Runtime == domain.RuntimeMLXServer {
+		startupCommand.ExtraArgs = withoutDraftModelArguments(startupCommand.ExtraArgs)
+	} else {
+		startupCommand.ExtraArgs = withoutDFlashArguments(startupCommand.ExtraArgs)
 	}
-	return m.startLlamaLocked(settings, model, mmproj, startupCommand)
+	startupCommand.DraftModel = ""
+	if dflashEnabled {
+		draftModel = strings.TrimSpace(draftModel)
+		if draftModel == "" {
+			return m.status, errors.New("找不到可用的 DFlash Draft 模型，請先到「模型下載」取得配對的 Draft")
+		}
+		startupCommand.DraftModel = draftModel
+		if startupCommand.Runtime != domain.RuntimeMLXServer {
+			startupCommand.ExtraArgs = append(startupCommand.ExtraArgs, "--spec-type", "draft-dflash")
+		}
+	}
+	settings := m.settings()
+	var status domain.LlamaStatus
+	var err error
+	if startupCommand.Runtime == domain.RuntimeMLXServer {
+		status, err = m.startMLXLocked(settings, model, startupCommand)
+	} else {
+		status, err = m.startLlamaLocked(settings, model, mmproj, startupCommand)
+	}
+	if err != nil {
+		return status, err
+	}
+	m.status.DesiredRunning = true
+	m.status.DFlashEnabled = dflashEnabled
+	if err := m.persistStatusLocked(true); err != nil {
+		m.status.DesiredRunning = false
+		m.stopping = true
+		if m.cmd != nil && m.cmd.Process != nil {
+			_ = m.cmd.Process.Kill()
+		}
+		return m.status, fmt.Errorf("保存模型服務狀態失敗，已取消啟動: %w", err)
+	}
+	return m.status, nil
 }
 
 func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
@@ -72,6 +121,9 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	if err != nil {
 		return m.status, err
 	}
+	if isGGUFDFlashDraft(modelPath) {
+		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
+	}
 	var mmprojPath string
 	if strings.TrimSpace(mmproj) != "" {
 		mmprojPath, err = resolveModelFile(settings.ModelDirectory, mmproj, "mmproj")
@@ -81,9 +133,18 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	}
 	var draftModelPath string
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
+		if !isSupportedGGUFDFlashTarget(modelPath) {
+			return m.status, errors.New("目前 Target GGUF 架構不支援 DFlash")
+		}
 		draftModelPath, err = resolveModelFile(settings.ModelDirectory, draftModel, "Draft 模型")
 		if err != nil {
 			return m.status, err
+		}
+		if !isGGUFDFlashDraft(draftModelPath) {
+			return m.status, errors.New("指定的 Draft GGUF 不是 DFlash Draft 架構")
+		}
+		if draftModelPath == modelPath {
+			return m.status, errors.New("DFlash Draft 模型不可與 Target 模型相同")
 		}
 	}
 
@@ -151,6 +212,9 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 	}
 	var draftModelArgument string
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
+		if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
+			return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
+		}
 		draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "DFlash Draft 模型")
 		if err != nil {
 			return m.status, err
@@ -253,7 +317,25 @@ func resolveModelFile(directory, relativePath, label string) (string, error) {
 }
 
 func (m *Manager) Stop(ctx context.Context) error {
+	return m.stop(ctx, true)
+}
+
+// Shutdown 僅停止本次應用程式的子程序，保留「下次啟動時恢復」旗標。
+func (m *Manager) Shutdown(ctx context.Context) error {
+	return m.stop(ctx, false)
+}
+
+func (m *Manager) stop(ctx context.Context, clearDesired bool) error {
 	m.mu.Lock()
+	if clearDesired {
+		previousDesired := m.status.DesiredRunning
+		m.status.DesiredRunning = false
+		if err := m.persistStatusLocked(false); err != nil {
+			m.status.DesiredRunning = previousDesired
+			m.mu.Unlock()
+			return fmt.Errorf("保存停止狀態失敗: %w", err)
+		}
+	}
 	if !m.status.Running || m.cmd == nil || m.cmd.Process == nil {
 		m.mu.Unlock()
 		return nil
@@ -285,6 +367,52 @@ func (m *Manager) Stop(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// Restore 在 Tanpopo 重新啟動時，依狀態檔重新載入上次仍在執行的模型。
+// 回傳 attempted=true 代表狀態檔要求恢復，即使恢復失敗亦然。
+func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, error)) (attempted bool, err error) {
+	saved := m.stateStore.Get()
+	if !saved.DesiredRunning {
+		return false, nil
+	}
+	command, err := resolveCommand(saved.StartupCommandID)
+	if err == nil && command.Runtime != saved.Runtime {
+		err = fmt.Errorf("啟動參數 Runtime 已由 %s 變更為 %s", saved.Runtime, command.Runtime)
+	}
+	if err == nil {
+		_, err = m.Start(saved.Model, saved.MMProj, saved.DraftModel, saved.DFlashEnabled, command)
+	}
+	if err == nil {
+		return true, nil
+	}
+
+	m.mu.Lock()
+	m.status.Running = false
+	m.status.DesiredRunning = false
+	m.status.PID = 0
+	m.status.LastError = "自動恢復失敗：" + err.Error()
+	m.status.StoppedAt = time.Now()
+	persistErr := m.persistStatusLocked(false)
+	m.mu.Unlock()
+	if persistErr != nil {
+		return true, fmt.Errorf("%v；另無法保存失敗狀態: %w", err, persistErr)
+	}
+	return true, err
+}
+
+func (m *Manager) persistStatusLocked(desiredRunning bool) error {
+	return m.stateStore.Save(persistedRuntimeState{
+		Version:            runtimeStateVersion,
+		DesiredRunning:     desiredRunning,
+		Runtime:            m.status.Runtime,
+		Model:              m.status.Model,
+		MMProj:             m.status.MMProj,
+		DraftModel:         m.status.DraftModel,
+		DFlashEnabled:      m.status.DFlashEnabled,
+		StartupCommandID:   m.status.StartupCommandID,
+		StartupCommandName: m.status.StartupCommandName,
+	})
 }
 
 func (m *Manager) Status() domain.LlamaStatus {
@@ -473,10 +601,17 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 		if err != nil {
 			return err
 		}
+		architecture, _ := readGGUFStringMetadata(path, "general.architecture")
+		architecture = normalizeModelArchitecture(architecture)
+		isDraft := architecture == "dflash"
 		result = append(result, domain.ModelFile{
-			Path:       filepath.ToSlash(relative),
-			Size:       info.Size(),
-			ModifiedAt: info.ModTime(),
+			Path:            filepath.ToSlash(relative),
+			Size:            info.Size(),
+			ModifiedAt:      info.ModTime(),
+			Architecture:    architecture,
+			DFlashSupported: !isDraft && isSupportedDFlashTargetArchitecture(architecture),
+			DFlashDraft:     isDraft,
+			DFlashVariant:   ggufDFlashVariant(entry.Name(), isDraft),
 		})
 		if len(result) >= 5000 {
 			return io.EOF
@@ -498,6 +633,39 @@ func ListMLXModels(directory string) ([]domain.ModelFile, error) {
 // Target 與 Draft 使用相同模型根目錄，但透過 role 分流避免 Draft 被誤選為主模型。
 func ListMLXDFlashModels(directory string) ([]domain.ModelFile, error) {
 	return listMLXModels(directory, true)
+}
+
+func normalizeModelArchitecture(architecture string) string {
+	return strings.ToLower(strings.TrimSpace(architecture))
+}
+
+func isSupportedDFlashTargetArchitecture(architecture string) bool {
+	switch normalizeModelArchitecture(architecture) {
+	case "qwen3", "qwen3moe", "qwen3_moe", "qwen35", "qwen35moe", "qwen3_5", "qwen3_5_moe":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGGUFDFlashDraft(path string) bool {
+	architecture, err := readGGUFStringMetadata(path, "general.architecture")
+	return err == nil && normalizeModelArchitecture(architecture) == "dflash"
+}
+
+func isSupportedGGUFDFlashTarget(path string) bool {
+	architecture, err := readGGUFStringMetadata(path, "general.architecture")
+	return err == nil && isSupportedDFlashTargetArchitecture(architecture)
+}
+
+func ggufDFlashVariant(filename string, isDraft bool) string {
+	if !isDraft {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(filename), "dflash2") {
+		return "dflash2"
+	}
+	return "dflash1"
 }
 
 func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error) {
@@ -531,11 +699,17 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 		if !isMLXModelDirectory(modelDirectory) {
 			return nil
 		}
+		configuration, configurationErr := readMLXModelConfiguration(modelDirectory)
+		if configurationErr != nil {
+			return nil
+		}
+		architecture := normalizeModelArchitecture(configuration.ModelType)
+		isDraft := isMLXDFlashDraftConfiguration(configuration)
 		if draftsOnly {
-			if !isSupportedMLXDFlashDraftDirectory(modelDirectory) {
+			if !isSupportedMLXDFlashDraftConfiguration(configuration) {
 				return filepath.SkipDir
 			}
-		} else if isMLXDFlashDraftDirectory(modelDirectory) {
+		} else if isDraft {
 			return filepath.SkipDir
 		}
 		relative, err := filepath.Rel(base, modelDirectory)
@@ -562,9 +736,13 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 			}
 		}
 		result = append(result, domain.ModelFile{
-			Path:       filepath.ToSlash(relative),
-			Size:       size,
-			ModifiedAt: modified,
+			Path:            filepath.ToSlash(relative),
+			Size:            size,
+			ModifiedAt:      modified,
+			Architecture:    architecture,
+			DFlashSupported: !isDraft && isSupportedDFlashTargetArchitecture(architecture),
+			DFlashDraft:     isDraft,
+			DFlashVariant:   mlxDFlashVariant(configuration),
 		})
 		if len(result) >= 5000 {
 			return io.EOF
@@ -606,9 +784,10 @@ func readMLXModelConfiguration(directory string) (mlxModelConfiguration, error) 
 
 func isMLXDFlashDraftDirectory(directory string) bool {
 	configuration, err := readMLXModelConfiguration(directory)
-	if err != nil {
-		return false
-	}
+	return err == nil && isMLXDFlashDraftConfiguration(configuration)
+}
+
+func isMLXDFlashDraftConfiguration(configuration mlxModelConfiguration) bool {
 	for _, architecture := range configuration.Architectures {
 		if architecture == "DFlashDraftModel" || architecture == "DFlash2DraftModel" {
 			return true
@@ -619,7 +798,16 @@ func isMLXDFlashDraftDirectory(directory string) bool {
 
 func isSupportedMLXDFlashDraftDirectory(directory string) bool {
 	configuration, err := readMLXModelConfiguration(directory)
-	if err != nil || configuration.ModelType != "qwen3" && configuration.ModelType != "qwen3_5" {
+	return err == nil && isSupportedMLXDFlashDraftConfiguration(configuration)
+}
+
+func isSupportedMLXDFlashTargetDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	return err == nil && !isMLXDFlashDraftConfiguration(configuration) && isSupportedDFlashTargetArchitecture(configuration.ModelType)
+}
+
+func isSupportedMLXDFlashDraftConfiguration(configuration mlxModelConfiguration) bool {
+	if !isSupportedDFlashTargetArchitecture(configuration.ModelType) {
 		return false
 	}
 	foundVariants := 0
@@ -653,6 +841,84 @@ func isSupportedMLXDFlashDraftDirectory(directory string) bool {
 		}
 	}
 	return true
+}
+
+func mlxDFlashVariant(configuration mlxModelConfiguration) string {
+	for _, architecture := range configuration.Architectures {
+		if architecture == "DFlash2DraftModel" {
+			return "dflash2"
+		}
+		if architecture == "DFlashDraftModel" {
+			return "dflash1"
+		}
+	}
+	return ""
+}
+
+func withoutDFlashArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		switch argument {
+		case "--model-draft", "--dflash-draft", "--dflash-block-size":
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		case "--spec-type":
+			if index+1 >= len(arguments) {
+				continue
+			}
+			index++
+			if value := withoutDFlashSpecType(arguments[index]); value != "" {
+				filtered = append(filtered, "--spec-type", value)
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--model-draft=") ||
+			strings.HasPrefix(argument, "--dflash-draft=") ||
+			strings.HasPrefix(argument, "--dflash-block-size=") {
+			continue
+		}
+		if strings.HasPrefix(argument, "--spec-type=") {
+			if value := withoutDFlashSpecType(strings.TrimPrefix(argument, "--spec-type=")); value != "" {
+				filtered = append(filtered, "--spec-type="+value)
+			}
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+func withoutDraftModelArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		if argument == "--model-draft" || argument == "--dflash-draft" {
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--model-draft=") || strings.HasPrefix(argument, "--dflash-draft=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+func withoutDFlashSpecType(value string) string {
+	values := strings.Split(value, ",")
+	filtered := values[:0]
+	for _, item := range values {
+		item = strings.TrimSpace(item)
+		if item != "" && !strings.EqualFold(item, "draft-dflash") {
+			filtered = append(filtered, item)
+		}
+	}
+	return strings.Join(filtered, ",")
 }
 
 func isMLXModelDirectory(directory string) bool {

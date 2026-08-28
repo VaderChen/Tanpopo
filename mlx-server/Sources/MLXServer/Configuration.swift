@@ -7,7 +7,7 @@ enum ModelKind: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.3.0-mlxswiftlm-3.31.4-dflash2"
+    static let version = "1.3.3-mlxswiftlm-3.31.4-dflash2"
 
     var modelPath = ""
     var host = "0.0.0.0"
@@ -187,7 +187,7 @@ struct ServerConfiguration: Sendable {
       --thinking                   強制開啟思考
       --no-thinking                強制關閉思考
       --openloader-access-control <檔案>
-                                   OpenLoader 金鑰與 IP 白名單策略快照
+                                   Tanpopo 金鑰與 IP 白名單策略快照
       --dflash-draft <模型目錄>    啟用原生 MLX DFlash 1／2（Qwen3／Qwen3.5）
       --dflash-block-size <數量>   DFlash block size，預設 5，且不超過訓練值
     """

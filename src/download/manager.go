@@ -319,7 +319,7 @@ func (m *Manager) fetchRepositoryInfo(ctx context.Context, request Request) (rep
 		return repositoryInfo{}, err
 	}
 	httpRequest.Header.Set("Accept", "application/json")
-	httpRequest.Header.Set("User-Agent", "LlamaLoader/1.0")
+	httpRequest.Header.Set("User-Agent", "Tanpopo/1.0")
 	if request.Token != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+request.Token)
 	}
@@ -541,7 +541,7 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 		return
 	}
 	httpRequest.Header.Set("Accept", "application/octet-stream")
-	httpRequest.Header.Set("User-Agent", "LlamaLoader/1.0")
+	httpRequest.Header.Set("User-Agent", "Tanpopo/1.0")
 	if request.Token != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+request.Token)
 	}

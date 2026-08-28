@@ -65,6 +65,8 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
     private let accessControl: RuntimeAccessControl
     private let maximumRequestBytes: Int
     private var state: RequestState?
+    private var requestTask: Task<Void, Never>?
+    private var responseStreamTask: Task<Void, Never>?
 
     init(router: APIRouter, accessControl: RuntimeAccessControl, maximumRequestBytes: Int) {
         self.router = router
@@ -94,12 +96,16 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
             // 擷取純值與 thread-safe Channel，再把模型工作交給 MainActor。
             let channel = context.channel
             let remoteAddress = channel.remoteAddress?.ipAddress
-            Task { @MainActor in
+            requestTask?.cancel()
+            requestTask = Task { @MainActor in
                 let response = await self.process(
                     current,
                     remoteAddress: remoteAddress
                 )
+                guard !Task.isCancelled else { return }
                 channel.eventLoop.execute {
+                    self.requestTask = nil
+                    guard channel.isActive else { return }
                     self.write(
                         response,
                         version: current.head.version,
@@ -108,6 +114,21 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
                 }
             }
         }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        requestTask?.cancel()
+        requestTask = nil
+        responseStreamTask?.cancel()
+        responseStreamTask = nil
+        context.fireChannelInactive()
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) {
+        requestTask?.cancel()
+        requestTask = nil
+        responseStreamTask?.cancel()
+        responseStreamTask = nil
     }
 
     private func process(
@@ -162,24 +183,24 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         var status = 503
         var code = "access_control_unavailable"
         var type = "server_error"
-        var message = "OpenLoader 安全策略暫時無法使用。"
+        var message = "Tanpopo 安全策略暫時無法使用。"
         if decision == .invalidAPIKey {
             status = 401
             code = "invalid_api_key"
             type = "authentication_error"
-            message = "OpenLoader API 金鑰無效或未提供。"
+            message = "Tanpopo API 金鑰無效或未提供。"
         } else if decision == .ipNotAllowed {
             status = 403
             code = "ip_not_allowed"
             type = "permission_error"
-            message = "目前來源 IP 不在 OpenLoader 白名單。"
+            message = "目前來源 IP 不在 Tanpopo 白名單。"
         }
         var response = HTTPResponse.json(status: status, object: [
             "error": ["message": message, "type": type, "code": code]
         ])
         response.headers.append(("Cache-Control", "no-store"))
         if decision == .invalidAPIKey {
-            response.headers.append(("WWW-Authenticate", "Bearer realm=\"OpenLoader Model API\""))
+            response.headers.append(("WWW-Authenticate", "Bearer realm=\"Tanpopo Model API\""))
         }
         return response
     }
@@ -196,14 +217,49 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         for (name, value) in response.headers {
             head.headers.add(name: name, value: value)
         }
-        head.headers.add(name: "Content-Length", value: String(response.body.count))
-        head.headers.add(name: "Connection", value: "keep-alive")
-        channel.write(HTTPServerResponsePart.head(head), promise: nil)
-        if !response.body.isEmpty {
-            var buffer = channel.allocator.buffer(capacity: response.body.count)
-            buffer.writeBytes(response.body)
-            channel.write(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
+        switch response.body {
+        case .data(let body):
+            head.headers.add(name: "Content-Length", value: String(body.count))
+            head.headers.add(name: "Connection", value: "keep-alive")
+            channel.write(HTTPServerResponsePart.head(head), promise: nil)
+            if !body.isEmpty {
+                var buffer = channel.allocator.buffer(capacity: body.count)
+                buffer.writeBytes(body)
+                channel.write(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
+            }
+            channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
+        case .stream(let stream):
+            head.headers.add(name: "Transfer-Encoding", value: "chunked")
+            head.headers.add(name: "Connection", value: "keep-alive")
+            channel.writeAndFlush(HTTPServerResponsePart.head(head), promise: nil)
+            responseStreamTask?.cancel()
+            responseStreamTask = Task {
+                do {
+                    for try await data in stream {
+                        try Task.checkCancellation()
+                        guard channel.isActive else { break }
+                        if data.isEmpty { continue }
+                        var buffer = channel.allocator.buffer(capacity: data.count)
+                        buffer.writeBytes(data)
+                        try await channel.writeAndFlush(
+                            HTTPServerResponsePart.body(.byteBuffer(buffer))
+                        ).get()
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    if channel.isActive {
+                        var buffer = channel.allocator.buffer(capacity: 128)
+                        buffer.writeString("data: {\"error\":{\"message\":\"stream interrupted\"}}\n\n")
+                        try? await channel.writeAndFlush(
+                            HTTPServerResponsePart.body(.byteBuffer(buffer))
+                        ).get()
+                    }
+                }
+                if channel.isActive {
+                    try? await channel.writeAndFlush(HTTPServerResponsePart.end(nil)).get()
+                }
+            }
         }
-        channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
     }
 }

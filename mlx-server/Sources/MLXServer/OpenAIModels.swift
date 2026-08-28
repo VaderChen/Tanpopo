@@ -1,4 +1,5 @@
 import Foundation
+import MLXLMCommon
 
 struct ChatCompletionRequest: Decodable, Sendable {
     var model: String?
@@ -10,6 +11,8 @@ struct ChatCompletionRequest: Decodable, Sendable {
     var stream: Bool?
     var stop: StopValue?
     var seed: UInt64?
+    var tools: [[String: JSONValue]]?
+    var toolChoice: ToolChoice?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -21,6 +24,74 @@ struct ChatCompletionRequest: Decodable, Sendable {
         case stream
         case stop
         case seed
+        case tools
+        case toolChoice = "tool_choice"
+    }
+
+    var toolSpecs: [ToolSpec]? {
+        guard let tools, !tools.isEmpty else { return nil }
+        return tools.map { tool in
+            tool.mapValues(\.openAISendableValue)
+        }
+    }
+}
+
+enum ToolChoice: Decodable, Sendable {
+    case auto
+    case none
+    case required
+    case function(String)
+
+    private struct FunctionChoice: Decodable {
+        var type: String?
+        var function: NamedFunction
+    }
+
+    private struct NamedFunction: Decodable {
+        var name: String
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(String.self) {
+            switch value.lowercased() {
+            case "none": self = .none
+            case "required": self = .required
+            default: self = .auto
+            }
+            return
+        }
+        let choice = try container.decode(FunctionChoice.self)
+        self = .function(choice.function.name)
+    }
+
+    var disablesTools: Bool {
+        if case .none = self { return true }
+        return false
+    }
+
+    var requiredInstruction: String? {
+        switch self {
+        case .required:
+            return "You must call at least one of the provided tools. Do not answer directly."
+        case .function(let name):
+            return "You must call the provided tool named \"\(name)\". Do not answer directly."
+        case .auto, .none:
+            return nil
+        }
+    }
+
+    var templateValue: any Sendable {
+        switch self {
+        case .auto: return "auto"
+        case .none: return "none"
+        case .required: return "required"
+        case .function(let name):
+            return [
+                "type": "function",
+                "function": ["name": name] as [String: any Sendable]
+            ] as [String: any Sendable]
+        }
     }
 }
 
@@ -50,7 +121,41 @@ struct CompletionRequest: Decodable, Sendable {
 
 struct InputMessage: Decodable, Sendable {
     var role: String
-    var content: MessageContent
+    var content: MessageContent?
+    var toolCalls: [InputToolCall]?
+    var toolCallID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case toolCalls = "tool_calls"
+        case toolCallID = "tool_call_id"
+    }
+}
+
+struct InputToolCall: Decodable, Sendable {
+    struct Function: Decodable, Sendable {
+        var name: String
+        var arguments: String
+    }
+
+    var id: String?
+    var type: String?
+    var function: Function
+
+    func mlxToolCall() throws -> ToolCall {
+        let data = Data(function.arguments.utf8)
+        let arguments: [String: JSONValue]
+        if function.arguments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments = [:]
+        } else {
+            arguments = try JSONDecoder().decode([String: JSONValue].self, from: data)
+        }
+        return ToolCall(
+            function: .init(name: function.name, arguments: arguments),
+            id: id
+        )
+    }
 }
 
 enum MessageContent: Decodable, Sendable {
@@ -145,13 +250,31 @@ struct GenerationOptions: Sendable {
     var topP: Float?
     var stops: [String]
     var seed: UInt64?
+    var tools: [ToolSpec]?
+    var toolChoice: ToolChoice?
 }
 
 struct GenerationResult: Sendable {
     var text: String
     var promptTokens: Int
     var completionTokens: Int
+    var tokensPerSecond: Double
     var finishReason: String
+    var toolCalls: [ToolCall]
+}
+
+private extension JSONValue {
+    var openAISendableValue: any Sendable {
+        switch self {
+        case .null: NSNull()
+        case .bool(let value): value
+        case .int(let value): value
+        case .double(let value): value
+        case .string(let value): value
+        case .array(let values): values.map(\.openAISendableValue)
+        case .object(let values): values.mapValues(\.openAISendableValue)
+        }
+    }
 }
 
 enum APIError: LocalizedError {

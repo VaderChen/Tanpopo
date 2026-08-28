@@ -1,37 +1,53 @@
-# OpenLoader
+# Tanpopo
 
-`OpenLoader` 是一個以 Go 實作的本機模型服務管理器；目前為相容既有部署，服務執行檔名稱仍為 `LlamaLoader`。管理介面提供簡單登入與模型服務管理；`llama-server` 維持跨平台與 GGUF 高相容性，Apple Silicon 另提供原生 Swift／MLX 的 `mlx-server`，支援文生文與多模態模型，兩種 Runtime 共用啟動、停止、狀態與日誌介面。
+[繁體中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+
+`Tanpopo` 是一個以 Go 實作的本機模型服務管理器；名稱取自日語「蒲公英（たんぽぽ）」，象徵模型把生成的 Token 像種子般向外散發。管理介面提供簡單登入、模型服務管理與暫存式簡易對話；`llama-server` 維持跨平台與 GGUF 高相容性，Apple Silicon 另提供原生 Swift／MLX 的 `mlx-server`，支援文生文與多模態模型。
 
 ## 主要功能
 
-- 本機帳號密碼登入；帳號與密碼只定義在 `agent.properties`，不建立使用者資料庫。
+- 本機帳號密碼登入；預設為 `root / root`，可在環境設定即時修改或經確認後關閉登入驗證，不建立使用者資料庫。
 - llama-server 與 mlx-server Runtime 由部署包自動安裝、解析與版本管理，不需設定執行檔目錄。
 - GGUF 模型目錄預設為 `~/services/models`，MLX 模型目錄預設為 `~/services/mlx-models`，兩者都可在環境設定調整。
 - 支援 Hugging Face 公開、gated 與 private repository 的 GGUF 單檔或完整 MLX 模型下載。
 - 下載工作在背景執行，管理畫面會顯示佇列、位元組數與進度。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄。
 - 執行狀態頁依所選 Runtime 提供支援模型下拉清單，不接受任意模型路徑。
+- 執行狀態頁提供預設關閉的 DFlash 開關；不支援的 Target 會禁用開關，勾選時會即時重新掃描並檢查配對 Draft。
 - 環境設定提供服務主機目錄瀏覽器，可由 Home、檔案系統或掛載磁碟選擇 GGUF／MLX 模型目錄，不需要作業系統 Automation 權限或外部工具。
 - 可建立多組啟動參數並指定 `llama-server` 或 `mlx-server` Runtime，執行時才與選定模型動態組合。
 - 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
-- llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 OpenLoader 安全策略快照驗證請求，不增加反向代理層。
+- 成功啟動後會保存 Runtime、Profile、模型、mmproj 與 DFlash 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
+- 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning 或 `<think>` 區段時，會與最終回答分開顯示，等待生成時提供三點跳動狀態，完成後顯示輸入／輸出 Token 與每秒輸出 Token 數。
+- 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
+- llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 Tanpopo 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
 - 設定保存採原子替換；Hugging Face Token 與模型 API 金鑰不會由設定 API 回傳明文。
+- macOS 圖形工作階段會以原生 AppKit／WKWebView 視窗載入管理介面，不啟動外部瀏覽器；可啟用常駐模式，在系統選單列重新顯示視窗或完整結束服務。Linux、SSH 與 headless 工作階段維持 Shell 模式。
 
 ## 快速啟動
 
 開發模式需要 Go 1.25 以上、CMake 與 C/C++ 工具鏈；建立 mlx-server 另需 Swift 6／Xcode。部署包會攜帶固定版本的 `llama-server` 與 Apple Silicon `mlx-server` Runtime，不需要另外下載 llama.cpp、MLX Server 或 Python。
 
 ```bash
-cd /path/to/OpenLoader
+cd /path/to/Tanpopo
 ./run.command
 ```
 
-`run.command` 會先檢查目前平台的開發用 Runtime。版本相符時直接沿用；缺少或版本不符時，會由專案內鎖定的原始碼編譯 `llama-server`，Apple Silicon 也會一併編譯 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime。如需強制重編兩個 Runtime，可執行：
+`run.command` 會先檢查目前平台的開發用 Runtime。版本相符時直接沿用；缺少或版本不符時，會由專案內鎖定的原始碼編譯 `llama-server`，Apple Silicon 也會一併編譯 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime。
+
+在本機 macOS 圖形登入工作階段，服務開始監聽後會自動彈出原生管理視窗，載入目前 Session 對應的登入頁或主畫面，不會呼叫 Safari、Chrome 等外部瀏覽器。環境設定的「常駐」預設關閉；切換開關時會立即獨立保存，開啟後 Tanpopo 會出現在系統選單列，關閉視窗只會隱藏 UI，Go Service 與模型 Runtime 繼續在後台執行。可從選單列重新顯示視窗，或選擇「結束 Tanpopo」完整停止服務。常駐關閉時，關閉視窗仍會正常停止 Go Service。Linux、SSH、無圖形登入工作階段及其他未提供原生 UI 的平台，會維持現有 Shell 前景執行方式。可用環境變數明確覆寫模式：
 
 ```bash
-LLAMA_LOADER_REBUILD_RUNTIMES=1 ./run.command
+TANPOPO_UI=shell ./run.command  # 強制 Shell
+TANPOPO_UI=gui ./run.command    # 支援平台強制開啟原生視窗
+```
+
+如需強制重編兩個模型 Runtime，可執行：
+
+```bash
+TANPOPO_REBUILD_RUNTIMES=1 ./run.command
 ```
 
 首次啟動會由 `agent.sample.properties` 建立 `agent.properties`。管理服務預設監聽 `0.0.0.0:10082`，本機可使用：
@@ -45,11 +61,11 @@ http://127.0.0.1:10082
 預設登入資料：
 
 ```text
-帳號：admin
-密碼：change-me
+帳號：root
+密碼：root
 ```
 
-正式使用前請先停止服務，修改 `agent.properties` 的 `default_account` 與 `default_pwd`，再重新啟動。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元；這兩個欄位只由本機設定檔讀取，修改後需要重新啟動服務。
+可在「環境設定」即時修改管理帳號與密碼；保存後會撤銷所有既有 Session，並要求使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用瀏覽工作階段 Cookie；勾選後才會依 `session_hours` 建立持久 Cookie。兩種模式都只保存隨機 Session Token，不會把帳號或密碼寫入網站儲存空間。已登入的使用者也可切換登入開關，確認警告後會立即把停用狀態原子寫入 `agent.properties`，不必再輸入目前密碼或按另一個儲存按鈕；原帳密仍會保留供日後重新啟用。登入驗證關閉時，能連線至管理服務的使用者都可直接操作管理功能。
 
 ## llama-server Runtime
 
@@ -73,7 +89,7 @@ Runtime 位置不再由管理介面設定。後端會依序從部署包內的預
 <開發專案>/llama-runtime/prebuilt/<platform>/bin/llama-server
 ```
 
-啟動模型時，OpenLoader 會把 Profile、模型與安全策略快照路徑動態組合後，直接讓 llama-server 監聽 Profile 指定的 Host／Port。實際命令概念如下：
+啟動模型時，Tanpopo 會把 Profile、模型與安全策略快照路徑動態組合後，直接讓 llama-server 監聽 Profile 指定的 Host／Port。實際命令概念如下：
 
 ```bash
 llama-server \
@@ -86,7 +102,7 @@ llama-server \
   --openloader-access-control <安全策略快照>
 ```
 
-對外 API URL 直接使用 Profile 設定，例如 `http://<主機 IP>:8080`；一般 HTTP、OpenAI 相容 API 與 SSE 回應都由 llama-server 直接處理。
+對外 Runtime 直接使用 Profile 設定的 Host 與 Port；執行狀態頁會顯示並可複製 OpenAI 相容 Base URL，例如 `http://<主機 IP>:8080/v1`。一般 HTTP、OpenAI 相容 API 與 SSE 回應都由 llama-server 直接處理。
 
 管理介面的「啟動命令」可保存多組參數 Profile。執行狀態頁選定 Profile 與 GGUF 後，Go 後端才會動態組合命令列並直接啟動 `llama-server`，不會產生或執行 `.sh`。Profile 的「額外參數」採每行一個 argument，例如：
 
@@ -97,7 +113,7 @@ llama-server \
 
 多模態模型可在執行狀態頁另外選擇檔名含 `mmproj` 的 GGUF。後端會在模型目錄內安全解析檔案路徑，並於啟動時加入 `--mmproj <完整路徑>`；純文字模型可保留「不使用 mmproj」。詳細行為請參考 [llama.cpp 多模態說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)。
 
-內建 Profile 的 Context Size 均為 256K（`262144`）。KV Cache Profile 使用 `--cache-type-k` 與 `--cache-type-v`；「強制關閉思考」同時設定 `--reasoning off`、`--reasoning-budget 0` 與 `--jinja`；MTP 使用主模型內建的 MTP heads，不需要 Draft GGUF；DFlash 則必須在 Profile 的「Draft GGUF」欄位選擇與主模型相容的草稿模型，啟動時後端會自動加入 `--model-draft`。參數格式以 [llama-server 選項](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)與 [llama.cpp speculative decoding 說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md)為準。
+內建 Profile 的 Context Size 均為 256K（`262144`）。KV Cache Profile 使用 `--cache-type-k` 與 `--cache-type-v`；「強制關閉思考」同時設定 `--reasoning off`、`--reasoning-budget 0` 與 `--jinja`；MTP 使用主模型內建的 MTP heads，不需要 Draft GGUF。DFlash 由執行狀態頁的獨立開關控制，預設關閉；勾選後才會把配對的 Draft 與 Target 動態組合，llama-server 會加入 `--model-draft` 與 `--spec-type draft-dflash`。若 Draft 不存在，畫面會取消勾選並提示前往「模型下載」；啟動時後端仍會再次驗證路徑與架構。參數格式以 [llama-server 選項](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)與 [llama.cpp speculative decoding 說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md)為準。
 
 ## mlx-server Runtime
 
@@ -115,20 +131,23 @@ API 提供 OpenAI／llama-server 常用相容端點：
 
 ```text
 GET  /health
+GET  /v1/health
 GET  /props
+GET  /models
 GET  /v1/models
+POST /chat/completions
 POST /v1/chat/completions
 POST /v1/completions
 POST /completion
 ```
 
-`/v1/chat/completions` 支援 OpenAI 格式的文字 content，以及 `image_url` 多模態 content parts。`stream: true` 會回傳合法 SSE 相容回應；目前生成完成後一次送出內容，不保證逐 Token 即時傳輸。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
+`/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts，以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 會在生成期間逐 Token 輸出 OpenAI 相容 SSE；客戶端關閉串流或取消請求時，SwiftNIO Channel 會立即取消對應的 MLX 生成 Task，不會等待整段回答生成完畢。`/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
 
 內建 MLX Profile 包含一般、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。一般 MLX Profile 的 Context Size 預設 256K，由 Go 後端轉成 `--max-kv-size 262144`。常用原生參數包含 `--kv-bits`、`--kv-group-size`、`--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 
 ### 原生 MLX DFlash 1／2
 
-MLX DFlash 是直接整合在 Swift Runtime 與專案內維護的 `mlx-swift-lm 3.31.4` fork，不會呼叫 Python。Target 與 Draft 都放在可設定的 MLX 模型根目錄下；在「啟動命令」選擇 MLX DFlash Profile 後，再於「DFlash Draft 模型目錄」選擇與 Target 配對的 Draft。實際啟動時後端才會解析安全的相對路徑並加入：
+MLX DFlash 是直接整合在 Swift Runtime 與專案內維護的 `mlx-swift-lm 3.31.4` fork，不會呼叫 Python。Target 與 Draft 都放在可設定的 MLX 模型根目錄下；執行狀態頁會依 Target 架構啟用或禁用 DFlash 開關，勾選後才會選取與 Target 配對的 Draft。實際啟動時後端才會解析安全的相對路徑並加入：
 
 ```text
 --dflash-draft <Draft 模型完整目錄>
@@ -224,19 +243,21 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `agent.properties`
 
-服務進入點與本機登入資料，修改後需重新啟動：
+服務進入點與本機登入資料。網路與檔案路徑設定修改後需重新啟動；管理帳密與登入開關可由環境設定即時套用：
 
 ```json
 {
-  "service_name": "Llama Loader",
+  "service_name": "Tanpopo",
   "http_host": "0.0.0.0",
   "http_port": 10082,
   "web_path": "./website",
   "settings_path": "./data/settings.json",
   "startup_commands_path": "./data/startup_commands.json",
   "access_control_path": "./data/access_control.json",
-  "default_account": "admin",
-  "default_pwd": "change-me",
+  "runtime_state_path": "./data/runtime_state.json",
+  "default_account": "root",
+  "default_pwd": "root",
+  "disable_authentication": false,
   "session_hours": 24
 }
 ```
@@ -253,15 +274,20 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 保存模型 API 的金鑰開關、IP 白名單、金鑰名稱與 SHA-256 雜湊，檔案權限為 `0600`。金鑰明文不會寫入檔案，也不會由查詢 API 回傳。llama-server 與 mlx-server 只讀取這份快照，不會呼叫管理服務核對單一請求。既有安裝不需手動建立，首次啟動新版服務時會自動產生。
 
+### `data/runtime_state.json`
+
+保存最後選定的 Runtime、模型相對名稱、啟動參數 ID、mmproj 與 DFlash 狀態，不保存本機模型根目錄、Runtime 二進位檔位置或任何金鑰。模型服務成功啟動後會標記為下次需恢復；關閉 Tanpopo 時只停止子程序並保留旗標，因此恢復流程不需要先登入管理介面。使用者在執行狀態頁按下「停止服務」時則會清除恢復旗標。若模型或啟動參數已不存在，自動恢復會停止並記錄可診斷錯誤，避免每次啟動重複失敗。
+
 ## REST API
 
-除健康檢查、登入與 Session 狀態外，其餘 API 都需要已登入的 Session Cookie。
+啟用管理介面登入時，除健康檢查、登入與 Session 狀態外，其餘 API 都需要已登入的 Session Cookie；關閉登入驗證時則可直接使用管理 API。
 
 | Method | Path | 用途 |
 | --- | --- | --- |
 | `GET` | `/api/health` | 服務健康檢查 |
 | `POST` | `/api/login` | 使用本機設定帳密登入 |
 | `POST` | `/api/logout` | 清除目前 Session |
+| `GET/PUT` | `/api/admin-credentials` | 查詢登入狀態或更新管理帳密與登入開關；不回傳密碼明文 |
 | `GET/PUT` | `/api/settings` | 讀取或保存模型目錄與 Hugging Face 設定 |
 | `GET/PUT` | `/api/access-control` | 讀取或保存模型 API 金鑰／IP 白名單策略 |
 | `POST` | `/api/access-control/keys` | 核發模型 API 金鑰；明文只在此回應一次 |
@@ -289,7 +315,9 @@ src/download/         Hugging Face 背景下載與進度
 src/llamacpp/         模型掃描與 llama-server／mlx-server 程序管理
 src/domain/           共用資料型別
 src/directorybrowser/ 服務主機目錄瀏覽資料
-scripts/              llama-server／mlx-server 原生建置工具
+src/desktopui/        GUI 工作階段偵測與原生視窗程序管理
+desktop-ui/           macOS AppKit／WKWebView 原生 UI 原始碼
+scripts/              llama-server／mlx-server／原生 UI 建置工具
 llama-server/         鎖定版本、只供建置 llama-server 的精簡 llama.cpp 原始碼
 llama-runtime/        預編譯 Runtime 暫存與封裝規格
 mlx-server/            Swift／MLX 相容 API Server 與鎖定的 mlx-swift-lm fork
@@ -299,7 +327,7 @@ website/              登入與主畫面靜態資源
 
 ## 授權
 
-OpenLoader 中由專案著作權人擁有的原創程式碼採雙軌授權，適用範圍見 [`LICENSE-NOTICE.md`](LICENSE-NOTICE.md)：
+Tanpopo 中由專案著作權人擁有的原創程式碼採雙軌授權，適用範圍見 [`LICENSE-NOTICE.md`](LICENSE-NOTICE.md)：
 
 - 開放原始碼：GNU General Public License v3.0 or later（GPL-3.0-or-later），完整條款見 [`LICENSE`](LICENSE)。
 - 商業授權：不適合採用 GPL 的使用情境，可另行洽談書面商業授權，詳見 [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)。
@@ -314,7 +342,7 @@ OpenLoader 中由專案著作權人擁有的原創程式碼採雙軌授權，適
 ./scripts/build-llama-server-runtime.sh \
   ./llama-server \
   ./llama-runtime/prebuilt/darwin-arm64 \
-  custom-4e97ac86ebe2-openloader.2
+  custom-4e97ac86ebe2-openloader.3
 ```
 
 Linux x64 使用相同命令，但輸出位置改為 `./llama-runtime/prebuilt/linux-amd64`。已有預編譯檔時，其 `VERSION` 必須與內建原始碼版本一致。若封裝主機沒有其他平台的預編譯檔，該平台不會造成封裝失敗；部署包仍會攜帶完整精簡原始碼，並在安裝到該平台時原生編譯。封裝時也可以指定自訂原始碼與鎖定版本：
@@ -330,7 +358,7 @@ LLAMA_CPP_SOURCE_DIR=/path/to/our-llama.cpp \
 LLAMA_SERVER_VERSION=b12345-custom.1 \
 ./build.sh
 
-./bin/LlamaLoader
+./bin/Tanpopo
 ```
 
 `build.sh` 只會建置及收集 `llama-server` target，不會執行 Git 或更新 llama.cpp。內建快照目前鎖定官方 commit `4e97ac86ebe2c4cb8212d98d2641ad6768810896`，包含 `qwen35` 與 `qwen35moe` 架構支援。封裝內容會排除 `.git`、文件、測試、範例、既有 build 目錄等開發檔案，但保留建置 `llama-server` 所需的 `ggml`、`common`、`tools/server`、`tools/mtmd`、UI 載入器、CMake 與相依原始碼。依先前約定，部署 ZIP 由維護者需要時自行執行 `build.command` 產生。
@@ -342,7 +370,7 @@ LLAMA_SERVER_VERSION=b12345-custom.1 \
 執行檔仍需能讀取工作目錄下的 `agent.sample.properties` 與 `website/`。如由其他目錄啟動，可使用參數指定設定範本：
 
 ```bash
-./bin/LlamaLoader \
+./bin/Tanpopo \
   -config /path/to/agent.properties \
   -sample-config /path/to/agent.sample.properties
 ```

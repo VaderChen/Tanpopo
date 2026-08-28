@@ -1,12 +1,34 @@
 (() => {
-  const { api, byId, showMessage, formatTime } = window.LlamaLoader;
+  const { api, byId, showMessage, formatTime, setLanguage } = window.LlamaLoader;
   const directoryState = { inputID: "", path: "", parent: "" };
   let accessControlState = { policy: {}, keys: [] };
+  let adminCredentialsState = { authenticationEnabled: true, account: "root" };
+  let disableAuthenticationConfirmed = false;
+
+  function updateResidentModeLabel() {
+    byId("residentModeLabel").textContent = byId("residentMode").checked ? "啟用" : "關閉";
+  }
+
+  function notifyNativeResidentMode(enabled) {
+    try {
+      window.webkit?.messageHandlers?.tanpopoNative?.postMessage({
+        type: "resident-mode",
+        enabled: Boolean(enabled)
+      });
+    } catch (_error) {
+      // 一般瀏覽器沒有 WKWebView bridge；設定仍會由後端正常保存。
+    }
+  }
 
   async function loadSettings() {
     const settings = await api("/api/settings");
+    byId("uiLanguage").value = settings.ui_language || "auto";
+    setLanguage(byId("uiLanguage").value);
     byId("modelDirectory").value = settings.model_directory || "";
     byId("mlxModelDirectory").value = settings.mlx_model_directory || "";
+    byId("residentMode").checked = Boolean(settings.resident_mode);
+    updateResidentModeLabel();
+    notifyNativeResidentMode(settings.resident_mode);
     byId("hfEndpoint").value = settings.huggingface_endpoint || "";
     byId("defaultRevision").value = settings.default_revision || "main";
     byId("hfToken").value = "";
@@ -15,6 +37,42 @@
     byId("tokenState").textContent = settings.huggingface_token_set
       ? "清除已保存的 Token"
       : "目前沒有保存 Token";
+  }
+
+  function updateAdminCredentialFields() {
+    const enabled = byId("authenticationEnabled").checked;
+    const wasEnabled = adminCredentialsState.authenticationEnabled;
+    byId("currentAdminPassword").disabled = !wasEnabled;
+    byId("currentAdminPassword").required = wasEnabled;
+    byId("newAdminPassword").required = !wasEnabled && enabled;
+    byId("confirmAdminPassword").required = !wasEnabled && enabled;
+    byId("authenticationEnabledLabel").textContent = enabled ? "啟用" : "關閉";
+    byId("adminCredentialsHint").textContent = enabled
+      ? (wasEnabled
+        ? "變更帳號或密碼後，所有既有登入工作階段都會失效。"
+        : "重新啟用登入時必須設定新密碼；保存後請以新帳密登入。")
+      : "登入驗證關閉後，不需帳號密碼即可進入管理介面；原帳密會保留供日後重新啟用。";
+  }
+
+  async function loadAdminCredentials() {
+    const credentials = await api("/api/admin-credentials");
+    adminCredentialsState = {
+      authenticationEnabled: Boolean(credentials.authentication_enabled),
+      account: credentials.account || "root"
+    };
+    byId("adminAccount").value = adminCredentialsState.account;
+    byId("authenticationEnabled").checked = adminCredentialsState.authenticationEnabled;
+    byId("currentAdminPassword").value = "";
+    byId("newAdminPassword").value = "";
+    byId("confirmAdminPassword").value = "";
+    disableAuthenticationConfirmed = false;
+    updateAdminCredentialFields();
+  }
+
+  function confirmDisableAuthentication() {
+    return window.confirm(
+      "確定關閉管理介面登入驗證？\n\n關閉後，能連線到 Tanpopo 的使用者不需帳號密碼即可操作所有管理功能。"
+    );
   }
 
   function securityModeText() {
@@ -181,6 +239,33 @@
   byId("selectMLXModelDirectory").addEventListener("click", () => {
     openDirectoryBrowser("mlxModelDirectory");
   });
+  byId("uiLanguage").addEventListener("change", () => {
+    setLanguage(byId("uiLanguage").value);
+  });
+  byId("residentMode").addEventListener("change", async () => {
+    const toggle = byId("residentMode");
+    const requested = toggle.checked;
+    toggle.disabled = true;
+    updateResidentModeLabel();
+    try {
+      const settings = await api("/api/settings/resident-mode", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: requested })
+      });
+      toggle.checked = Boolean(settings.resident_mode);
+      updateResidentModeLabel();
+      notifyNativeResidentMode(settings.resident_mode);
+      showMessage(settings.resident_mode
+        ? "常駐模式已啟用，可從系統選單列重新開啟視窗"
+        : "常駐模式已關閉，關閉視窗將停止服務");
+    } catch (error) {
+      toggle.checked = !requested;
+      updateResidentModeLabel();
+      showMessage(error.message, "error");
+    } finally {
+      toggle.disabled = false;
+    }
+  });
 
   byId("directoryParentButton").addEventListener("click", () => {
     if (directoryState.parent) loadDirectory(directoryState.parent);
@@ -215,6 +300,8 @@
         body: JSON.stringify({
           model_directory: byId("modelDirectory").value.trim(),
           mlx_model_directory: byId("mlxModelDirectory").value.trim(),
+          resident_mode: byId("residentMode").checked,
+          ui_language: byId("uiLanguage").value,
           huggingface_endpoint: byId("hfEndpoint").value.trim(),
           huggingface_token: byId("hfToken").value.trim(),
           clear_huggingface_token: byId("clearHFToken").checked,
@@ -224,6 +311,103 @@
       await loadSettings();
       message.textContent = "設定已保存。";
       showMessage("設定已保存");
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  byId("authenticationEnabled").addEventListener("change", async () => {
+    const toggle = byId("authenticationEnabled");
+    const message = byId("adminCredentialsMessage");
+    if (!adminCredentialsState.authenticationEnabled || toggle.checked) {
+      disableAuthenticationConfirmed = false;
+      updateAdminCredentialFields();
+      return;
+    }
+
+    disableAuthenticationConfirmed = confirmDisableAuthentication();
+    if (!disableAuthenticationConfirmed) {
+      toggle.checked = true;
+      updateAdminCredentialFields();
+      return;
+    }
+
+    toggle.disabled = true;
+    message.textContent = "正在關閉登入驗證…";
+    updateAdminCredentialFields();
+    try {
+      await api("/api/admin-credentials", {
+        method: "PUT",
+        body: JSON.stringify({
+          account: adminCredentialsState.account,
+          current_password: "",
+          password: "",
+          authentication_enabled: false,
+          disable_authentication_confirmed: true
+        })
+      });
+      await loadAdminCredentials();
+      byId("logoutButton").hidden = true;
+      message.textContent = "登入驗證已關閉並保存。";
+      showMessage("管理介面已改為不需登入");
+    } catch (error) {
+      toggle.checked = true;
+      disableAuthenticationConfirmed = false;
+      message.textContent = error.message;
+      showMessage(error.message, "error");
+      updateAdminCredentialFields();
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+
+  byId("adminCredentialsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const authenticationEnabled = byId("authenticationEnabled").checked;
+    const newPassword = byId("newAdminPassword").value;
+    const confirmPassword = byId("confirmAdminPassword").value;
+    const button = byId("saveAdminCredentialsButton");
+    const message = byId("adminCredentialsMessage");
+
+    if (newPassword !== confirmPassword) {
+      message.textContent = "新密碼與確認密碼不一致。";
+      byId("confirmAdminPassword").focus();
+      return;
+    }
+    if (adminCredentialsState.authenticationEnabled && !authenticationEnabled && !disableAuthenticationConfirmed) {
+      disableAuthenticationConfirmed = confirmDisableAuthentication();
+      if (!disableAuthenticationConfirmed) {
+        byId("authenticationEnabled").checked = true;
+        updateAdminCredentialFields();
+        return;
+      }
+    }
+
+    button.disabled = true;
+    message.textContent = "";
+    try {
+      const result = await api("/api/admin-credentials", {
+        method: "PUT",
+        body: JSON.stringify({
+          account: byId("adminAccount").value,
+          current_password: byId("currentAdminPassword").value,
+          password: newPassword,
+          authentication_enabled: authenticationEnabled,
+          disable_authentication_confirmed: disableAuthenticationConfirmed
+        })
+      });
+      if (result.authentication_enabled) {
+        message.textContent = "登入設定已保存，正在返回登入頁面…";
+        showMessage("登入設定已保存，請重新登入");
+        window.setTimeout(() => location.replace("/login.html"), 500);
+        return;
+      }
+      await loadAdminCredentials();
+      byId("logoutButton").hidden = true;
+      message.textContent = "登入驗證已關閉。";
+      showMessage("管理介面已改為不需登入");
     } catch (error) {
       message.textContent = error.message;
     } finally {
@@ -300,5 +484,6 @@
   });
   byId("dismissIssuedKeyButton").addEventListener("click", hideIssuedKey);
 
-  Promise.all([loadSettings(), loadAccessControl()]).catch((error) => showMessage(error.message, "error"));
+  Promise.all([loadSettings(), loadAdminCredentials(), loadAccessControl()])
+    .catch((error) => showMessage(error.message, "error"));
 })();

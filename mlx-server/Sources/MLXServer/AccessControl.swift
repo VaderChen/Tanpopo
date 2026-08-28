@@ -9,14 +9,14 @@ enum RuntimeAccessDecision: Sendable {
     case policyUnavailable
 }
 
-/// Runtime-local access control. OpenLoader writes the snapshot; mlx-server
+/// Runtime-local access control. Tanpopo writes the snapshot; mlx-server
 /// periodically reloads it and authorizes requests without proxying to Go.
 final class RuntimeAccessControl: @unchecked Sendable {
     private struct PolicyFile: Decodable {
         struct Policy: Decodable {
             let apiKeyEnabled: Bool
             let ipAllowlistEnabled: Bool
-            let ipAllowlist: [String]
+            let ipAllowlist: [String]?
 
             enum CodingKeys: String, CodingKey {
                 case apiKeyEnabled = "api_key_enabled"
@@ -31,7 +31,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
 
         let version: Int
         let policy: Policy
-        let keys: [StoredKey]
+        let keys: [StoredKey]?
     }
 
     private struct Snapshot {
@@ -103,16 +103,18 @@ final class RuntimeAccessControl: @unchecked Sendable {
             guard decoded.version == 1 else {
                 throw AccessControlError.invalidSnapshot("不支援的策略版本")
             }
-            guard decoded.keys.count <= 100, decoded.policy.ipAllowlist.count <= 256 else {
+            let storedKeys = decoded.keys ?? []
+            let rawPatterns = decoded.policy.ipAllowlist ?? []
+            guard storedKeys.count <= 100, rawPatterns.count <= 256 else {
                 throw AccessControlError.invalidSnapshot("策略項目數量超過限制")
             }
-            let hashes = try decoded.keys.map { key in
+            let hashes = try storedKeys.map { key in
                 guard let bytes = Self.decodeHex(key.hash), bytes.count == SHA256.byteCount else {
                     throw AccessControlError.invalidSnapshot("金鑰雜湊格式錯誤")
                 }
                 return bytes
             }
-            let patterns = decoded.policy.ipAllowlist.map {
+            let patterns = rawPatterns.map {
                 $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             }
             guard patterns.allSatisfy(Self.isValidIPPattern) else {
@@ -284,7 +286,7 @@ private enum AccessControlError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidSnapshot(let message): "OpenLoader 安全策略無效：\(message)"
+        case .invalidSnapshot(let message): "Tanpopo 安全策略無效：\(message)"
         }
     }
 }

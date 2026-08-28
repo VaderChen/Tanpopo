@@ -1,4 +1,4 @@
-// Copyright © 2026 OpenLoader contributors.
+// Copyright © 2026 Tanpopo contributors.
 
 import Foundation
 import MLX

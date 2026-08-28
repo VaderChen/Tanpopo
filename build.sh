@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="LlamaLoader"
+APP_NAME="Tanpopo"
 BIN_DIR="${PROJECT_DIR}/bin"
 DIST_DIR="${PROJECT_DIR}/dist"
 BUILD_TIME="$(date +%Y%m%d_%H%M%S)"
@@ -19,6 +19,8 @@ MLX_PREBUILT_DIR="${MLX_SERVER_PREBUILT_DIR:-${PROJECT_DIR}/mlx-runtime/prebuilt
 MLX_BUILD_SCRIPT="${PROJECT_DIR}/scripts/build-mlx-server-runtime.sh"
 MLX_VERSION_FILE="${MLX_SOURCE_DIR}/VERSION"
 MLX_VERSION="${MLX_SERVER_VERSION:-}"
+DESKTOP_UI_BUILD_SCRIPT="${PROJECT_DIR}/scripts/build-desktop-ui.sh"
+DESKTOP_UI_PREBUILT_DIR="${PROJECT_DIR}/desktop-ui/prebuilt/darwin-arm64"
 
 cd "${PROJECT_DIR}"
 
@@ -232,6 +234,8 @@ require_file "${RUNTIME_BUILD_SCRIPT}"
 require_file "${MLX_BUILD_SCRIPT}"
 require_file "${MLX_SOURCE_DIR}/Package.swift"
 require_file "${MLX_VERSION_FILE}"
+require_file "${DESKTOP_UI_BUILD_SCRIPT}"
+require_file "desktop-ui/darwin/TanpopoUI.swift"
 require_file "${LLAMA_SOURCE_DIR}/CMakeLists.txt"
 require_file "${LLAMA_SOURCE_DIR}/tools/server"
 require_command "go"
@@ -413,6 +417,26 @@ copy_mlx_prebuilt_runtime() {
   cp -R "${source}/." "${PACKAGE_DIR}/mlx-server/prebuilt/darwin-arm64/"
 }
 
+ensure_native_desktop_ui() {
+  if [[ "$(uname -s):$(uname -m)" != "Darwin:arm64" ]]; then
+    echo "部署包的 macOS 原生 UI 必須在 Apple Silicon 建立。" >&2
+    exit 1
+  fi
+  "${DESKTOP_UI_BUILD_SCRIPT}"
+  require_file "${DESKTOP_UI_PREBUILT_DIR}/TanpopoUI"
+  require_file "${DESKTOP_UI_PREBUILT_DIR}/TanpopoIcon.png"
+  if [[ ! -x "${DESKTOP_UI_PREBUILT_DIR}/TanpopoUI" ]]; then
+    echo "macOS 原生 UI 不可執行：${DESKTOP_UI_PREBUILT_DIR}/TanpopoUI" >&2
+    exit 1
+  fi
+}
+
+copy_desktop_ui() {
+  mkdir -p "${PACKAGE_DIR}/desktop-ui"
+  cp "${DESKTOP_UI_PREBUILT_DIR}/TanpopoUI" "${PACKAGE_DIR}/desktop-ui/TanpopoUI"
+  cp "${DESKTOP_UI_PREBUILT_DIR}/TanpopoIcon.png" "${PACKAGE_DIR}/desktop-ui/TanpopoIcon.png"
+}
+
 echo "=== ${APP_NAME} 建置與封裝開始 ==="
 echo "專案目錄：${PROJECT_DIR}"
 echo "llama-server 版本：${LLAMA_VERSION}"
@@ -423,6 +447,8 @@ go build -buildvcs=false -trimpath -o "${BIN_DIR}/${APP_NAME}" ./src/cmd/llamalo
 build_target "darwin" "arm64" "${APP_NAME}_mac_arm64"
 build_target "linux" "amd64" "${APP_NAME}_linux_x64"
 build_target "linux" "arm64" "${APP_NAME}_linux_arm64"
+ensure_native_desktop_ui
+copy_desktop_ui
 
 ensure_native_llama_prebuilt_runtime
 copy_llama_source
@@ -458,7 +484,7 @@ cat > "${PACKAGE_DIR}/install.sh" <<'EOF'
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="LlamaLoader"
+APP_NAME="Tanpopo"
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"
 SOURCE_BINARY=""
@@ -478,7 +504,7 @@ case "${OS_NAME}:${ARCH_NAME}" in
     PLATFORM="linux-arm64"
     ;;
   *)
-    echo "LlamaLoader 尚未提供此平台執行檔：${OS_NAME}/${ARCH_NAME}" >&2
+    echo "Tanpopo 尚未提供此平台執行檔：${OS_NAME}/${ARCH_NAME}" >&2
     exit 1
     ;;
 esac
@@ -582,11 +608,11 @@ set -euo pipefail
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${DEPLOY_DIR}"
 
-if [[ ! -x "./LlamaLoader" ]]; then
+if [[ ! -x "./Tanpopo" ]]; then
   ./install.sh
 fi
 
-exec ./LlamaLoader "$@"
+exec ./Tanpopo "$@"
 EOF
 
 cat > "${PACKAGE_DIR}/BUILD_INFO.txt" <<EOF
@@ -598,6 +624,7 @@ llama_server_prebuilt=${PACKAGED_LLAMA_TEXT}
 llama_server_fallback=本機 CMake 原生編譯
 mlx_server_version=${MLX_VERSION}
 mlx_server_prebuilt=darwin/arm64（Apple Silicon 專用）
+desktop_ui=darwin/arm64（AppKit／WKWebView；Linux 與 headless 使用 Shell）
 entry=./run.command 或 ./run.sh
 config=./agent.properties（首次啟動由 agent.sample.properties 建立）
 EOF
@@ -606,6 +633,7 @@ chmod +x \
   "${PACKAGE_DIR}/install.sh" \
   "${PACKAGE_DIR}/run.sh" \
   "${PACKAGE_DIR}/run.command" \
+  "${PACKAGE_DIR}/desktop-ui/TanpopoUI" \
   "${PACKAGE_DIR}/llama-server/build-local.sh" \
   "${PACKAGE_DIR}/mlx-server/prebuilt/darwin-arm64/bin/mlx-server" \
   "${PACKAGE_DIR}/bin/${APP_NAME}_mac_arm64" \
@@ -636,11 +664,16 @@ for required_path in \
   "website/login.html" \
   "website/main.html" \
   "website/commands.html" \
+  "website/chat.html" \
   "website/download.html" \
   "website/settings.html" \
+  "website/assets/chat.js" \
+  "website/assets/tanpopo-icon.png" \
   "bin/${APP_NAME}_mac_arm64" \
   "bin/${APP_NAME}_linux_x64" \
   "bin/${APP_NAME}_linux_arm64" \
+  "desktop-ui/TanpopoUI" \
+  "desktop-ui/TanpopoIcon.png" \
   "llama-server/VERSION" \
   "llama-server/build-local.sh" \
   "llama-server/source/CMakeLists.txt" \

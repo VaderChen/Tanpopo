@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Llama Loader 登入</title>
-  <link rel="stylesheet" href="/assets/app.css?v=20260825-4">
-  <script src="/assets/login.js?v=20260825-4" defer></script>
+  <title>Tanpopo 登入</title>
+  <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
+  <link rel="stylesheet" href="/assets/app.css?v=20260828-13">
+  <script src="/assets/common.js?v=20260829-17" defer></script>
+  <script src="/assets/login.js?v=20260829-2" defer></script>
 </head>
 <body class="login-page">
   <main class="login-card">
     <div class="brand brand-login">
-      <div class="brand-mark" aria-hidden="true">L</div>
-      <div>
-        <div class="brand-name">Llama Loader</div>
+        <img class="brand-mark" src="/assets/tanpopo-icon.png" alt="">
+        <div>
+          <div class="brand-name">Tanpopo</div>
         <div class="brand-caption">LOCAL MODEL CONTROL</div>
       </div>
     </div>
@@ -31,6 +33,10 @@
         <input id="password" class="latin-input" name="password" type="password" inputmode="email" lang="en" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required>
       </label>
       <p class="helper">輸入欄位會優先使用英數鍵盤，不限制帳號密碼可用字元。</p>
+      <label class="check-field login-remember">
+        <input id="rememberMe" name="remember_me" type="checkbox">
+        <span>記住我</span>
+      </label>
       <div id="loginMessage" class="form-message" role="alert"></div>
       <button id="loginButton" class="button primary wide" type="submit">登入</button>
     </form>

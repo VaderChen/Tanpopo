@@ -20,6 +20,7 @@ dist/
 llama-runtime/prebuilt/
 mlx-runtime/prebuilt/
 mlx-runtime/metal-cache/
+desktop-ui/prebuilt/
 llama-server/tools/mtmd/test-1.jpeg
 llama-server/tools/mtmd/test-2.mp3
 llama-server/tools/mtmd/test-3.mp4

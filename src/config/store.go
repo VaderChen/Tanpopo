@@ -14,16 +14,18 @@ import (
 
 func DefaultAgentConfig() domain.AgentConfig {
 	return domain.AgentConfig{
-		ServiceName:         "Llama Loader",
-		HTTPHost:            "0.0.0.0",
-		HTTPPort:            10082,
-		WebPath:             "./website",
-		SettingsPath:        "./data/settings.json",
-		StartupCommandsPath: "./data/startup_commands.json",
-		AccessControlPath:   "./data/access_control.json",
-		DefaultAccount:      "admin",
-		DefaultPassword:     "change-me",
-		SessionHours:        24,
+		ServiceName:           "Tanpopo",
+		HTTPHost:              "0.0.0.0",
+		HTTPPort:              10082,
+		WebPath:               "./website",
+		SettingsPath:          "./data/settings.json",
+		StartupCommandsPath:   "./data/startup_commands.json",
+		AccessControlPath:     "./data/access_control.json",
+		RuntimeStatePath:      "./data/runtime_state.json",
+		DefaultAccount:        "root",
+		DefaultPassword:       "root",
+		DisableAuthentication: false,
+		SessionHours:          24,
 	}
 }
 
@@ -35,6 +37,7 @@ func DefaultSettings() domain.Settings {
 	return domain.Settings{
 		ModelDirectory:      filepath.Join(homeDirectory, "services", "models"),
 		MLXModelDirectory:   filepath.Join(homeDirectory, "services", "mlx-models"),
+		UILanguage:          "auto",
 		HuggingFaceEndpoint: "https://huggingface.co",
 		DefaultRevision:     "main",
 		ServerHost:          "0.0.0.0",
@@ -69,10 +72,41 @@ func LoadAgentConfig(path string) (domain.AgentConfig, error) {
 	if err := json.Unmarshal(content, &result); err != nil {
 		return domain.AgentConfig{}, fmt.Errorf("解析 %s 失敗: %w", path, err)
 	}
+	if strings.EqualFold(strings.TrimSpace(result.ServiceName), "Llama Loader") ||
+		strings.EqualFold(strings.TrimSpace(result.ServiceName), "Open Loader") ||
+		strings.EqualFold(strings.TrimSpace(result.ServiceName), "OpenLoader") {
+		result.ServiceName = "Tanpopo"
+	}
 	if err := validateAgent(result); err != nil {
 		return domain.AgentConfig{}, err
 	}
 	return result, nil
+}
+
+// UpdateAgentSecurity 以原子寫入方式更新管理介面登入設定。
+// 帳號密碼不限制字元種類；停用驗證時仍保留帳密，方便之後重新啟用。
+func UpdateAgentSecurity(path string, disableAuthentication bool, account, password string, updatePassword bool) (domain.AgentConfig, error) {
+	value, err := LoadAgentConfig(path)
+	if err != nil {
+		return domain.AgentConfig{}, err
+	}
+	value.DefaultAccount = strings.TrimSpace(account)
+	if updatePassword {
+		value.DefaultPassword = password
+	}
+	value.DisableAuthentication = disableAuthentication
+	if err := validateAgent(value); err != nil {
+		return domain.AgentConfig{}, err
+	}
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return domain.AgentConfig{}, err
+	}
+	content = append(content, '\n')
+	if err := writeFileAtomic(path, content, 0600); err != nil {
+		return domain.AgentConfig{}, err
+	}
+	return value, nil
 }
 
 func validateAgent(value domain.AgentConfig) error {
@@ -82,8 +116,8 @@ func validateAgent(value domain.AgentConfig) error {
 	if value.HTTPPort < 1 || value.HTTPPort > 65535 {
 		return errors.New("http_port 必須介於 1 到 65535")
 	}
-	if strings.TrimSpace(value.WebPath) == "" || strings.TrimSpace(value.SettingsPath) == "" || strings.TrimSpace(value.StartupCommandsPath) == "" || strings.TrimSpace(value.AccessControlPath) == "" {
-		return errors.New("web_path、settings_path、startup_commands_path 與 access_control_path 不可為空")
+	if strings.TrimSpace(value.WebPath) == "" || strings.TrimSpace(value.SettingsPath) == "" || strings.TrimSpace(value.StartupCommandsPath) == "" || strings.TrimSpace(value.AccessControlPath) == "" || strings.TrimSpace(value.RuntimeStatePath) == "" {
+		return errors.New("web_path、settings_path、startup_commands_path、access_control_path 與 runtime_state_path 不可為空")
 	}
 	if value.SessionHours < 1 || value.SessionHours > 24*30 {
 		return errors.New("session_hours 必須介於 1 到 720")
@@ -132,6 +166,8 @@ func (s *Store) Public() domain.PublicSettings {
 	return domain.PublicSettings{
 		ModelDirectory:      value.ModelDirectory,
 		MLXModelDirectory:   value.MLXModelDirectory,
+		ResidentMode:        value.ResidentMode,
+		UILanguage:          value.UILanguage,
 		HuggingFaceEndpoint: value.HuggingFaceEndpoint,
 		HuggingFaceTokenSet: value.HuggingFaceToken != "",
 		DefaultRevision:     value.DefaultRevision,
@@ -164,6 +200,7 @@ func normalizeSettings(value domain.Settings) domain.Settings {
 	if value.MLXModelDirectory == "" {
 		value.MLXModelDirectory = defaults.MLXModelDirectory
 	}
+	value.UILanguage = normalizeUILanguage(value.UILanguage)
 	value.HuggingFaceEndpoint = strings.TrimRight(strings.TrimSpace(value.HuggingFaceEndpoint), "/")
 	value.HuggingFaceToken = strings.TrimSpace(value.HuggingFaceToken)
 	value.DefaultRevision = strings.TrimSpace(value.DefaultRevision)
@@ -190,6 +227,21 @@ func normalizeSettings(value domain.Settings) domain.Settings {
 	return value
 }
 
+func normalizeUILanguage(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "zh-hant", "zh-tw", "zh-hk", "traditional-chinese":
+		return "zh-Hant"
+	case "en", "english":
+		return "en"
+	case "ja", "jp", "japanese":
+		return "ja"
+	case "ko", "kr", "korean":
+		return "ko"
+	default:
+		return "auto"
+	}
+}
+
 func expandHome(path string) string {
 	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
 		return path
@@ -205,6 +257,11 @@ func expandHome(path string) string {
 }
 
 func ValidateSettings(value domain.Settings) error {
+	switch value.UILanguage {
+	case "auto", "zh-Hant", "en", "ja", "ko":
+	default:
+		return errors.New("ui_language 只支援 auto、zh-Hant、en、ja 或 ko")
+	}
 	if strings.TrimSpace(value.ModelDirectory) == "" {
 		return errors.New("model_directory 不可為空")
 	}

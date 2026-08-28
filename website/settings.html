@@ -3,23 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>環境設定 · Llama Loader</title>
-  <link rel="stylesheet" href="/assets/app.css?v=20260828-5">
-  <script src="/assets/common.js?v=20260825-2" defer></script>
-  <script src="/assets/settings.js?v=20260828-6" defer></script>
+  <title>環境設定 · Tanpopo</title>
+  <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-16">
+  <script src="/assets/common.js?v=20260829-17" defer></script>
+  <script src="/assets/settings.js?v=20260829-12" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/main.html">
-      <div class="brand-mark" aria-hidden="true">L</div>
+      <img class="brand-mark" src="/assets/tanpopo-icon.png" alt="">
       <div>
-        <div class="brand-name">Llama Loader</div>
+        <div class="brand-name">Tanpopo</div>
         <div class="brand-caption">LOCAL MODEL CONTROL</div>
       </div>
     </a>
     <nav class="nav" aria-label="主選單">
       <a href="/main.html">執行狀態</a>
       <a href="/commands.html">啟動命令</a>
+      <a href="/chat.html">簡易對話</a>
       <a href="/download.html">模型下載</a>
       <a class="active" href="/settings.html" aria-current="page">環境設定</a>
     </nav>
@@ -37,6 +39,45 @@
         <p class="section-note">儲存於本機 <code>data/settings.json</code></p>
       </div>
       <form id="settingsForm" class="panel form-panel settings-form">
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>介面語言</h3>
+            <p>AUTO 會依作業系統與瀏覽器語系自動選擇。</p>
+          </div>
+          <div class="form-group-fields">
+            <label class="field">
+              <span>顯示語言</span>
+              <select id="uiLanguage">
+                <option value="auto">AUTO</option>
+                <option value="zh-Hant">繁體中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>桌面模式</h3>
+            <p>控制圖形介面關閉後，Tanpopo 是否繼續在後台提供服務。</p>
+          </div>
+          <div class="form-group-fields">
+            <label class="settings-switch-row" for="residentMode">
+              <span class="settings-switch-copy">
+                <strong>常駐</strong>
+                <span class="helper">開啟後顯示於系統選單列；關閉視窗只會隱藏 UI。</span>
+              </span>
+              <span class="dflash-switch">
+                <input id="residentMode" type="checkbox" role="switch" aria-label="啟用常駐模式">
+                <span class="dflash-switch-track" aria-hidden="true"></span>
+                <span id="residentModeLabel">關閉</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div class="form-group">
           <div class="form-group-title">
             <h3>模型存放位置</h3>
@@ -97,6 +138,60 @@
         <div class="settings-actions">
           <span id="settingsMessage" class="form-message"></span>
           <button id="saveSettingsButton" class="button primary" type="submit">儲存設定</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="section-block admin-security-section">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">MANAGEMENT ACCESS</p>
+          <h2>管理介面登入</h2>
+        </div>
+        <p class="section-note">帳密只保存於本機服務設定</p>
+      </div>
+      <form id="adminCredentialsForm" class="panel form-panel settings-form">
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>管理帳號密碼</h3>
+            <p>新安裝預設為 <code>root / root</code>。密碼不會由管理 API 回傳，也不會顯示既有明文。</p>
+          </div>
+          <div class="form-group-fields">
+            <label class="settings-switch-row" for="authenticationEnabled">
+              <span class="settings-switch-copy">
+                <strong>管理介面登入</strong>
+                <span class="helper">關閉後不需帳號密碼即可進入所有管理頁面</span>
+              </span>
+              <span class="dflash-switch">
+                <input id="authenticationEnabled" type="checkbox" role="switch" aria-label="啟用管理介面登入">
+                <span class="dflash-switch-track" aria-hidden="true"></span>
+                <span id="authenticationEnabledLabel">啟用</span>
+              </span>
+            </label>
+            <label class="field">
+              <span>管理帳號</span>
+              <input id="adminAccount" class="latin-input" type="text" inputmode="email" lang="en" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+            </label>
+            <label class="field">
+              <span>目前密碼</span>
+              <input id="currentAdminPassword" class="latin-input" type="password" inputmode="email" lang="en" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+            </label>
+            <div class="two-columns">
+              <label class="field">
+                <span>新密碼（留空維持不變）</span>
+                <input id="newAdminPassword" class="latin-input" type="password" inputmode="email" lang="en" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+              </label>
+              <label class="field">
+                <span>確認新密碼</span>
+                <input id="confirmAdminPassword" class="latin-input" type="password" inputmode="email" lang="en" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+              </label>
+            </div>
+            <p id="adminCredentialsHint" class="helper">變更帳號或密碼後，所有既有登入工作階段都會失效。</p>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <span id="adminCredentialsMessage" class="form-message"></span>
+          <button id="saveAdminCredentialsButton" class="button primary" type="submit">儲存登入設定</button>
         </div>
       </form>
     </section>

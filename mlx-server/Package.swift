@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "LlamaLoaderMLXServer",
+    name: "TanpopoMLXServer",
     platforms: [
         .macOS(.v14)
     ],

@@ -10,7 +10,8 @@ LLAMA_RUNTIME_ROOT="${LLAMA_SERVER_PREBUILT_DIR:-${PROJECT_DIR}/llama-runtime/pr
 MLX_SOURCE_DIR="${PROJECT_DIR}/mlx-server"
 MLX_BUILD_SCRIPT="${PROJECT_DIR}/scripts/build-mlx-server-runtime.sh"
 MLX_RUNTIME_ROOT="${MLX_SERVER_PREBUILT_DIR:-${PROJECT_DIR}/mlx-runtime/prebuilt}"
-FORCE_BUILD="${LLAMA_LOADER_REBUILD_RUNTIMES:-0}"
+DESKTOP_UI_BUILD_SCRIPT="${PROJECT_DIR}/scripts/build-desktop-ui.sh"
+FORCE_BUILD="${TANPOPO_REBUILD_RUNTIMES:-${LLAMA_LOADER_REBUILD_RUNTIMES:-0}}"
 
 require_file() {
   local path="$1"
@@ -132,6 +133,22 @@ ensure_mlx_server() {
   fi
 }
 
+ensure_desktop_ui() {
+  local platform="$1"
+  if [[ "${platform}" != "darwin-arm64" ]]; then
+    echo "略過原生 UI：目前平台使用 Shell 模式。"
+    return
+  fi
+
+  DESKTOP_UI_REBUILD="${TANPOPO_REBUILD_UI:-${LLAMA_LOADER_REBUILD_UI:-0}}" \
+    "${DESKTOP_UI_BUILD_SCRIPT}"
+  if [[ ! -x "${PROJECT_DIR}/desktop-ui/prebuilt/darwin-arm64/TanpopoUI" \
+    || ! -f "${PROJECT_DIR}/desktop-ui/prebuilt/darwin-arm64/TanpopoIcon.png" ]]; then
+    echo "macOS 原生 UI 建立結果不完整" >&2
+    exit 1
+  fi
+}
+
 require_file "${LLAMA_SOURCE_DIR}/CMakeLists.txt"
 require_file "${LLAMA_SOURCE_DIR}/tools/server"
 require_file "${LLAMA_VERSION_FILE}"
@@ -139,6 +156,9 @@ require_file "${LLAMA_BUILD_SCRIPT}"
 require_file "${MLX_SOURCE_DIR}/Package.swift"
 require_file "${MLX_SOURCE_DIR}/VERSION"
 require_file "${MLX_BUILD_SCRIPT}"
+require_file "${DESKTOP_UI_BUILD_SCRIPT}"
+require_file "${PROJECT_DIR}/desktop-ui/darwin/TanpopoUI.swift"
+require_file "${PROJECT_DIR}/desktop-ui/assets/TanpopoIcon.png"
 
 PLATFORM="$(current_platform)"
 LLAMA_VERSION="${LLAMA_SERVER_VERSION:-$(read_version "${LLAMA_VERSION_FILE}" "llama-server")}"
@@ -146,3 +166,4 @@ MLX_VERSION="${MLX_SERVER_VERSION:-$(read_version "${MLX_SOURCE_DIR}/VERSION" "m
 
 ensure_llama_server "${PLATFORM}" "${LLAMA_VERSION}"
 ensure_mlx_server "${PLATFORM}" "${MLX_VERSION}"
+ensure_desktop_ui "${PLATFORM}"

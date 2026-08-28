@@ -3,23 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Llama Loader</title>
-  <link rel="stylesheet" href="/assets/app.css?v=20260828-5">
-  <script src="/assets/common.js?v=20260825-5" defer></script>
-  <script src="/assets/runtime.js?v=20260828-4" defer></script>
+  <title>Tanpopo</title>
+  <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-16">
+  <script src="/assets/common.js?v=20260829-17" defer></script>
+  <script src="/assets/runtime.js?v=20260829-8" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/main.html">
-      <div class="brand-mark" aria-hidden="true">L</div>
+      <img class="brand-mark" src="/assets/tanpopo-icon.png" alt="">
       <div>
-        <div class="brand-name">Llama Loader</div>
+        <div class="brand-name">Tanpopo</div>
         <div class="brand-caption">LOCAL MODEL CONTROL</div>
       </div>
     </a>
     <nav class="nav" aria-label="主選單">
       <a class="active" href="/main.html" aria-current="page">執行狀態</a>
       <a href="/commands.html">啟動命令</a>
+      <a href="/chat.html">簡易對話</a>
       <a href="/download.html">模型下載</a>
       <a href="/settings.html">環境設定</a>
     </nav>
@@ -65,7 +67,20 @@
             <div id="runningMMProjRow"><dt>mmproj</dt><dd id="runningMMProj">—</dd></div>
             <div id="runningDraftRow"><dt>Draft</dt><dd id="runningDraft">—</dd></div>
             <div><dt>PID</dt><dd id="runningPID">—</dd></div>
-            <div><dt>API 位置</dt><dd><a id="serverURL" href="#" target="_blank" rel="noreferrer">—</a></dd></div>
+            <div>
+              <dt>API Base URL</dt>
+              <dd class="api-url-cell">
+                <span class="api-url-control">
+                  <a id="serverURL" href="#" target="_blank" rel="noreferrer">—</a>
+                  <button id="copyServerURL" class="api-copy-button" type="button" aria-label="複製 API Base URL" title="複製 API Base URL" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+                      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                    </svg>
+                  </button>
+                </span>
+              </dd>
+            </div>
           </dl>
         </article>
 
@@ -80,6 +95,17 @@
             <select id="mmprojSelect"></select>
           </label>
           <p id="mmprojMeta" class="helper mmproj-helper">mmproj 清單讀取中…</p>
+          <div id="dflashControl" class="dflash-control">
+            <div class="dflash-copy">
+              <strong>DFlash</strong>
+              <p id="dflashMeta" class="helper">選擇模型後會自動檢查是否支援。</p>
+            </div>
+            <label class="dflash-switch" for="dflashToggle">
+              <input id="dflashToggle" type="checkbox" role="switch" aria-label="啟用 DFlash" disabled>
+              <span class="dflash-switch-track" aria-hidden="true"></span>
+              <span class="dflash-switch-label">啟用</span>
+            </label>
+          </div>
           <div class="button-row">
             <button id="startButton" class="button primary" type="button">載入並啟動</button>
             <button id="stopButton" class="button danger" type="button">停止服務</button>

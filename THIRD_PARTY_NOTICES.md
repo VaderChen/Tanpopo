@@ -1,6 +1,6 @@
 # 第三方軟體聲明
 
-OpenLoader 使用或整合多項第三方開放原始碼。這些內容不因 OpenLoader 的 GPL 或商業授權選項而改變其原授權條款。
+Tanpopo 使用或整合多項第三方開放原始碼。這些內容不因 Tanpopo 的 GPL 或商業授權選項而改變其原授權條款。
 
 ## llama.cpp / llama-server
 
@@ -23,3 +23,15 @@ OpenLoader 使用或整合多項第三方開放原始碼。這些內容不因 Op
 - <https://github.com/apple/swift-nio>
 
 封裝或散布 Runtime 時，應連同實際納入版本要求的著作權與授權聲明一併提供。
+
+## 管理介面 Markdown 與數學渲染
+
+簡易對話頁隨專案保存下列瀏覽器端套件，不會在執行時由 CDN 下載：
+
+- markdown-it 15.0.1（MIT），授權全文位於 `website/assets/vendor/markdown-it/LICENSE`
+- KaTeX 0.18.4（MIT），授權全文位於 `website/assets/vendor/katex/LICENSE`
+
+上游專案：
+
+- <https://github.com/markdown-it/markdown-it>
+- <https://github.com/KaTeX/KaTeX>

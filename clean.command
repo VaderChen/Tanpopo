@@ -16,6 +16,9 @@ clean_build_directory() {
     mlx-server/.build)
       expected_parent="${PROJECT_DIR}/mlx-server"
       ;;
+    desktop-ui/prebuilt)
+      expected_parent="${PROJECT_DIR}/desktop-ui"
+      ;;
     *)
       echo "拒絕清理未允許的目錄：${directory_name}" >&2
       exit 1
@@ -44,8 +47,9 @@ clean_build_directory() {
   echo "已清理：${target_path}"
 }
 
-echo "=== LlamaLoader 清理建置產物 ==="
+echo "=== Tanpopo 清理建置產物 ==="
 clean_build_directory "bin"
 clean_build_directory "dist"
 clean_build_directory "mlx-server/.build"
+clean_build_directory "desktop-ui/prebuilt"
 echo "清理完成。設定、模型、原始碼與 mlx.metallib 持久化快取均未變更。"

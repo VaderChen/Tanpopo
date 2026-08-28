@@ -9,22 +9,26 @@ const (
 
 // AgentConfig 是服務啟動階段使用的設定；變更後需重新啟動服務。
 type AgentConfig struct {
-	ServiceName         string `json:"service_name"`
-	HTTPHost            string `json:"http_host"`
-	HTTPPort            int    `json:"http_port"`
-	WebPath             string `json:"web_path"`
-	SettingsPath        string `json:"settings_path"`
-	StartupCommandsPath string `json:"startup_commands_path"`
-	AccessControlPath   string `json:"access_control_path"`
-	DefaultAccount      string `json:"default_account"`
-	DefaultPassword     string `json:"default_pwd"`
-	SessionHours        int    `json:"session_hours"`
+	ServiceName           string `json:"service_name"`
+	HTTPHost              string `json:"http_host"`
+	HTTPPort              int    `json:"http_port"`
+	WebPath               string `json:"web_path"`
+	SettingsPath          string `json:"settings_path"`
+	StartupCommandsPath   string `json:"startup_commands_path"`
+	AccessControlPath     string `json:"access_control_path"`
+	RuntimeStatePath      string `json:"runtime_state_path"`
+	DefaultAccount        string `json:"default_account"`
+	DefaultPassword       string `json:"default_pwd"`
+	DisableAuthentication bool   `json:"disable_authentication"`
+	SessionHours          int    `json:"session_hours"`
 }
 
 // Settings 是管理畫面可即時保存的模型目錄與 Hugging Face 設定。
 type Settings struct {
 	ModelDirectory      string   `json:"model_directory"`
 	MLXModelDirectory   string   `json:"mlx_model_directory"`
+	ResidentMode        bool     `json:"resident_mode"`
+	UILanguage          string   `json:"ui_language"`
 	HuggingFaceEndpoint string   `json:"huggingface_endpoint"`
 	HuggingFaceToken    string   `json:"huggingface_token,omitempty"`
 	DefaultRevision     string   `json:"default_revision"`
@@ -40,15 +44,21 @@ type Settings struct {
 type PublicSettings struct {
 	ModelDirectory      string `json:"model_directory"`
 	MLXModelDirectory   string `json:"mlx_model_directory"`
+	ResidentMode        bool   `json:"resident_mode"`
+	UILanguage          string `json:"ui_language"`
 	HuggingFaceEndpoint string `json:"huggingface_endpoint"`
 	HuggingFaceTokenSet bool   `json:"huggingface_token_set"`
 	DefaultRevision     string `json:"default_revision"`
 }
 
 type ModelFile struct {
-	Path       string    `json:"path"`
-	Size       int64     `json:"size"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Path            string    `json:"path"`
+	Size            int64     `json:"size"`
+	ModifiedAt      time.Time `json:"modified_at"`
+	Architecture    string    `json:"architecture,omitempty"`
+	DFlashSupported bool      `json:"dflash_supported"`
+	DFlashDraft     bool      `json:"dflash_draft"`
+	DFlashVariant   string    `json:"dflash_variant,omitempty"`
 }
 
 type DownloadJob struct {
@@ -85,11 +95,13 @@ type StartupCommand struct {
 
 type LlamaStatus struct {
 	Running            bool      `json:"running"`
+	DesiredRunning     bool      `json:"desired_running"`
 	Runtime            string    `json:"runtime"`
 	PID                int       `json:"pid,omitempty"`
 	Model              string    `json:"model,omitempty"`
 	MMProj             string    `json:"mmproj,omitempty"`
 	DraftModel         string    `json:"draft_model,omitempty"`
+	DFlashEnabled      bool      `json:"dflash_enabled"`
 	Binary             string    `json:"binary,omitempty"`
 	StartupCommandID   string    `json:"startup_command_id,omitempty"`
 	StartupCommandName string    `json:"startup_command_name,omitempty"`

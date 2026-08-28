@@ -65,29 +65,104 @@ actor MLXRuntime {
         messages: [InputMessage],
         options: GenerationOptions
     ) async throws -> GenerationResult {
+        let stream = try await generationStream(messages: messages, options: options)
+        var output = ""
+        var promptTokens = 0
+        var completionTokens = 0
+        var tokensPerSecond = 0.0
+        var finishReason = "stop"
+        var toolCalls: [ToolCall] = []
+        for await event in stream {
+            switch event {
+            case .chunk(let text):
+                output += text
+            case .info(let info):
+                promptTokens = info.promptTokenCount
+                completionTokens = info.generationTokenCount
+                tokensPerSecond = info.tokensPerSecond
+                switch info.stopReason {
+                case .length: finishReason = "length"
+                case .stop, .cancelled: finishReason = "stop"
+                }
+                fputs(
+                    generationLog(info),
+                    stderr
+                )
+            case .toolCall(let toolCall):
+                toolCalls.append(toolCall)
+                finishReason = "tool_calls"
+            }
+        }
+
+        if !toolCalls.isEmpty {
+            finishReason = "tool_calls"
+        }
+
+        if let stop = firstStop(in: output, candidates: options.stops) {
+            output = String(output[..<stop])
+            finishReason = "stop"
+        }
+        return GenerationResult(
+            text: output,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            tokensPerSecond: tokensPerSecond,
+            finishReason: finishReason,
+            toolCalls: toolCalls
+        )
+    }
+
+    /// 建立可直接輸出的生成事件串流。HTTP 層可在每個 chunk 到達時
+    /// 立即寫入 SSE，不需等待整段生成完成。
+    func stream(
+        messages: [InputMessage],
+        options: GenerationOptions
+    ) async throws -> AsyncStream<Generation> {
+        try await generationStream(messages: messages, options: options)
+    }
+
+    func logCompletion(_ info: GenerateCompletionInfo) {
+        fputs(generationLog(info), stderr)
+    }
+
+    private func generationStream(
+        messages: [InputMessage],
+        options: GenerationOptions
+    ) async throws -> AsyncStream<Generation> {
         try await prepare()
         guard let container else {
             throw APIError.invalidRequest("MLX 模型尚未載入。")
         }
 
         var temporaryFiles: [URL] = []
+        var chat = try await makeChat(messages, temporaryFiles: &temporaryFiles)
         defer {
             for file in temporaryFiles {
                 try? FileManager.default.removeItem(at: file)
             }
         }
-        let chat = try await makeChat(messages, temporaryFiles: &temporaryFiles)
-        var additionalContext: [String: any Sendable]?
-        if let thinkingEnabled = configuration.thinkingEnabled {
-            additionalContext = [
-                "enable_thinking": thinkingEnabled,
-                "reasoning_effort": "low"
-            ]
+        let tools = options.toolChoice?.disablesTools == true ? nil : options.tools
+        if let instruction = options.toolChoice?.requiredInstruction {
+            if let systemIndex = chat.lastIndex(where: { $0.role == .system }) {
+                chat[systemIndex].content += "\n\n\(instruction)"
+            } else {
+                chat.insert(.system(instruction), at: 0)
+            }
         }
+        var additionalContextValues: [String: any Sendable] = [:]
+        if let thinkingEnabled = configuration.thinkingEnabled {
+            additionalContextValues["enable_thinking"] = thinkingEnabled
+            additionalContextValues["reasoning_effort"] = "low"
+        }
+        if let toolChoice = options.toolChoice {
+            additionalContextValues["tool_choice"] = toolChoice.templateValue
+        }
+        let additionalContext = additionalContextValues.isEmpty ? nil : additionalContextValues
         // UserInput 內含影像列舉，第三方套件尚未標註 Sendable；此值建立後只會
         // 單向交給 ModelContainer.prepare，不會再被本 actor 存取或修改。
         nonisolated(unsafe) let input = UserInput(
             chat: chat,
+            tools: tools,
             additionalContext: additionalContext
         )
         let prepared = try await container.prepare(input: input)
@@ -107,55 +182,20 @@ actor MLXRuntime {
             seed: options.seed
         )
 
-        let stream: AsyncStream<Generation>
         if dflashDrafter != nil,
            let fallbackReason = dflashFallbackReason(parameters: parameters) {
             fputs("DFlash fallback to standard generation: \(fallbackReason)\n", stderr)
-            stream = try await container.generate(input: prepared, parameters: parameters)
-        } else if let drafter = dflashDrafter {
-            stream = try await container.generate(
+            return try await container.generate(input: prepared, parameters: parameters)
+        }
+        if let drafter = dflashDrafter {
+            return try await container.generate(
                 input: prepared,
                 parameters: parameters,
                 dflashDrafter: drafter,
                 blockSize: configuration.dflashBlockSize
             )
-        } else {
-            stream = try await container.generate(input: prepared, parameters: parameters)
         }
-        var output = ""
-        var promptTokens = 0
-        var completionTokens = 0
-        var finishReason = "stop"
-        for await event in stream {
-            switch event {
-            case .chunk(let text):
-                output += text
-            case .info(let info):
-                promptTokens = info.promptTokenCount
-                completionTokens = info.generationTokenCount
-                switch info.stopReason {
-                case .length: finishReason = "length"
-                case .stop, .cancelled: finishReason = "stop"
-                }
-                fputs(
-                    generationLog(info),
-                    stderr
-                )
-            case .toolCall:
-                break
-            }
-        }
-
-        if let stop = firstStop(in: output, candidates: options.stops) {
-            output = String(output[..<stop])
-            finishReason = "stop"
-        }
-        return GenerationResult(
-            text: output,
-            promptTokens: promptTokens,
-            completionTokens: completionTokens,
-            finishReason: finishReason
-        )
+        return try await container.generate(input: prepared, parameters: parameters)
     }
 
     private func dflashFallbackReason(parameters: GenerateParameters) -> String? {
@@ -193,21 +233,39 @@ actor MLXRuntime {
             throw APIError.invalidRequest("messages 不可為空。")
         }
         var result: [Chat.Message] = []
+        var systemParts: [String] = []
         for message in messages {
-            let parsed = try await parseContent(message.content, temporaryFiles: &temporaryFiles)
+            let parsed = try await parseContent(
+                message.content ?? .text(""),
+                temporaryFiles: &temporaryFiles
+            )
             let role = message.role.lowercased()
             switch role {
-            case "system":
-                result.append(.system(parsed.text, images: parsed.images))
+            case "system", "developer":
+                guard parsed.images.isEmpty else {
+                    throw APIError.unsupportedContent("系統指令不支援圖片。")
+                }
+                if !parsed.text.isEmpty {
+                    systemParts.append(parsed.text)
+                }
             case "assistant":
-                result.append(.assistant(parsed.text, images: parsed.images))
+                let toolCalls = try message.toolCalls?.map { try $0.mlxToolCall() }
+                result.append(
+                    .assistant(parsed.text, images: parsed.images, toolCalls: toolCalls)
+                )
             case "user":
                 result.append(.user(parsed.text, images: parsed.images))
             case "tool":
-                result.append(.tool(parsed.text))
+                result.append(.tool(parsed.text, id: message.toolCallID))
             default:
                 throw APIError.invalidRequest("不支援的訊息角色：\(message.role)")
             }
+        }
+        if !systemParts.isEmpty {
+            // OpenAI-compatible clients may emit more than one system/developer
+            // message. Many Hugging Face templates only accept one leading
+            // system message, so preserve their order and normalize them here.
+            result.insert(.system(systemParts.joined(separator: "\n\n")), at: 0)
         }
         return result
     }

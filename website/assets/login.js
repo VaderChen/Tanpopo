@@ -3,6 +3,7 @@ const button = document.getElementById("loginButton");
 const message = document.getElementById("loginMessage");
 const account = document.getElementById("account");
 const password = document.getElementById("password");
+const rememberMe = document.getElementById("rememberMe");
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -15,7 +16,8 @@ form.addEventListener("submit", async (event) => {
       credentials: "same-origin",
       body: JSON.stringify({
         account: account.value,
-        password: password.value
+        password: password.value,
+        remember_me: rememberMe.checked
       })
     });
     const payload = await response.json();
