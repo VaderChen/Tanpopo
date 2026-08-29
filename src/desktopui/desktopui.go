@@ -143,6 +143,8 @@ func resolveBinary() (string, error) {
 func resolveIcon(binaryPath string) string {
 	candidates := []string{
 		filepath.Join(filepath.Dir(binaryPath), "TanpopoIcon.png"),
+		filepath.Join(filepath.Dir(binaryPath), "..", "Resources", "TanpopoIcon.png"),
+		filepath.Join(filepath.Dir(binaryPath), "..", "..", "Resources", "TanpopoIcon.png"),
 		filepath.Join("desktop-ui", "assets", "TanpopoIcon.png"),
 	}
 	for _, candidate := range candidates {

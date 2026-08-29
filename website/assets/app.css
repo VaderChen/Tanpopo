@@ -1314,8 +1314,11 @@ h3 {
 
 .directory-browser-dialog {
   width: min(760px, calc(100vw - 36px));
+  height: min(720px, calc(100dvh - 76px));
+  max-height: calc(100dvh - 76px);
   max-width: none;
   padding: 0;
+  overflow: hidden;
   border: 0;
   border-radius: 18px;
   background: transparent;
@@ -1328,6 +1331,10 @@ h3 {
 }
 
 .directory-browser-card {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -1375,16 +1382,18 @@ h3 {
 }
 
 .directory-browser-content {
-  min-height: 300px;
-  max-height: min(52vh, 480px);
+  min-height: 0;
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .directory-roots,
 .directory-entries {
   min-width: 0;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px;
 }
 
@@ -3155,8 +3164,9 @@ textarea:focus {
   }
 
   .directory-browser-content {
-    min-height: 360px;
+    min-height: 0;
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .directory-roots {
