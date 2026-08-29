@@ -4,6 +4,10 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Tanpopo"
+APP_VERSION_FILE="${PROJECT_DIR}/VERSION"
+APP_VERSION="${TANPOPO_VERSION:-}"
+APP_BUILD="${TANPOPO_BUILD:-$(date +%H%M)}"
+UPDATE_REPOSITORY="${TANPOPO_UPDATE_REPOSITORY:-VaderChen/Tanpopo}"
 BIN_DIR="${PROJECT_DIR}/bin"
 DIST_DIR="${PROJECT_DIR}/dist"
 BUILD_TIME="$(date +%Y%m%d_%H%M%S)"
@@ -225,6 +229,7 @@ sanitize_version() {
 LLAMA_SOURCE_DIR="$(discover_llama_source)"
 
 require_file "go.mod"
+require_file "VERSION"
 require_file "src/cmd/llamaloader/main.go"
 require_file "website"
 require_file "agent.sample.properties"
@@ -246,8 +251,22 @@ require_command "unzip"
 if [[ -z "${MLX_VERSION}" ]]; then
   MLX_VERSION="$(tr -d '[:space:]' < "${MLX_VERSION_FILE}")"
 fi
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="$(tr -d '[:space:]' < "${APP_VERSION_FILE}")"
+fi
+APP_VERSION="$(sanitize_version "${APP_VERSION}" "Tanpopo")"
+if [[ ! "${APP_BUILD}" =~ ^[0-9]{4}$ ]]; then
+  echo "Tanpopo build 編號格式錯誤：${APP_BUILD}（應為 HHmm）" >&2
+  exit 1
+fi
+if [[ ! "${UPDATE_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "Tanpopo GitHub repository 格式錯誤：${UPDATE_REPOSITORY}" >&2
+  exit 1
+fi
 MLX_VERSION="$(sanitize_version "${MLX_VERSION}" "mlx-server")"
 LLAMA_VERSION="$(sanitize_version "$(resolve_llama_version)" "llama-server")"
+APP_LDFLAGS="-s -w -X LlamaLoader/src/appversion.Version=${APP_VERSION} -X LlamaLoader/src/appversion.Build=${APP_BUILD} -X LlamaLoader/src/appversion.Repository=${UPDATE_REPOSITORY}"
+APP_DEV_LDFLAGS="-X LlamaLoader/src/appversion.Version=${APP_VERSION} -X LlamaLoader/src/appversion.Build=${APP_BUILD} -X LlamaLoader/src/appversion.Repository=${UPDATE_REPOSITORY}"
 PACKAGE_NAME="${APP_NAME}_deploy_llama-${LLAMA_VERSION}_${BUILD_TIME}"
 NATIVE_LLAMA_PLATFORM="$(current_llama_platform || true)"
 
@@ -314,7 +333,7 @@ build_target() {
   CGO_ENABLED=0 GOOS="${target_os}" GOARCH="${target_arch}" go build \
     -buildvcs=false \
     -trimpath \
-    -ldflags "-s -w" \
+    -ldflags "${APP_LDFLAGS}" \
     -o "${BIN_DIR}/${output_name}" \
     ./src/cmd/llamaloader
   cp "${BIN_DIR}/${output_name}" "${PACKAGE_DIR}/bin/${output_name}"
@@ -439,11 +458,13 @@ copy_desktop_ui() {
 
 echo "=== ${APP_NAME} 建置與封裝開始 ==="
 echo "專案目錄：${PROJECT_DIR}"
+echo "Tanpopo 版本：${APP_VERSION} build ${APP_BUILD}"
+echo "更新來源：https://github.com/${UPDATE_REPOSITORY}"
 echo "llama-server 版本：${LLAMA_VERSION}"
 echo "llama.cpp 原始碼：${LLAMA_SOURCE_DIR}"
 echo "mlx-server 版本：${MLX_VERSION}"
 
-go build -buildvcs=false -trimpath -o "${BIN_DIR}/${APP_NAME}" ./src/cmd/llamaloader
+go build -buildvcs=false -trimpath -ldflags "${APP_DEV_LDFLAGS}" -o "${BIN_DIR}/${APP_NAME}" ./src/cmd/llamaloader
 build_target "darwin" "arm64" "${APP_NAME}_mac_arm64"
 build_target "linux" "amd64" "${APP_NAME}_linux_x64"
 build_target "linux" "arm64" "${APP_NAME}_linux_arm64"
@@ -474,6 +495,7 @@ copy_mlx_prebuilt_runtime
 
 cp -R "website" "${PACKAGE_DIR}/website"
 find "${PACKAGE_DIR}/website" -type f -name '*.bak' -delete
+cp "VERSION" "${PACKAGE_DIR}/VERSION"
 cp "agent.sample.properties" "${PACKAGE_DIR}/agent.sample.properties"
 cp "README.md" "${PACKAGE_DIR}/README.md"
 cp "run.command" "${PACKAGE_DIR}/run.command"
@@ -617,6 +639,10 @@ EOF
 
 cat > "${PACKAGE_DIR}/BUILD_INFO.txt" <<EOF
 app=${APP_NAME}
+app_version=${APP_VERSION}
+app_build=${APP_BUILD}
+app_display_version=${APP_VERSION} build ${APP_BUILD}
+update_repository=${UPDATE_REPOSITORY}
 built_at=${BUILT_AT}
 app_targets=darwin/arm64,linux/amd64,linux/arm64
 llama_server_version=${LLAMA_VERSION}
@@ -656,6 +682,7 @@ if grep -Eq '\.bak$' <<< "${ARCHIVE_ENTRIES}"; then
   exit 1
 fi
 for required_path in \
+  "VERSION" \
   "README.md" \
   "agent.sample.properties" \
   "install.sh" \
@@ -668,6 +695,7 @@ for required_path in \
   "website/download.html" \
   "website/settings.html" \
   "website/assets/chat.js" \
+  "website/assets/popular-models.json" \
   "website/assets/tanpopo-icon.png" \
   "bin/${APP_NAME}_mac_arm64" \
   "bin/${APP_NAME}_linux_x64" \

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 
 	"LlamaLoader/src/accesscontrol"
 	"LlamaLoader/src/api"
+	"LlamaLoader/src/appversion"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/desktopui"
 	"LlamaLoader/src/download"
@@ -28,13 +30,81 @@ import (
 )
 
 func main() {
-	agentPath := flag.String("config", "agent.properties", "服務設定檔路徑")
-	samplePath := flag.String("sample-config", "agent.sample.properties", "預設設定範本路徑")
+	agentDefault, sampleDefault, err := packagedConfigPaths()
+	if err != nil {
+		log.Fatal(err)
+	}
+	agentPath := flag.String("config", agentDefault, "服務設定檔路徑")
+	samplePath := flag.String("sample-config", sampleDefault, "預設設定範本路徑")
 	flag.Parse()
 
 	if err := run(*agentPath, *samplePath); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// packagedConfigPaths 將已安裝的 macOS App 資源與可寫入的使用者資料分離。
+// 開發模式仍沿用專案根目錄下的相對路徑；.app 內的簽章資源不會被修改。
+func packagedConfigPaths() (agentPath, samplePath string, err error) {
+	agentPath = "agent.properties"
+	samplePath = "agent.sample.properties"
+	executable, executableErr := os.Executable()
+	if executableErr != nil {
+		return agentPath, samplePath, nil
+	}
+	executableDirectory := filepath.Dir(executable)
+	if runtime.GOOS != "darwin" || filepath.Base(executableDirectory) != "MacOS" {
+		return agentPath, samplePath, nil
+	}
+	contentsDirectory := filepath.Dir(executableDirectory)
+	if filepath.Ext(filepath.Dir(contentsDirectory)) != ".app" || filepath.Base(contentsDirectory) != "Contents" {
+		return agentPath, samplePath, nil
+	}
+	resourcesDirectory := filepath.Join(contentsDirectory, "Resources")
+	if info, statErr := os.Stat(filepath.Join(resourcesDirectory, "agent.sample.properties")); statErr != nil || !info.Mode().IsRegular() {
+		return agentPath, samplePath, nil
+	}
+	configDirectory, configErr := os.UserConfigDir()
+	if configErr != nil {
+		return "", "", fmt.Errorf("取得使用者設定目錄失敗: %w", configErr)
+	}
+	applicationDirectory := filepath.Join(configDirectory, "Tanpopo")
+	if mkdirErr := os.MkdirAll(applicationDirectory, 0700); mkdirErr != nil {
+		return "", "", fmt.Errorf("建立 Tanpopo 使用者資料目錄失敗: %w", mkdirErr)
+	}
+	if linkErr := ensureResourceLink(
+		filepath.Join(applicationDirectory, "website"),
+		filepath.Join(resourcesDirectory, "website"),
+	); linkErr != nil {
+		return "", "", linkErr
+	}
+	if chdirErr := os.Chdir(applicationDirectory); chdirErr != nil {
+		return "", "", fmt.Errorf("切換 Tanpopo 使用者資料目錄失敗: %w", chdirErr)
+	}
+	return filepath.Join(applicationDirectory, "agent.properties"),
+		filepath.Join(resourcesDirectory, "agent.sample.properties"), nil
+}
+
+func ensureResourceLink(linkPath, targetPath string) error {
+	info, err := os.Lstat(linkPath)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return nil
+		}
+		currentTarget, readErr := os.Readlink(linkPath)
+		if readErr == nil && filepath.Clean(currentTarget) == filepath.Clean(targetPath) {
+			return nil
+		}
+		if removeErr := os.Remove(linkPath); removeErr != nil {
+			return fmt.Errorf("更新管理介面資源連結失敗: %w", removeErr)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("檢查管理介面資源連結失敗: %w", err)
+	}
+	if symlinkErr := os.Symlink(targetPath, linkPath); symlinkErr != nil {
+		return fmt.Errorf("建立管理介面資源連結失敗: %w", symlinkErr)
+	}
+	return nil
 }
 
 func run(agentPath, samplePath string) error {
@@ -113,9 +183,12 @@ func run(agentPath, samplePath string) error {
 	}()
 
 	uiDone, uiLaunched, uiErr := desktopui.Launch(serviceContext, desktopui.Options{
-		URL:      localManagementURL(agentConfig.HTTPHost, agentConfig.HTTPPort),
-		Title:    agentConfig.ServiceName,
-		Resident: settings.Get().ResidentMode,
+		URL:       localManagementURL(agentConfig.HTTPHost, agentConfig.HTTPPort),
+		Title:     agentConfig.ServiceName,
+		Resident:  settings.Get().ResidentMode,
+		Version:   appversion.Current(),
+		APIURL:    llama.Status().URL,
+		GitHubURL: appversion.RepositoryURL(),
 	})
 	if uiErr != nil {
 		log.Printf("原生 UI 無法啟動，改用 Shell 模式：%v", uiErr)

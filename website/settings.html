@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>環境設定 · Tanpopo</title>
+  <title>系統設定 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-16">
-  <script src="/assets/common.js?v=20260829-17" defer></script>
-  <script src="/assets/settings.js?v=20260829-12" defer></script>
+  <script src="/assets/theme-init.js?v=20260829-1"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-43">
+  <script src="/assets/common.js?v=20260829-44" defer></script>
+  <script src="/assets/settings.js?v=20260829-30" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -20,25 +21,59 @@
     </a>
     <nav class="nav" aria-label="主選單">
       <a href="/main.html">執行狀態</a>
-      <a href="/commands.html">啟動命令</a>
+      <a href="/commands.html">啟動參數</a>
       <a href="/chat.html">簡易對話</a>
       <a href="/download.html">模型下載</a>
-      <a class="active" href="/settings.html" aria-current="page">環境設定</a>
+      <a class="active" href="/settings.html" aria-current="page">系統設定</a>
     </nav>
     <button id="logoutButton" class="button quiet" type="button">登出</button>
   </header>
 
   <main class="page-shell">
     <div id="globalMessage" class="toast page-toast" hidden></div>
-    <section class="section-block">
+    <section class="section-block settings-section">
       <div class="section-heading">
         <div>
           <p class="section-kicker">CONFIGURATION</p>
-          <h2>環境設定</h2>
+          <h2>系統設定</h2>
         </div>
         <p class="section-note">儲存於本機 <code>data/settings.json</code></p>
       </div>
-      <form id="settingsForm" class="panel form-panel settings-form">
+      <div class="settings-workspace">
+        <nav class="panel settings-sidebar" role="tablist" aria-label="設定分類">
+          <button id="settingsGeneralTab" class="settings-sidebar-item active" type="button" role="tab" aria-selected="true" aria-controls="settingsGeneralPane" data-settings-target="settingsGeneralPane">
+            <strong>一般設定</strong>
+            <span>介面、桌面模式與模型位置</span>
+          </button>
+          <button id="settingsModelSourceTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsModelSourcePane" data-settings-target="settingsModelSourcePane">
+            <strong>模型來源</strong>
+            <span>Hugging Face 連線與存取憑證</span>
+          </button>
+          <button id="settingsAdminTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsAdminPane" data-settings-target="settingsAdminPane">
+            <strong>管理介面登入</strong>
+            <span>管理帳號、密碼與登入驗證</span>
+          </button>
+          <button id="settingsSecurityTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsSecurityPane" data-settings-target="settingsSecurityPane">
+            <strong>網路安全</strong>
+            <span>Access Key 與 IP 白名單</span>
+          </button>
+          <button id="settingsNetPassTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsNetPassPane" data-settings-target="settingsNetPassPane">
+            <strong>反向代理</strong>
+            <span>NetPass 公共網路連線</span>
+          </button>
+          <button id="settingsSystemInfoTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsSystemInfoPane" data-settings-target="settingsSystemInfoPane">
+            <strong>系統資訊</strong>
+            <span>硬體與作業系統摘要</span>
+          </button>
+          <button id="settingsAboutTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsAboutPane" data-settings-target="settingsAboutPane">
+            <strong>關於</strong>
+            <span>版本資訊與更新檢查</span>
+          </button>
+        </nav>
+
+        <div class="settings-content">
+          <section id="settingsGeneralPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsGeneralTab" tabindex="0">
+            <form id="settingsForm" class="panel form-panel settings-form">
         <div class="form-group">
           <div class="form-group-title">
             <h3>介面語言</h3>
@@ -55,6 +90,50 @@
                 <option value="ko">한국어</option>
               </select>
             </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-group-title">
+            <h3>介面配色</h3>
+            <p>選擇全站使用的背景、面板與強調色；切換後會立即預覽。</p>
+          </div>
+          <div class="form-group-fields">
+            <fieldset id="uiTheme" class="theme-choice-grid" aria-label="介面配色">
+              <legend class="sr-only">介面配色</legend>
+              <label class="theme-choice">
+                <input type="radio" name="uiTheme" value="tanpopo">
+                <span class="theme-choice-card">
+                  <span class="theme-choice-preview theme-preview-tanpopo" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <strong>蒲公英</strong>
+                  <small>目前的暖白與蒲公英綠</small>
+                </span>
+              </label>
+              <label class="theme-choice">
+                <input type="radio" name="uiTheme" value="ocean">
+                <span class="theme-choice-card">
+                  <span class="theme-choice-preview theme-preview-ocean" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <strong>海霧藍</strong>
+                  <small>清爽冷白與深海藍</small>
+                </span>
+              </label>
+              <label class="theme-choice">
+                <input type="radio" name="uiTheme" value="sakura">
+                <span class="theme-choice-card">
+                  <span class="theme-choice-preview theme-preview-sakura" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <strong>櫻花粉</strong>
+                  <small>柔和暖粉與莓果紅</small>
+                </span>
+              </label>
+              <label class="theme-choice">
+                <input type="radio" name="uiTheme" value="wisteria">
+                <span class="theme-choice-card">
+                  <span class="theme-choice-preview theme-preview-wisteria" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <strong>夜藤</strong>
+                  <small>深紫黑與柔和紫藤色</small>
+                </span>
+              </label>
+            </fieldset>
           </div>
         </div>
 
@@ -108,49 +187,50 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <div class="form-group-title">
-            <h3>Hugging Face</h3>
-            <p>Token 僅在存取 gated 或 private repository 時需要。</p>
-          </div>
-          <div class="form-group-fields">
-            <label class="field">
-              <span>Endpoint</span>
-              <input id="hfEndpoint" type="url" required>
-            </label>
-            <div class="two-columns">
-              <label class="field">
-                <span>預設 Revision</span>
-                <input id="defaultRevision" required>
-              </label>
-              <label class="field">
-                <span>Access Token</span>
-                <input id="hfToken" type="password" autocomplete="off" placeholder="留空即保留目前設定">
-              </label>
-            </div>
-            <label class="check-field">
-              <input id="clearHFToken" type="checkbox">
-              <span id="tokenState">清除已保存的 Token</span>
-            </label>
-          </div>
-        </div>
-
         <div class="settings-actions">
           <span id="settingsMessage" class="form-message"></span>
           <button id="saveSettingsButton" class="button primary" type="submit">儲存設定</button>
         </div>
-      </form>
-    </section>
+            </form>
+          </section>
 
-    <section class="section-block admin-security-section">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">MANAGEMENT ACCESS</p>
-          <h2>管理介面登入</h2>
-        </div>
-        <p class="section-note">帳密只保存於本機服務設定</p>
-      </div>
-      <form id="adminCredentialsForm" class="panel form-panel settings-form">
+          <section id="settingsModelSourcePane" class="settings-pane" role="tabpanel" aria-labelledby="settingsModelSourceTab" tabindex="0" hidden>
+            <form id="modelSourceForm" class="panel form-panel settings-form">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>Hugging Face</h3>
+                  <p>Token 僅在存取 gated 或 private repository 時需要。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="field">
+                    <span>Endpoint</span>
+                    <input id="hfEndpoint" type="url" required>
+                  </label>
+                  <div class="two-columns">
+                    <label class="field">
+                      <span>預設 Revision</span>
+                      <input id="defaultRevision" required>
+                    </label>
+                    <label class="field">
+                      <span>Access Token</span>
+                      <input id="hfToken" type="password" autocomplete="off" placeholder="留空即保留目前設定">
+                    </label>
+                  </div>
+                  <label class="check-field">
+                    <input id="clearHFToken" type="checkbox">
+                    <span id="tokenState">清除 Access Token</span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <span id="modelSourceMessage" class="form-message"></span>
+                <button id="saveModelSourceButton" class="button primary" type="submit">儲存模型來源</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="settingsAdminPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsAdminTab" tabindex="0" hidden>
+            <form id="adminCredentialsForm" class="panel form-panel settings-form">
         <div class="form-group">
           <div class="form-group-title">
             <h3>管理帳號密碼</h3>
@@ -193,18 +273,11 @@
           <span id="adminCredentialsMessage" class="form-message"></span>
           <button id="saveAdminCredentialsButton" class="button primary" type="submit">儲存登入設定</button>
         </div>
-      </form>
-    </section>
+            </form>
+          </section>
 
-    <section class="section-block security-section">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">MODEL API ACCESS</p>
-          <h2>模型 API 安全性</h2>
-        </div>
-        <p class="section-note">策略與金鑰雜湊保存於本機安全設定檔</p>
-      </div>
-      <form id="accessControlForm" class="panel form-panel settings-form">
+          <section id="settingsSecurityPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsSecurityTab" tabindex="0" hidden>
+            <form id="accessControlForm" class="panel form-panel settings-form">
         <div class="form-group">
           <div class="form-group-title">
             <h3>存取策略</h3>
@@ -265,7 +338,258 @@
           <span id="accessControlMessage" class="form-message"></span>
           <button id="saveAccessControlButton" class="button primary" type="submit">儲存安全設定</button>
         </div>
-      </form>
+            </form>
+          </section>
+
+          <section id="settingsNetPassPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsNetPassTab" tabindex="0" hidden>
+            <div class="panel settings-form netpass-panel">
+              <div class="netpass-danger" role="alert">
+                <div class="netpass-danger-icon" aria-hidden="true">!</div>
+                <div>
+                  <strong>反向代理會讓本機暴露在公共網路上</strong>
+                  <p>任何取得公開網址的人都可以嘗試連線到這台主機。沒有確切使用目的請勿開啟，使用完畢後請立即停止連線。</p>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>安全性前置檢查</h3>
+                  <p>連線前必須同時啟用管理介面帳號密碼，以及至少一組模型 API Access Key。</p>
+                </div>
+                <div class="form-group-fields">
+                  <div class="netpass-prerequisite-grid">
+                    <div class="netpass-prerequisite-column">
+                      <div id="netPassAdminAuthState" class="netpass-prerequisite">
+                        <span class="netpass-state-dot" aria-hidden="true"></span>
+                        <div><strong>管理介面帳號密碼</strong><small>檢查登入驗證</small></div>
+                        <span class="netpass-state-label">沒開啟</span>
+                      </div>
+                      <button class="button secondary compact netpass-prerequisite-action" type="button" data-netpass-settings-target="settingsAdminPane">管理登入設定</button>
+                    </div>
+                    <div class="netpass-prerequisite-column">
+                      <div id="netPassAPIKeyState" class="netpass-prerequisite">
+                        <span class="netpass-state-dot" aria-hidden="true"></span>
+                        <div><strong>模型 API Access Key</strong><small>檢查金鑰驗證與已核發金鑰</small></div>
+                        <span class="netpass-state-label">沒開啟</span>
+                      </div>
+                      <button class="button secondary compact netpass-prerequisite-action" type="button" data-netpass-settings-target="settingsSecurityPane">Access Key 設定</button>
+                    </div>
+                  </div>
+                  <p id="netPassSecurityMessage" class="netpass-security-message" role="status" aria-live="polite"></p>
+                </div>
+              </div>
+
+              <form id="netPassForm">
+                <div class="form-group">
+                  <div class="form-group-title">
+                    <h3>NetPass 連線</h3>
+                    <p>NetPassClient 以閉源執行檔隨安裝包提供；Tanpopo 不包含或發布其原始碼。</p>
+                  </div>
+                  <div class="form-group-fields">
+                    <label class="field">
+                      <span>NetPass Server URL</span>
+                      <input id="netPassEndpoint" type="url" required readonly aria-readonly="true" autocomplete="url" placeholder="https://netpass.mars-cloud.com">
+                    </label>
+                    <div class="two-columns">
+                      <label class="field">
+                        <span>NetPass Server API Key</span>
+                        <input id="netPassAPIKey" type="password" autocomplete="new-password" placeholder="留空即保留目前設定">
+                      </label>
+                      <label class="field">
+                        <span>裝置名稱（選用）</span>
+                        <input id="netPassName" maxlength="64" autocomplete="off" placeholder="tanpopo-server">
+                      </label>
+                    </div>
+                    <div class="netpass-key-actions">
+                      <button id="clearNetPassAPIKeyButton" class="button secondary compact" type="button" disabled>清除 NetPass Server API Key</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <div class="form-group-title">
+                    <h3>連線狀態</h3>
+                    <p>連線成功後會在此揭露可開啟及複製的 NetPass 管理頁面網址。</p>
+                  </div>
+                  <div class="form-group-fields">
+                    <dl class="about-details netpass-details">
+                      <div><dt>Client Runtime</dt><dd id="netPassRuntimeState">開啟時檢查</dd></div>
+                      <div><dt>連線</dt><dd id="netPassConnectionState">未連線</dd></div>
+                      <div><dt>PID</dt><dd><code id="netPassPID">—</code></dd></div>
+                      <div><dt>Client ID</dt><dd><code id="netPassClientID">—</code></dd></div>
+                      <div class="about-management-row netpass-url-row">
+                        <dt>NetPass 網址</dt>
+                        <dd id="netPassPublicURLContainer" class="netpass-public-url" hidden>
+                          <a id="netPassPublicURL" class="about-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+                          <button id="copyNetPassURLButton" class="api-copy-button" type="button" title="複製 NetPass 網址" aria-label="複製 NetPass 網址">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>
+                          </button>
+                        </dd>
+                      </div>
+                    </dl>
+                    <p id="netPassRuntimeMessage" class="netpass-runtime-message" role="status" aria-live="polite"></p>
+                  </div>
+                </div>
+
+                <div class="form-group netpass-policy-group" aria-labelledby="netPassPolicyTitle">
+                  <div class="form-group-title">
+                    <p class="netpass-policy-kicker">SERVICE POLICY</p>
+                    <h3 id="netPassPolicyTitle">使用政策與責任說明</h3>
+                    <p>請完整閱讀後再確認；未勾選前無法開啟反向代理。</p>
+                  </div>
+                  <div class="form-group-fields">
+                    <div class="netpass-policy-copy">
+                      <p>NetPass 反向代理為 Tanpopo 與 Mars Semi Corp. 的技術合作成果，僅供技術交流與實驗用途。目前採無償方式提供；Mars Semi Corp. 保留隨時調整使用政策之權利，相關異動將另行公告。</p>
+                      <p>啟用本服務後，本機管理介面與 API 呼叫將可透過公共網路存取。使用者應自行評估使用需求、妥善完成安全設定，並承擔相關網路安全風險。對於因使用本服務所衍生的資安事件、資料外洩或其他損失，Mars Semi Corp. 與本軟體均不承擔任何責任。</p>
+                    </div>
+                    <label class="netpass-policy-acceptance">
+                      <input id="acceptNetPassPolicy" type="checkbox">
+                      <span>我已閱讀並了解上述使用政策與責任說明。</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="settings-actions netpass-actions">
+                  <span id="netPassMessage" class="form-message"></span>
+                  <button id="saveNetPassButton" class="button secondary" type="submit">儲存連線設定</button>
+                  <button id="stopNetPassButton" class="button danger" type="button" disabled>停止反向代理</button>
+                  <button id="startNetPassButton" class="button primary" type="button" disabled>開啟反向代理</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section id="settingsSystemInfoPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsSystemInfoTab" tabindex="0" hidden>
+            <div class="panel settings-form system-info-panel">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>作業系統</h3>
+                  <p>由服務主機即時讀取的系統版本與執行環境。</p>
+                </div>
+                <div class="form-group-fields">
+                  <p id="systemInfoMessage" class="helper system-info-message" role="status" aria-live="polite"></p>
+                  <dl class="about-details system-info-details">
+                    <div>
+                      <dt>作業系統</dt>
+                      <dd id="systemOSName">讀取中…</dd>
+                    </div>
+                    <div>
+                      <dt>版本</dt>
+                      <dd id="systemOSVersion">—</dd>
+                    </div>
+                    <div>
+                      <dt>Build</dt>
+                      <dd><code id="systemOSBuild">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>Kernel</dt>
+                      <dd><code id="systemKernelVersion">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>架構</dt>
+                      <dd><code id="systemArchitecture">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>主機名稱</dt>
+                      <dd><code id="systemHostname">—</code></dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>硬體</h3>
+                  <p>顯示處理器、圖形處理器、核心數與實體記憶體。</p>
+                </div>
+                <div class="form-group-fields">
+                  <dl class="about-details system-info-details">
+                    <div>
+                      <dt>處理器</dt>
+                      <dd id="systemCPUModel">—</dd>
+                    </div>
+                    <div>
+                      <dt>實體核心</dt>
+                      <dd id="systemPhysicalCores">—</dd>
+                    </div>
+                    <div>
+                      <dt>邏輯核心</dt>
+                      <dd id="systemLogicalCores">—</dd>
+                    </div>
+                    <div>
+                      <dt>圖形處理器</dt>
+                      <dd id="systemGPUModel">—</dd>
+                    </div>
+                    <div>
+                      <dt>實體記憶體</dt>
+                      <dd id="systemMemory">—</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>網路</h3>
+                  <p>列出非 Loopback 網路介面的連線狀態與位址。</p>
+                </div>
+                <div class="form-group-fields">
+                  <div id="systemNetworkInterfaces" class="network-interface-list">
+                    <p class="empty-state">讀取中…</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="settingsAboutPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsAboutTab" tabindex="0" hidden>
+            <div class="panel settings-form about-panel">
+              <div class="form-group">
+                <div class="form-group-title about-product">
+                  <img src="/assets/tanpopo-icon.png" alt="">
+                  <div>
+                    <h3>Tanpopo</h3>
+                    <p>LOCAL MODEL CONTROL</p>
+                  </div>
+                </div>
+                <div class="form-group-fields">
+                  <dl class="about-details">
+                    <div>
+                      <dt>APP 版本</dt>
+                      <dd><code id="currentAppVersion">讀取中…</code></dd>
+                    </div>
+                    <div>
+                      <dt>GitHub 專案</dt>
+                      <dd><a id="githubRepositoryLink" class="about-link" href="#" target="_blank" rel="noopener noreferrer">讀取中…</a></dd>
+                    </div>
+                    <div class="about-management-row">
+                      <dt>管理頁面網址</dt>
+                      <dd>
+                        <ul id="managementURLList" class="management-url-list" aria-live="polite">
+                          <li class="empty-state">讀取中…</li>
+                        </ul>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>最新版本</dt>
+                      <dd><code id="latestAppVersion">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>上次檢查</dt>
+                      <dd id="lastUpdateCheck">尚未檢查</dd>
+                    </div>
+                  </dl>
+                  <p id="appUpdateSummary" class="about-update-summary" role="status" aria-live="polite">正在檢查更新…</p>
+                </div>
+              </div>
+              <div class="settings-actions about-actions">
+                <a id="githubReleaseLink" class="button secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>查看新版</a>
+                <button id="checkUpdateButton" class="button primary" type="button">檢查更新</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
     </section>
   </main>
 

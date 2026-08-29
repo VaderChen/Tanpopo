@@ -1,9 +1,67 @@
 (() => {
-  const { api, byId, showMessage, formatTime, setLanguage } = window.LlamaLoader;
+  const { api, byId, showMessage, formatBytes, formatTime, t, setLanguage, setTheme, getTheme } = window.LlamaLoader;
   const directoryState = { inputID: "", path: "", parent: "" };
+  let settingsState = {};
   let accessControlState = { policy: {}, keys: [] };
   let adminCredentialsState = { authenticationEnabled: true, account: "root" };
+  let netPassState = {};
+  let netPassFormHydrated = false;
+  let netPassPollBusy = false;
   let disableAuthenticationConfirmed = false;
+  const settingsPaneHashes = {
+    settingsGeneralPane: "general",
+    settingsModelSourcePane: "model-source",
+    settingsAdminPane: "admin-sign-in",
+    settingsSecurityPane: "model-api-security",
+    settingsNetPassPane: "reverse-proxy",
+    settingsSystemInfoPane: "system-info",
+    settingsAboutPane: "about"
+  };
+
+  function activateSettingsPane(targetID, updateLocation = true) {
+    const tabs = [...document.querySelectorAll("[data-settings-target]")];
+    const target = byId(targetID) || byId("settingsGeneralPane");
+    tabs.forEach((tab) => {
+      const active = tab.dataset.settingsTarget === target.id;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll(".settings-pane").forEach((pane) => {
+      pane.hidden = pane !== target;
+    });
+    if (updateLocation) {
+      const hash = settingsPaneHashes[target.id] || settingsPaneHashes.settingsGeneralPane;
+      history.replaceState(null, "", `${location.pathname}${location.search}#${hash}`);
+    }
+  }
+
+  function setupSettingsNavigation() {
+    const tabs = [...document.querySelectorAll("[data-settings-target]")];
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => activateSettingsPane(tab.dataset.settingsTarget));
+      tab.addEventListener("keydown", (event) => {
+        let nextIndex = index;
+        if (["ArrowDown", "ArrowRight"].includes(event.key)) nextIndex = (index + 1) % tabs.length;
+        else if (["ArrowUp", "ArrowLeft"].includes(event.key)) nextIndex = (index - 1 + tabs.length) % tabs.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        tabs[nextIndex].focus();
+        activateSettingsPane(tabs[nextIndex].dataset.settingsTarget);
+      });
+    });
+    const hash = location.hash.replace(/^#/, "");
+    const initialPane = Object.entries(settingsPaneHashes).find(([, value]) => value === hash)?.[0]
+      || "settingsGeneralPane";
+    activateSettingsPane(initialPane, false);
+    window.addEventListener("hashchange", () => {
+      const currentHash = location.hash.replace(/^#/, "");
+      const paneID = Object.entries(settingsPaneHashes).find(([, value]) => value === currentHash)?.[0];
+      if (paneID) activateSettingsPane(paneID, false);
+    });
+  }
 
   function updateResidentModeLabel() {
     byId("residentModeLabel").textContent = byId("residentMode").checked ? "啟用" : "關閉";
@@ -22,8 +80,14 @@
 
   async function loadSettings() {
     const settings = await api("/api/settings");
+    settingsState = settings;
     byId("uiLanguage").value = settings.ui_language || "auto";
     setLanguage(byId("uiLanguage").value);
+    const selectedTheme = settings.ui_theme || getTheme() || "tanpopo";
+    const themeInput = document.querySelector(`input[name="uiTheme"][value="${selectedTheme}"]`)
+      || document.querySelector('input[name="uiTheme"][value="tanpopo"]');
+    themeInput.checked = true;
+    setTheme(themeInput.value);
     byId("modelDirectory").value = settings.model_directory || "";
     byId("mlxModelDirectory").value = settings.mlx_model_directory || "";
     byId("residentMode").checked = Boolean(settings.resident_mode);
@@ -34,9 +98,393 @@
     byId("hfToken").value = "";
     byId("clearHFToken").checked = false;
     byId("clearHFToken").disabled = !settings.huggingface_token_set;
-    byId("tokenState").textContent = settings.huggingface_token_set
-      ? "清除已保存的 Token"
-      : "目前沒有保存 Token";
+    byId("tokenState").textContent = "清除 Access Token";
+  }
+
+  function settingsPayload(scope) {
+    const saveGeneral = scope === "general";
+    const saveModelSource = scope === "model-source";
+    return {
+      model_directory: saveGeneral ? byId("modelDirectory").value.trim() : (settingsState.model_directory || byId("modelDirectory").value.trim()),
+      mlx_model_directory: saveGeneral ? byId("mlxModelDirectory").value.trim() : (settingsState.mlx_model_directory || byId("mlxModelDirectory").value.trim()),
+      resident_mode: saveGeneral || typeof settingsState.resident_mode !== "boolean" ? byId("residentMode").checked : settingsState.resident_mode,
+      ui_language: saveGeneral ? byId("uiLanguage").value : (settingsState.ui_language || byId("uiLanguage").value),
+      ui_theme: saveGeneral ? (document.querySelector('input[name="uiTheme"]:checked')?.value || "tanpopo") : (settingsState.ui_theme || "tanpopo"),
+      huggingface_endpoint: saveModelSource ? byId("hfEndpoint").value.trim() : (settingsState.huggingface_endpoint || byId("hfEndpoint").value.trim()),
+      huggingface_token: saveModelSource ? byId("hfToken").value.trim() : "",
+      clear_huggingface_token: saveModelSource && byId("clearHFToken").checked,
+      default_revision: saveModelSource ? byId("defaultRevision").value.trim() : (settingsState.default_revision || byId("defaultRevision").value.trim())
+    };
+  }
+
+  async function saveSettings(scope, button, message, successMessage) {
+    button.disabled = true;
+    message.textContent = "";
+    try {
+      const payload = settingsPayload(scope);
+      try {
+        await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
+      } catch (error) {
+        const rejectedField = error.message.match(/unknown field\s+"([^"]+)"/i)?.[1];
+        const rollingUpdateFields = new Set(["ui_theme"]);
+        if (!rejectedField || !rollingUpdateFields.has(rejectedField)) throw error;
+        const compatiblePayload = { ...payload };
+        delete compatiblePayload[rejectedField];
+        await api("/api/settings", { method: "PUT", body: JSON.stringify(compatiblePayload) });
+      }
+      await loadSettings();
+      message.textContent = `${t(successMessage)}。`;
+      showMessage(successMessage);
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function displayVersion(value) {
+    const version = String(value || "").trim();
+    if (!version) return "—";
+    if (version === "dev") return version;
+    return version.replace(/^v/i, "");
+  }
+
+  function normalizeManagementURL(value) {
+    try {
+      const parsed = new URL(String(value || "").trim());
+      if (!["http:", "https:"].includes(parsed.protocol)) return "";
+      return parsed.origin;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function isLoopbackManagementURL(value) {
+    try {
+      const hostname = new URL(value).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+      return hostname === "localhost" || hostname === "::1" || /^127(?:\.|$)/.test(hostname);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const input = document.createElement("textarea");
+    input.value = value;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    if (!copied) throw new Error("copy failed");
+  }
+
+  function renderManagementURLs(values) {
+    const list = byId("managementURLList");
+    const candidates = [window.location.origin, ...(Array.isArray(values) ? values : [])];
+    const urls = [...new Set(candidates
+      .map(normalizeManagementURL)
+      .filter((url) => url && !isLoopbackManagementURL(url)))];
+    list.replaceChildren();
+    if (!urls.length) {
+      const empty = document.createElement("li");
+      empty.className = "empty-state";
+      empty.textContent = "—";
+      list.append(empty);
+      return;
+    }
+    urls.forEach((url) => {
+      const item = document.createElement("li");
+      item.className = "management-url-item";
+      const link = document.createElement("a");
+      link.className = "about-link";
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = url;
+      const copyButton = document.createElement("button");
+      copyButton.className = "api-copy-button";
+      copyButton.type = "button";
+      copyButton.title = t("複製管理頁面網址");
+      copyButton.setAttribute("aria-label", t("複製管理頁面網址"));
+      copyButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>';
+      copyButton.addEventListener("click", async () => {
+        try {
+          await copyText(url);
+          showMessage("管理頁面網址已複製");
+        } catch (_) {
+          showMessage("無法自動複製，請手動選取網址", "error");
+        }
+      });
+      item.append(link, copyButton);
+      list.append(item);
+    });
+  }
+
+  function setNetPassPrerequisite(id, ready, detail) {
+    const element = byId(id);
+    element.classList.toggle("ready", ready);
+    element.classList.toggle("blocked", !ready);
+    element.querySelector(".netpass-state-label").textContent = ready ? t("通過") : t("沒開啟");
+    if (detail) element.querySelector("small").textContent = detail;
+  }
+
+  function updateNetPassControls() {
+    const running = Boolean(netPassState.running);
+    const canStart = Boolean(netPassState.security_ready
+      && netPassState.api_key_set
+      && byId("acceptNetPassPolicy").checked
+      && !running);
+    byId("saveNetPassButton").disabled = running;
+    byId("startNetPassButton").disabled = !canStart;
+    byId("stopNetPassButton").disabled = !running;
+    byId("netPassAPIKey").disabled = running;
+    byId("netPassName").disabled = running;
+    byId("clearNetPassAPIKeyButton").disabled = running || !netPassState.api_key_set;
+  }
+
+  function renderNetPassStatus(status, hydrateForm = false) {
+    netPassState = status || {};
+    if (hydrateForm || !netPassFormHydrated) {
+      byId("netPassEndpoint").value = status.endpoint || "https://netpass.mars-cloud.com";
+      byId("netPassName").value = status.name || "";
+      byId("netPassAPIKey").value = "";
+      netPassFormHydrated = true;
+    }
+    byId("netPassAPIKey").placeholder = status.api_key_set
+      ? t("留空即保留目前設定")
+      : t("尚未設定");
+
+    const authenticationReady = Boolean(status.authentication_enabled);
+    const apiKeyReady = Boolean(status.api_key_enabled);
+    setNetPassPrerequisite(
+      "netPassAdminAuthState",
+      authenticationReady,
+      authenticationReady ? t("登入驗證已開啟") : t("登入驗證尚未開啟")
+    );
+    setNetPassPrerequisite(
+      "netPassAPIKeyState",
+      apiKeyReady,
+      apiKeyReady
+        ? `${t("已核發")} ${Number(status.access_key_count || 0)} ${t("組金鑰")}`
+        : t("金鑰驗證尚未開啟")
+    );
+
+    const securityMessage = byId("netPassSecurityMessage");
+    securityMessage.classList.toggle("ready", Boolean(status.security_ready));
+    if (status.security_ready) {
+      securityMessage.textContent = t("安全性前置檢查已通過。");
+    } else if (!authenticationReady && !apiKeyReady) {
+      securityMessage.textContent = t("請先開啟管理介面帳號密碼與模型 API Access Key 驗證");
+    } else if (!authenticationReady) {
+      securityMessage.textContent = t("請先開啟管理介面帳號密碼驗證");
+    } else if (!apiKeyReady) {
+      securityMessage.textContent = t("請先核發 Access Key 並開啟模型 API 金鑰驗證");
+    } else {
+      securityMessage.textContent = t("請先完成必要的安全性設定。");
+    }
+
+    byId("netPassRuntimeState").textContent = status.running
+      ? t("執行中")
+      : (!status.runtime_checked
+        ? t("開啟時檢查")
+        : (status.available ? t("可使用") : t("安裝包未包含 NetPassClient")));
+    byId("netPassConnectionState").textContent = status.connected
+      ? t("已連線")
+      : (status.running ? t("連線中…") : t("未連線"));
+    byId("netPassPID").textContent = status.pid || "—";
+    byId("netPassClientID").textContent = status.client_id || "—";
+
+    const publicURL = String(status.public_url || "").trim();
+    const publicContainer = byId("netPassPublicURLContainer");
+    const publicLink = byId("netPassPublicURL");
+    publicContainer.hidden = !status.connected || !publicURL;
+    publicLink.textContent = publicURL;
+    if (publicURL) publicLink.href = publicURL;
+    else publicLink.removeAttribute("href");
+
+    const runtimeMessage = byId("netPassRuntimeMessage");
+    runtimeMessage.classList.toggle("error", Boolean(status.last_error));
+    runtimeMessage.textContent = status.last_error || (status.runtime_checked && !status.available
+      ? t("NetPassClient 為閉源元件，必須由正式 .app 或 MSI 安裝包提供。")
+      : "");
+    updateNetPassControls();
+  }
+
+  async function loadNetPassStatus(hydrateForm = false) {
+    if (netPassPollBusy) return;
+    netPassPollBusy = true;
+    try {
+      renderNetPassStatus(await api("/api/netpass/status"), hydrateForm);
+    } catch (error) {
+      const message = byId("netPassRuntimeMessage");
+      if (netPassState.running) {
+        message.classList.add("error");
+        message.textContent = error.message;
+      } else {
+        message.classList.remove("error");
+        message.textContent = "";
+      }
+    } finally {
+      netPassPollBusy = false;
+    }
+  }
+
+  async function saveNetPassConfig(showSuccess = true) {
+    const result = await api("/api/netpass/config", {
+      method: "PUT",
+      body: JSON.stringify({
+        endpoint: byId("netPassEndpoint").value.trim(),
+        api_key: byId("netPassAPIKey").value.trim(),
+        clear_api_key: false,
+        name: byId("netPassName").value.trim()
+      })
+    });
+    renderNetPassStatus(result, true);
+    if (showSuccess) showMessage("NetPass 連線設定已保存");
+    return result;
+  }
+
+  function renderAppVersion(status) {
+    byId("currentAppVersion").textContent = displayVersion(status.current_version);
+    byId("latestAppVersion").textContent = displayVersion(status.latest_version);
+    byId("lastUpdateCheck").textContent = status.checked_at ? formatTime(status.checked_at) : t("尚未檢查");
+
+    const repositoryLink = byId("githubRepositoryLink");
+    const repositoryURL = String(status.repository_url || "").trim();
+    repositoryLink.textContent = repositoryURL || "—";
+    if (repositoryURL) repositoryLink.href = repositoryURL;
+    else repositoryLink.removeAttribute("href");
+
+    const releaseLink = byId("githubReleaseLink");
+    const releaseURL = String(status.release_url || "").trim();
+    releaseLink.hidden = !status.update_available || !releaseURL;
+    if (releaseURL) releaseLink.href = releaseURL;
+    else releaseLink.removeAttribute("href");
+
+    const summary = byId("appUpdateSummary");
+    summary.className = "about-update-summary";
+    if (status.check_error) {
+      summary.classList.add("error");
+      summary.textContent = `${t("更新檢查失敗")}：${status.check_error}`;
+    } else if (status.update_available) {
+      summary.classList.add("update-available");
+      summary.textContent = t(`有新版本 ${displayVersion(status.latest_version)} 可用。`);
+    } else if (status.latest_version) {
+      summary.textContent = t("目前已是最新版本。");
+    } else {
+      summary.textContent = t("尚未完成更新檢查。");
+    }
+  }
+
+  async function loadAppVersion(force = false) {
+    const button = byId("checkUpdateButton");
+    if (force) {
+      button.disabled = true;
+      byId("appUpdateSummary").textContent = t("正在檢查更新…");
+    }
+    try {
+      const status = await api(force ? "/api/app-version/check" : "/api/app-version", {
+        method: force ? "POST" : "GET"
+      });
+      renderAppVersion(status);
+    } catch (error) {
+      const summary = byId("appUpdateSummary");
+      summary.className = "about-update-summary error";
+      summary.textContent = `${t("更新檢查失敗")}：${error.message}`;
+    } finally {
+      if (force) button.disabled = false;
+    }
+  }
+
+  function systemInfoValue(value) {
+    const text = String(value || "").trim();
+    return text || "—";
+  }
+
+  function renderSystemInfo(info) {
+    byId("systemOSName").textContent = systemInfoValue(info.os_name);
+    byId("systemOSVersion").textContent = systemInfoValue(info.os_version);
+    byId("systemOSBuild").textContent = systemInfoValue(info.os_build);
+    byId("systemKernelVersion").textContent = systemInfoValue(info.kernel_version);
+    byId("systemArchitecture").textContent = systemInfoValue(info.architecture);
+    byId("systemHostname").textContent = systemInfoValue(info.hostname);
+    byId("systemCPUModel").textContent = systemInfoValue(info.cpu_model);
+    byId("systemPhysicalCores").textContent = Number(info.physical_cores) > 0 ? String(info.physical_cores) : "—";
+    byId("systemLogicalCores").textContent = Number(info.logical_cores) > 0 ? String(info.logical_cores) : "—";
+    byId("systemGPUModel").textContent = systemInfoValue(info.gpu_model);
+    byId("systemMemory").textContent = Number(info.memory_bytes) > 0 ? formatBytes(Number(info.memory_bytes)) : "—";
+    renderNetworkInterfaces(info.network_interfaces);
+    renderManagementURLs(info.management_urls);
+  }
+
+  function networkDetail(label, value, code = false) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = t(label);
+    const content = code ? document.createElement("code") : document.createElement("span");
+    content.textContent = systemInfoValue(value);
+    description.append(content);
+    row.append(term, description);
+    return row;
+  }
+
+  function renderNetworkInterfaces(interfaces) {
+    const container = byId("systemNetworkInterfaces");
+    container.replaceChildren();
+    const entries = Array.isArray(interfaces) ? interfaces : [];
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = t("沒有可顯示的網路介面。");
+      container.append(empty);
+      return;
+    }
+    entries.forEach((networkInterface) => {
+      const addresses = Array.isArray(networkInterface.addresses)
+        ? networkInterface.addresses.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      const active = Boolean(networkInterface.up) && addresses.length > 0;
+      const card = document.createElement("article");
+      card.className = "network-interface-card";
+      const heading = document.createElement("header");
+      const name = document.createElement("strong");
+      name.textContent = systemInfoValue(networkInterface.name);
+      const status = document.createElement("span");
+      status.className = `network-interface-status ${active ? "active" : (networkInterface.up ? "enabled" : "offline")}`;
+      status.textContent = t(active ? "已連線" : (networkInterface.up ? "已啟用" : "未連線"));
+      heading.append(name, status);
+      const details = document.createElement("dl");
+      details.append(
+        networkDetail("IP 位址", addresses.length ? addresses.join("\n") : "—", true),
+        networkDetail("MAC 位址", networkInterface.hardware_address, true),
+        networkDetail("MTU", Number(networkInterface.mtu) > 0 ? String(networkInterface.mtu) : "—", true)
+      );
+      card.append(heading, details);
+      container.append(card);
+    });
+  }
+
+  async function loadSystemInfo(retry = 0) {
+    const message = byId("systemInfoMessage");
+    try {
+      const info = await api("/api/system/info");
+      if (!info.collected_at && retry < 4) {
+        window.setTimeout(() => loadSystemInfo(retry + 1), 500);
+        return;
+      }
+      renderSystemInfo(info);
+      message.textContent = "";
+    } catch (error) {
+      message.textContent = `${t("無法讀取系統資訊")}：${error.message}`;
+    }
   }
 
   function updateAdminCredentialFields() {
@@ -242,6 +690,11 @@
   byId("uiLanguage").addEventListener("change", () => {
     setLanguage(byId("uiLanguage").value);
   });
+  document.querySelectorAll('input[name="uiTheme"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) setTheme(input.value);
+    });
+  });
   byId("residentMode").addEventListener("change", async () => {
     const toggle = byId("residentMode");
     const requested = toggle.checked;
@@ -252,6 +705,7 @@
         method: "PUT",
         body: JSON.stringify({ enabled: requested })
       });
+      settingsState = settings;
       toggle.checked = Boolean(settings.resident_mode);
       updateResidentModeLabel();
       notifyNativeResidentMode(settings.resident_mode);
@@ -290,33 +744,112 @@
 
   byId("settingsForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = byId("saveSettingsButton");
-    const message = byId("settingsMessage");
+    await saveSettings("general", byId("saveSettingsButton"), byId("settingsMessage"), "設定已保存");
+  });
+
+  byId("modelSourceForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSettings("model-source", byId("saveModelSourceButton"), byId("modelSourceMessage"), "模型來源已保存");
+  });
+
+  document.querySelectorAll("[data-netpass-settings-target]").forEach((button) => {
+    button.addEventListener("click", () => activateSettingsPane(button.dataset.netpassSettingsTarget));
+  });
+  byId("acceptNetPassPolicy").addEventListener("change", updateNetPassControls);
+  byId("clearNetPassAPIKeyButton").addEventListener("click", async () => {
+    if (!window.confirm(t("確定要清除 NetPass Server API Key？清除後必須重新設定才能連線。"))) return;
+    const button = byId("clearNetPassAPIKeyButton");
+    const message = byId("netPassMessage");
     button.disabled = true;
     message.textContent = "";
     try {
-      await api("/api/settings", {
+      const status = await api("/api/netpass/config", {
         method: "PUT",
         body: JSON.stringify({
-          model_directory: byId("modelDirectory").value.trim(),
-          mlx_model_directory: byId("mlxModelDirectory").value.trim(),
-          resident_mode: byId("residentMode").checked,
-          ui_language: byId("uiLanguage").value,
-          huggingface_endpoint: byId("hfEndpoint").value.trim(),
-          huggingface_token: byId("hfToken").value.trim(),
-          clear_huggingface_token: byId("clearHFToken").checked,
-          default_revision: byId("defaultRevision").value.trim()
+          endpoint: byId("netPassEndpoint").value.trim(),
+          api_key: "",
+          clear_api_key: true,
+          name: byId("netPassName").value.trim()
         })
       });
-      await loadSettings();
-      message.textContent = "設定已保存。";
-      showMessage("設定已保存");
+      renderNetPassStatus(status, true);
+      message.textContent = t("NetPass Server API Key 已清除");
+      showMessage("NetPass Server API Key 已清除");
     } catch (error) {
       message.textContent = error.message;
+      showMessage(error.message, "error");
     } finally {
-      button.disabled = false;
+      updateNetPassControls();
     }
   });
+  byId("netPassForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = byId("saveNetPassButton");
+    const message = byId("netPassMessage");
+    button.disabled = true;
+    message.textContent = "";
+    try {
+      await saveNetPassConfig();
+      message.textContent = t("NetPass 連線設定已保存");
+    } catch (error) {
+      message.textContent = error.message;
+      showMessage(error.message, "error");
+    } finally {
+      updateNetPassControls();
+    }
+  });
+  byId("startNetPassButton").addEventListener("click", async () => {
+    const button = byId("startNetPassButton");
+    const message = byId("netPassMessage");
+    button.disabled = true;
+    message.textContent = t("正在建立公共連線…");
+    try {
+      await saveNetPassConfig(false);
+      const status = await api("/api/netpass/start", {
+        method: "POST",
+        body: JSON.stringify({
+          accept_usage_policy: byId("acceptNetPassPolicy").checked
+        })
+      });
+      renderNetPassStatus(status);
+      message.textContent = t("NetPassClient 已啟動，正在等待公開網址。");
+      showMessage("反向代理正在連線");
+    } catch (error) {
+      message.textContent = error.message;
+      showMessage(error.message, "error");
+    } finally {
+      updateNetPassControls();
+    }
+  });
+  byId("stopNetPassButton").addEventListener("click", async () => {
+    const button = byId("stopNetPassButton");
+    const message = byId("netPassMessage");
+    button.disabled = true;
+    message.textContent = t("正在停止反向代理…");
+    try {
+      renderNetPassStatus(await api("/api/netpass/stop", { method: "POST" }));
+      byId("acceptNetPassPolicy").checked = false;
+      message.textContent = t("反向代理已停止。");
+      showMessage("反向代理已停止");
+    } catch (error) {
+      message.textContent = error.message;
+      showMessage(error.message, "error");
+    } finally {
+      updateNetPassControls();
+    }
+  });
+  byId("copyNetPassURLButton").addEventListener("click", async () => {
+    const publicURL = String(netPassState.public_url || "").trim();
+    if (!publicURL) return;
+    try {
+      await copyText(publicURL);
+      showMessage("NetPass 網址已複製");
+    } catch (_) {
+      showMessage("無法自動複製，請手動選取網址", "error");
+    }
+  });
+
+  byId("checkUpdateButton").addEventListener("click", () => loadAppVersion(true));
 
   byId("authenticationEnabled").addEventListener("change", async () => {
     const toggle = byId("authenticationEnabled");
@@ -484,6 +1017,15 @@
   });
   byId("dismissIssuedKeyButton").addEventListener("click", hideIssuedKey);
 
-  Promise.all([loadSettings(), loadAdminCredentials(), loadAccessControl()])
+  setupSettingsNavigation();
+  renderManagementURLs([]);
+  Promise.all([loadSettings(), loadAdminCredentials(), loadAccessControl(), loadSystemInfo(), loadAppVersion()])
     .catch((error) => showMessage(error.message, "error"));
+  loadNetPassStatus(true);
+  window.setInterval(() => {
+    if (!byId("settingsSystemInfoPane").hidden) loadSystemInfo();
+  }, 3000);
+  window.setInterval(() => {
+    if (!byId("settingsNetPassPane").hidden || netPassState.running) loadNetPassStatus();
+  }, 2000);
 })();

@@ -21,6 +21,8 @@ llama-runtime/prebuilt/
 mlx-runtime/prebuilt/
 mlx-runtime/metal-cache/
 desktop-ui/prebuilt/
+# NetPassClient 為閉源執行檔，只能在 .app／MSI 封裝階段由外部目錄注入。
+netpass-client/
 llama-server/tools/mtmd/test-1.jpeg
 llama-server/tools/mtmd/test-2.mp3
 llama-server/tools/mtmd/test-3.mp4

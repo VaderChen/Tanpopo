@@ -35,3 +35,9 @@ Tanpopo 使用或整合多項第三方開放原始碼。這些內容不因 Tanpo
 
 - <https://github.com/markdown-it/markdown-it>
 - <https://github.com/KaTeX/KaTeX>
+
+## NetPassClient
+
+NetPassClient 是 Tanpopo 與 Mars Semi Corp. 技術合作所使用的獨立閉源元件，僅供技術交流與實驗用途。其原始碼、二進位檔、憑證、金鑰與正式封裝流程均不包含在本公開儲存庫，也不適用本儲存庫對 Tanpopo 原創程式碼所提供的 GPL 或商業授權選項。
+
+官方簽章安裝包可能依目標平台納入受控的 NetPassClient 成品；使用者在啟用前仍須閱讀並同意介面所顯示的使用政策與責任說明。NetPass 目前採無償方式提供，Mars Semi Corp. 保留調整使用政策的權利，相關異動將另行公告。啟用後，本機管理介面與 API 呼叫將可透過公共網路存取，使用者應自行完成安全設定並承擔相關風險。

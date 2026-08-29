@@ -1,14 +1,15 @@
 (() => {
   const LANGUAGE_KEY = "tanpopo.uiLanguage";
+  const THEME_KEY = "tanpopo.uiTheme";
   const byId = (id) => document.getElementById(id);
 
   // 介面以繁體中文作為字串來源，避免各頁面各自維護一套翻譯流程。
   const rows = [
     ["執行狀態", "Runtime", "実行状態", "실행 상태"],
-    ["啟動命令", "Launch profiles", "起動プロファイル", "시작 프로필"],
+    ["啟動參數", "Launch profiles", "起動プロファイル", "시작 프로필"],
     ["簡易對話", "Chat", "チャット", "간단 대화"],
     ["模型下載", "Model download", "モデルのダウンロード", "모델 다운로드"],
-    ["環境設定", "Settings", "環境設定", "환경 설정"],
+    ["系統設定", "System settings", "システム設定", "시스템 설정"],
     ["登出", "Sign out", "ログアウト", "로그아웃"],
     ["重新整理", "Refresh", "更新", "새로 고침"],
     ["讀取中", "Loading", "読み込み中", "불러오는 중"],
@@ -55,8 +56,20 @@
     ["命令預覽", "Command preview", "コマンドプレビュー", "명령 미리 보기"],
     ["下載模型", "Download models", "モデルをダウンロード", "모델 다운로드"],
     ["模型格式／Runtime", "Model format / Runtime", "モデル形式／Runtime", "모델 형식/Runtime"],
+    ["快速選擇常用模型", "Quickly select a popular model", "よく使われるモデルを選択", "자주 사용하는 모델 빠른 선택"],
+    ["常用模型", "Popular models", "よく使われるモデル", "자주 사용하는 모델"],
+    ["從外部 JSON 名單選擇後，自動填入下載資訊。", "Select from the external JSON catalog to fill in the download details.", "外部 JSON カタログから選択すると、ダウンロード情報を自動入力します。", "외부 JSON 목록에서 선택하면 다운로드 정보를 자동으로 입력합니다."],
+    ["GGUF 模型", "GGUF models", "GGUF モデル", "GGUF 모델"],
+    ["MLX 模型", "MLX models", "MLX モデル", "MLX 모델"],
+    ["清單讀取中…", "Loading catalog…", "カタログを読み込んでいます…", "목록을 불러오는 중…"],
+    ["無法載入常用模型清單", "Unable to load the popular-model catalog", "よく使われるモデルのカタログを読み込めません", "자주 사용하는 모델 목록을 불러올 수 없습니다"],
+    ["不支援的常用模型清單格式", "Unsupported popular-model catalog format", "未対応のモデルカタログ形式です", "지원하지 않는 모델 목록 형식입니다"],
+    ["目前沒有可用的常用模型。", "No popular models are currently available.", "利用可能なモデルはありません。", "현재 사용할 수 있는 추천 모델이 없습니다."],
+    ["已填入快速下載資訊", "Download details filled in", "ダウンロード情報を入力しました", "다운로드 정보를 입력했습니다"],
     ["GGUF 檔名", "GGUF filename", "GGUF ファイル名", "GGUF 파일 이름"],
     ["目的檔案存在時覆寫", "Overwrite existing destination files", "既存の保存先ファイルを上書き", "대상 파일이 있으면 덮어쓰기"],
+    ["開啟儲存位置", "Open storage location", "保存先を開く", "저장 위치 열기"],
+    ["僅能在 Tanpopo 桌面介面使用", "Available only in the Tanpopo desktop app", "Tanpopo デスクトップ画面でのみ使用できます", "Tanpopo 데스크톱 화면에서만 사용할 수 있습니다"],
     ["開始下載", "Start download", "ダウンロード開始", "다운로드 시작"],
     ["下載進度", "Download queue", "ダウンロード状況", "다운로드 진행 상황"],
     ["目前沒有下載工作。", "No downloads yet.", "ダウンロードはありません。", "다운로드 작업이 없습니다."],
@@ -72,6 +85,16 @@
     ["AUTO 會依作業系統與瀏覽器語系自動選擇。", "AUTO follows the operating-system and browser language.", "AUTO は OS とブラウザーの言語に合わせます。", "AUTO는 운영 체제와 브라우저 언어를 따릅니다."],
     ["顯示語言", "Display language", "表示言語", "표시 언어"],
     ["繁體中文", "Traditional Chinese", "繁体字中国語", "번체 중국어"],
+    ["介面配色", "Interface colors", "インターフェース配色", "인터페이스 색상"],
+    ["選擇全站使用的背景、面板與強調色；切換後會立即預覽。", "Choose the background, panel, and accent colors used throughout the interface. Changes are previewed immediately.", "画面全体の背景、パネル、アクセントカラーを選択します。変更はすぐにプレビューされます。", "전체 화면의 배경, 패널 및 강조 색상을 선택합니다. 변경 사항은 즉시 미리 표시됩니다."],
+    ["蒲公英", "Tanpopo", "タンポポ", "민들레"],
+    ["目前的暖白與蒲公英綠", "Current warm white and dandelion green", "現在の暖かな白とタンポポグリーン", "현재의 따뜻한 흰색과 민들레 초록색"],
+    ["海霧藍", "Ocean mist", "海霧ブルー", "바다 안개 블루"],
+    ["清爽冷白與深海藍", "Crisp cool white and deep ocean blue", "爽やかなクールホワイトと深海ブルー", "산뜻한 쿨 화이트와 짙은 바다색"],
+    ["櫻花粉", "Sakura", "桜色", "벚꽃 핑크"],
+    ["柔和暖粉與莓果紅", "Soft warm pink and berry red", "柔らかなウォームピンクとベリーレッド", "부드러운 웜 핑크와 베리 레드"],
+    ["夜藤", "Night wisteria", "夜藤", "밤 등나무"],
+    ["深紫黑與柔和紫藤色", "Deep violet black and soft wisteria purple", "深い紫黒と柔らかな藤色", "짙은 보라빛 검정과 부드러운 등나무 보라색"],
     ["桌面模式", "Desktop mode", "デスクトップモード", "데스크톱 모드"],
     ["控制圖形介面關閉後，Tanpopo 是否繼續在後台提供服務。", "Choose whether Tanpopo keeps serving in the background after its window closes.", "ウィンドウを閉じた後も Tanpopo をバックグラウンドで動作させるか設定します。", "창을 닫은 뒤에도 Tanpopo가 백그라운드에서 계속 서비스할지 설정합니다."],
     ["常駐", "Keep running", "常駐", "백그라운드 실행"],
@@ -80,8 +103,17 @@
     ["GGUF 模型目錄（llama-server）", "GGUF model directory (llama-server)", "GGUF モデルフォルダー（llama-server）", "GGUF 모델 폴더(llama-server)"],
     ["MLX 模型目錄（Apple Silicon）", "MLX model directory (Apple Silicon)", "MLX モデルフォルダー（Apple Silicon）", "MLX 모델 폴더(Apple Silicon)"],
     ["預設 Revision", "Default revision", "既定の Revision", "기본 Revision"],
-    ["清除已保存的 Token", "Clear saved token", "保存済み Token を消去", "저장된 Token 지우기"],
+    ["清除 Access Token", "Clear Access Token", "Access Token を消去", "Access Token 지우기"],
     ["儲存設定", "Save settings", "設定を保存", "설정 저장"],
+    ["一般設定", "General", "一般設定", "일반 설정"],
+    ["介面、桌面模式與模型位置", "Interface, desktop mode, and model locations", "インターフェース、デスクトップモード、モデル保存先", "인터페이스, 데스크톱 모드 및 모델 위치"],
+    ["模型來源", "Model sources", "モデル取得元", "모델 소스"],
+    ["Hugging Face 連線與存取憑證", "Hugging Face connection and credentials", "Hugging Face の接続と認証情報", "Hugging Face 연결 및 인증 정보"],
+    ["儲存模型來源", "Save model source", "モデル取得元を保存", "모델 소스 저장"],
+    ["模型來源已保存", "Model source saved", "モデル取得元を保存しました", "모델 소스를 저장했습니다"],
+    ["管理帳號、密碼與登入驗證", "Administrator account, password, and authentication", "管理者アカウント、パスワード、ログイン認証", "관리자 계정, 비밀번호 및 로그인 인증"],
+    ["Access Key 與 IP 白名單", "Access keys and IP allowlist", "Access Key と IP 許可リスト", "Access Key 및 IP 허용 목록"],
+    ["設定分類", "Settings categories", "設定カテゴリー", "설정 분류"],
     ["管理介面登入", "Admin sign-in", "管理画面ログイン", "관리 화면 로그인"],
     ["帳密只保存於本機服務設定", "Credentials are stored only in the local service configuration", "認証情報はローカルサービス設定にのみ保存されます", "로그인 정보는 로컬 서비스 설정에만 저장됩니다"],
     ["管理帳號密碼", "Administrator credentials", "管理者認証情報", "관리자 로그인 정보"],
@@ -90,7 +122,105 @@
     ["新密碼（留空維持不變）", "New password (leave blank to keep unchanged)", "新しいパスワード（空欄なら変更なし）", "새 비밀번호(비워 두면 변경하지 않음)"],
     ["確認新密碼", "Confirm new password", "新しいパスワードを確認", "새 비밀번호 확인"],
     ["儲存登入設定", "Save sign-in settings", "ログイン設定を保存", "로그인 설정 저장"],
-    ["模型 API 安全性", "Model API security", "モデル API セキュリティ", "모델 API 보안"],
+    ["網路安全", "Network security", "ネットワークセキュリティ", "네트워크 보안"],
+    ["反向代理", "Reverse proxy", "リバースプロキシ", "리버스 프록시"],
+    ["NetPass 公共網路連線", "NetPass public-network connection", "NetPass 公開ネットワーク接続", "NetPass 공용 네트워크 연결"],
+    ["反向代理會讓本機暴露在公共網路上", "A reverse proxy exposes this computer to the public internet", "リバースプロキシはこのコンピューターを公開ネットワークに露出させます", "리버스 프록시는 이 컴퓨터를 공용 인터넷에 노출합니다"],
+    ["任何取得公開網址的人都可以嘗試連線到這台主機。沒有確切使用目的請勿開啟，使用完畢後請立即停止連線。", "Anyone who obtains the public URL can attempt to connect to this host. Do not enable this without a specific purpose, and stop it immediately after use.", "公開 URL を取得した人は誰でもこのホストへの接続を試みることができます。明確な目的がない場合は有効にせず、使用後は直ちに停止してください。", "공개 URL을 얻은 누구나 이 호스트에 연결을 시도할 수 있습니다. 명확한 목적이 없으면 켜지 말고 사용 후 즉시 중지하세요."],
+    ["使用政策與責任說明", "Usage policy and responsibility notice", "利用ポリシーと責任に関する説明", "사용 정책 및 책임 안내"],
+    ["請完整閱讀後再確認；未勾選前無法開啟反向代理。", "Read the entire notice before confirming. The reverse proxy cannot be enabled until this is checked.", "内容を最後まで読んでから確認してください。チェックするまでリバースプロキシは有効にできません。", "전체 내용을 읽은 후 확인하세요. 체크하기 전에는 리버스 프록시를 활성화할 수 없습니다."],
+    ["NetPass 反向代理為 Tanpopo 與 Mars Semi Corp. 的技術合作成果，僅供技術交流與實驗用途。目前採無償方式提供；Mars Semi Corp. 保留隨時調整使用政策之權利，相關異動將另行公告。", "The NetPass reverse proxy is the result of technical cooperation between Tanpopo and Mars Semi Corp. and is provided solely for technical exchange and experimental use. It is currently offered free of charge. Mars Semi Corp. reserves the right to revise its usage policy at any time, and related changes will be announced separately.", "NetPass リバースプロキシは Tanpopo と Mars Semi Corp. の技術協力による成果であり、技術交流および実験目的に限って提供されます。現在は無償で提供されています。Mars Semi Corp. は利用ポリシーを随時変更する権利を留保し、変更内容は別途告知します。", "NetPass 리버스 프록시는 Tanpopo와 Mars Semi Corp.의 기술 협력 결과물로서 기술 교류 및 실험 목적으로만 제공됩니다. 현재 무료로 제공되며, Mars Semi Corp.는 언제든지 사용 정책을 조정할 권리를 보유하고 관련 변경 사항은 별도로 공지합니다."],
+    ["啟用本服務後，本機管理介面與 API 呼叫將可透過公共網路存取。使用者應自行評估使用需求、妥善完成安全設定，並承擔相關網路安全風險。對於因使用本服務所衍生的資安事件、資料外洩或其他損失，Mars Semi Corp. 與本軟體均不承擔任何責任。", "After this service is enabled, the local admin interface and API endpoints become accessible over the public internet. Users must assess their own needs, configure security appropriately, and accept the associated network-security risks. Mars Semi Corp. and this software assume no liability for security incidents, data exposure, or other losses arising from use of the service.", "本サービスを有効にすると、ローカル管理画面およびAPI呼び出しが公開ネットワーク経由で利用可能になります。利用者は必要性を自ら判断し、適切なセキュリティ設定を行ったうえで、関連するネットワークセキュリティ上のリスクを負担するものとします。本サービスの利用に起因するセキュリティ事故、情報漏えい、その他の損失について、Mars Semi Corp. および本ソフトウェアは一切の責任を負いません。", "본 서비스를 활성화하면 로컬 관리 화면과 API 호출에 공용 인터넷을 통해 접근할 수 있습니다. 사용자는 사용 필요성을 직접 판단하고 보안 설정을 적절히 완료한 뒤 관련 네트워크 보안 위험을 부담해야 합니다. 서비스 사용으로 인해 발생하는 보안 사고, 정보 유출 또는 기타 손실에 대해 Mars Semi Corp.와 본 소프트웨어는 어떠한 책임도 지지 않습니다."],
+    ["我已閱讀並了解上述使用政策與責任說明。", "I have read and understood the usage policy and responsibility notice above.", "上記の利用ポリシーと責任に関する説明を読み、理解しました。", "위의 사용 정책 및 책임 안내를 읽고 이해했습니다."],
+    ["安全性前置檢查", "Security prerequisites", "セキュリティ前提条件", "보안 사전 검사"],
+    ["連線前必須同時啟用管理介面帳號密碼，以及至少一組模型 API Access Key。", "Before connecting, enable administrator credentials and at least one model API access key.", "接続前に管理画面のアカウント認証と、少なくとも 1 つのモデル API Access Key を有効にしてください。", "연결 전에 관리 화면 계정 인증과 하나 이상의 모델 API Access Key를 활성화하세요."],
+    ["管理介面帳號密碼", "Administrator credentials", "管理画面のアカウント認証", "관리 화면 계정 인증"],
+    ["檢查登入驗證", "Checking sign-in authentication", "ログイン認証を確認", "로그인 인증 확인"],
+    ["模型 API Access Key", "Model API access key", "モデル API Access Key", "모델 API Access Key"],
+    ["檢查金鑰驗證與已核發金鑰", "Checking key authentication and issued keys", "キー認証と発行済みキーを確認", "키 인증 및 발급된 키 확인"],
+    ["未啟用", "Disabled", "無効", "사용 안 함"],
+    ["沒開啟", "Not enabled", "未有効", "켜지지 않음"],
+    ["通過", "Passed", "合格", "통과"],
+    ["登入驗證已開啟", "Sign-in authentication is enabled", "ログイン認証は有効です", "로그인 인증이 활성화되었습니다"],
+    ["登入驗證尚未開啟", "Sign-in authentication is disabled", "ログイン認証は無効です", "로그인 인증이 비활성화되어 있습니다"],
+    ["已核發", "Issued", "発行済み", "발급됨"],
+    ["組金鑰", "key(s)", "個のキー", "개 키"],
+    ["金鑰驗證尚未開啟", "Key authentication is disabled", "キー認証は無効です", "키 인증이 비활성화되어 있습니다"],
+    ["安全性前置檢查已通過。", "Security prerequisites passed.", "セキュリティ前提条件を満たしています。", "보안 사전 검사를 통과했습니다."],
+    ["請先完成必要的安全性設定。", "Complete the required security settings first.", "必要なセキュリティ設定を先に完了してください。", "필수 보안 설정을 먼저 완료하세요."],
+    ["請先開啟管理介面帳號密碼與模型 API Access Key 驗證", "Enable administrator credentials and model API access-key authentication first.", "管理画面のアカウント認証とモデル API Access Key 認証を先に有効にしてください。", "관리 화면 계정 인증과 모델 API Access Key 인증을 먼저 활성화하세요."],
+    ["請先開啟管理介面帳號密碼驗證", "Enable administrator credential authentication first.", "管理画面のアカウント認証を先に有効にしてください。", "관리 화면 계정 인증을 먼저 활성화하세요."],
+    ["請先核發 Access Key 並開啟模型 API 金鑰驗證", "Issue an access key and enable model API key authentication first.", "Access Key を発行し、モデル API キー認証を先に有効にしてください。", "Access Key를 발급하고 모델 API 키 인증을 먼저 활성화하세요."],
+    ["管理登入設定", "Admin sign-in settings", "管理者ログイン設定", "관리자 로그인 설정"],
+    ["Access Key 設定", "Access key settings", "Access Key 設定", "Access Key 설정"],
+    ["NetPass 連線", "NetPass connection", "NetPass 接続", "NetPass 연결"],
+    ["NetPassClient 以閉源執行檔隨安裝包提供；Tanpopo 不包含或發布其原始碼。", "NetPassClient is supplied as a closed-source executable in the installer; Tanpopo does not include or publish its source code.", "NetPassClient はインストーラーにクローズドソースの実行ファイルとして同梱され、Tanpopo はそのソースコードを含めたり公開したりしません。", "NetPassClient는 설치 프로그램에 비공개 실행 파일로 포함되며 Tanpopo는 해당 소스 코드를 포함하거나 공개하지 않습니다."],
+    ["裝置名稱（選用）", "Device name (optional)", "デバイス名（任意）", "장치 이름(선택 사항)"],
+    ["留空即保留目前設定", "Leave blank to keep the current setting", "空欄なら現在の設定を保持", "비워 두면 현재 설정 유지"],
+    ["清除 NetPass Server API Key", "Clear NetPass Server API key", "NetPass Server API Key を消去", "NetPass Server API Key 지우기"],
+    ["確定要清除 NetPass Server API Key？清除後必須重新設定才能連線。", "Clear the NetPass Server API key? You must configure it again before reconnecting.", "NetPass Server API Key を消去しますか？再接続するには、もう一度設定する必要があります。", "NetPass Server API Key를 지우시겠습니까? 다시 연결하려면 키를 다시 설정해야 합니다."],
+    ["NetPass Server API Key 已清除", "NetPass Server API key cleared", "NetPass Server API Key を消去しました", "NetPass Server API Key가 지워졌습니다"],
+    ["連線狀態", "Connection status", "接続状態", "연결 상태"],
+    ["連線成功後會在此揭露可開啟及複製的 NetPass 管理頁面網址。", "After connection, the NetPass admin-page URL will appear here for opening or copying.", "接続後、開いたりコピーしたりできる NetPass 管理画面 URL がここに表示されます。", "연결 후 열거나 복사할 수 있는 NetPass 관리 페이지 URL이 여기에 표시됩니다."],
+    ["連線", "Connection", "接続", "연결"],
+    ["連線中…", "Connecting…", "接続中…", "연결 중…"],
+    ["可使用", "Available", "利用可能", "사용 가능"],
+    ["開啟時檢查", "Checked when enabled", "有効化時に確認", "활성화할 때 확인"],
+    ["執行中", "Running", "実行中", "실행 중"],
+    ["安裝包未包含 NetPassClient", "NetPassClient is not included in this installation", "このインストールには NetPassClient が含まれていません", "이 설치에는 NetPassClient가 포함되어 있지 않습니다"],
+    ["NetPassClient 為閉源元件，必須由正式 .app 或 MSI 安裝包提供。", "NetPassClient is closed-source and must be supplied by the official .app or MSI installer.", "NetPassClient はクローズドソースであり、正式な .app または MSI インストーラーから提供する必要があります。", "NetPassClient는 비공개 구성 요소이며 공식 .app 또는 MSI 설치 프로그램에서 제공해야 합니다."],
+    ["儲存連線設定", "Save connection settings", "接続設定を保存", "연결 설정 저장"],
+    ["停止反向代理", "Stop reverse proxy", "リバースプロキシを停止", "리버스 프록시 중지"],
+    ["開啟反向代理", "Enable reverse proxy", "リバースプロキシを有効化", "리버스 프록시 켜기"],
+    ["NetPass 連線設定已保存", "NetPass connection settings saved", "NetPass 接続設定を保存しました", "NetPass 연결 설정을 저장했습니다"],
+    ["正在建立公共連線…", "Establishing a public connection…", "公開接続を確立しています…", "공개 연결 설정 중…"],
+    ["NetPassClient 已啟動，正在等待公開網址。", "NetPassClient started; waiting for the public URL.", "NetPassClient を起動しました。公開 URL を待っています。", "NetPassClient가 시작되었습니다. 공개 URL을 기다리는 중입니다."],
+    ["反向代理正在連線", "Reverse proxy is connecting", "リバースプロキシを接続中です", "리버스 프록시 연결 중"],
+    ["正在停止反向代理…", "Stopping reverse proxy…", "リバースプロキシを停止しています…", "리버스 프록시 중지 중…"],
+    ["反向代理已停止。", "Reverse proxy stopped.", "リバースプロキシを停止しました。", "리버스 프록시가 중지되었습니다."],
+    ["反向代理已停止", "Reverse proxy stopped", "リバースプロキシを停止しました", "리버스 프록시 중지됨"],
+    ["複製 NetPass 網址", "Copy NetPass URL", "NetPass URL をコピー", "NetPass URL 복사"],
+    ["NetPass 網址已複製", "NetPass URL copied", "NetPass URL をコピーしました", "NetPass URL을 복사했습니다"],
+    ["系統資訊", "System information", "システム情報", "시스템 정보"],
+    ["硬體與作業系統摘要", "Hardware and operating-system summary", "ハードウェアと OS の概要", "하드웨어 및 운영 체제 요약"],
+    ["作業系統", "Operating system", "オペレーティングシステム", "운영 체제"],
+    ["由服務主機即時讀取的系統版本與執行環境。", "System version and runtime environment read directly from the service host.", "サービスホストから直接読み取ったシステムバージョンと実行環境です。", "서비스 호스트에서 직접 읽은 시스템 버전 및 실행 환경입니다."],
+    ["版本", "Version", "バージョン", "버전"],
+    ["架構", "Architecture", "アーキテクチャ", "아키텍처"],
+    ["主機名稱", "Hostname", "ホスト名", "호스트 이름"],
+    ["硬體", "Hardware", "ハードウェア", "하드웨어"],
+    ["顯示處理器、圖形處理器、核心數與實體記憶體。", "Shows processors, core counts, and physical memory.", "プロセッサ、コア数、物理メモリを表示します。", "프로세서, 코어 수 및 실제 메모리를 표시합니다."],
+    ["處理器", "Processor", "プロセッサ", "프로세서"],
+    ["實體核心", "Physical cores", "物理コア", "물리 코어"],
+    ["邏輯核心", "Logical cores", "論理コア", "논리 코어"],
+    ["圖形處理器", "Graphics processor", "グラフィックスプロセッサ", "그래픽 프로세서"],
+    ["實體記憶體", "Physical memory", "物理メモリ", "실제 메모리"],
+    ["網路", "Network", "ネットワーク", "네트워크"],
+    ["列出非 Loopback 網路介面的連線狀態與位址。", "Lists connection status and addresses for non-loopback network interfaces.", "Loopback 以外のネットワークインターフェースの接続状態とアドレスを表示します。", "Loopback을 제외한 네트워크 인터페이스의 연결 상태와 주소를 표시합니다."],
+    ["已連線", "Connected", "接続済み", "연결됨"],
+    ["已啟用", "Enabled", "有効", "사용"],
+    ["未連線", "Disconnected", "未接続", "연결 안 됨"],
+    ["IP 位址", "IP addresses", "IP アドレス", "IP 주소"],
+    ["MAC 位址", "MAC address", "MAC アドレス", "MAC 주소"],
+    ["沒有可顯示的網路介面。", "No network interfaces to display.", "表示できるネットワークインターフェースがありません。", "표시할 네트워크 인터페이스가 없습니다."],
+    ["無法讀取系統資訊", "Unable to read system information", "システム情報を読み取れません", "시스템 정보를 읽을 수 없습니다"],
+    ["關於", "About", "このアプリについて", "정보"],
+    ["版本資訊與更新檢查", "Version information and updates", "バージョン情報と更新確認", "버전 정보 및 업데이트 확인"],
+    ["APP 版本", "App version", "アプリバージョン", "앱 버전"],
+    ["GitHub 專案", "GitHub repository", "GitHub リポジトリ", "GitHub 저장소"],
+    ["管理頁面網址", "Admin page URLs", "管理画面 URL", "관리 페이지 URL"],
+    ["複製管理頁面網址", "Copy admin page URL", "管理画面 URL をコピー", "관리 페이지 URL 복사"],
+    ["管理頁面網址已複製", "Admin page URL copied", "管理画面 URL をコピーしました", "관리 페이지 URL을 복사했습니다"],
+    ["無法自動複製，請手動選取網址", "Unable to copy automatically; select the URL manually", "自動コピーできません。URL を手動で選択してください", "자동으로 복사할 수 없습니다. URL을 직접 선택하세요"],
+    ["最新版本", "Latest version", "最新バージョン", "최신 버전"],
+    ["上次檢查", "Last checked", "最終確認", "마지막 확인"],
+    ["尚未檢查", "Not checked yet", "未確認", "아직 확인하지 않음"],
+    ["正在檢查更新…", "Checking for updates…", "更新を確認しています…", "업데이트 확인 중…"],
+    ["檢查更新", "Check for updates", "更新を確認", "업데이트 확인"],
+    ["查看新版", "View new version", "新しいバージョンを表示", "새 버전 보기"],
+    ["更新檢查失敗", "Update check failed", "更新確認に失敗しました", "업데이트 확인 실패"],
+    ["目前已是最新版本。", "You are using the latest version.", "現在のバージョンは最新です。", "현재 최신 버전입니다."],
+    ["尚未完成更新檢查。", "The update check has not completed yet.", "更新確認はまだ完了していません。", "업데이트 확인이 아직 완료되지 않았습니다."],
     ["存取策略", "Access policy", "アクセスポリシー", "접근 정책"],
     ["目前不使用額外限制", "No additional restrictions", "追加制限は使用していません", "추가 제한을 사용하지 않음"],
     ["要求存取金鑰", "Require an access key", "アクセスキーを要求", "접근 키 필요"],
@@ -150,15 +280,15 @@
     ["API Base URL 已複製", "API Base URL copied", "API Base URL をコピーしました", "API Base URL을 복사했습니다"],
     ["資料已更新", "Data refreshed", "データを更新しました", "데이터를 새로 고쳤습니다"]
     ,["簡易對話 · Tanpopo", "Chat · Tanpopo", "チャット · Tanpopo", "간단 대화 · Tanpopo"]
-    ,["啟動命令 · Tanpopo", "Launch profiles · Tanpopo", "起動プロファイル · Tanpopo", "시작 프로필 · Tanpopo"]
+    ,["啟動參數 · Tanpopo", "Launch profiles · Tanpopo", "起動プロファイル · Tanpopo", "시작 프로필 · Tanpopo"]
     ,["模型下載 · Tanpopo", "Model download · Tanpopo", "モデルのダウンロード · Tanpopo", "모델 다운로드 · Tanpopo"]
-    ,["環境設定 · Tanpopo", "Settings · Tanpopo", "環境設定 · Tanpopo", "환경 설정 · Tanpopo"]
+    ,["系統設定 · Tanpopo", "System settings · Tanpopo", "システム設定 · Tanpopo", "시스템 설정 · Tanpopo"]
     ,["Tanpopo 登入", "Sign in · Tanpopo", "Tanpopo ログイン", "Tanpopo 로그인"]
     ,["儲存參數組合，啟動時再與選定的 GGUF 動態組合", "Save reusable parameters and combine them with the selected GGUF at launch", "再利用可能なパラメーターを保存し、起動時に選択した GGUF と組み合わせます", "재사용할 매개변수를 저장하고 시작할 때 선택한 GGUF와 결합합니다"]
     ,["llama-server（跨平台／GGUF）", "llama-server (cross-platform / GGUF)", "llama-server（クロスプラットフォーム／GGUF）", "llama-server(크로스 플랫폼/GGUF)"]
     ,["DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。", "For DFlash and other modes that require a Draft model, select a compatible paired GGUF from the model directory. MTP does not require one.", "DFlash など Draft モデルが必要なモードでは、モデルフォルダー内の互換性がある GGUF を選択してください。MTP では不要です。", "DFlash처럼 Draft 모델이 필요한 모드는 모델 폴더에서 호환되는 GGUF를 선택하세요. MTP에는 필요하지 않습니다."]
     ,["使用官方 repository / resolve / revision / filename 下載方式", "Uses the official repository / resolve / revision / filename download path", "公式の repository / resolve / revision / filename 方式でダウンロードします", "공식 repository / resolve / revision / filename 방식으로 다운로드합니다"]
-    ,["每個主 GGUF 會建立獨立目錄；下載前也會檢查相同 repository／revision，將配對的 mmproj 與 DFlash Draft 放進同一目錄。", "Each primary GGUF gets its own folder. Matching mmproj and DFlash Draft files from the same repository and revision are placed with it.", "各メイン GGUF に専用フォルダーを作成し、同じ repository／revision の mmproj と DFlash Draft も同じ場所に保存します。", "각 기본 GGUF마다 별도 폴더를 만들고 같은 repository/revision의 mmproj 및 DFlash Draft를 함께 저장합니다."]
+    ,["每個主 GGUF 會建立獨立目錄；下載前會依 Hugging Face metadata 尋找同一或外部 repository 的配對 mmproj 與 DFlash Draft。", "Each primary GGUF gets its own folder. Hugging Face metadata is used to find matching mmproj and DFlash Draft files in the same or an external repository.", "各メイン GGUF に専用フォルダーを作成し、Hugging Face metadata から同一または外部 repository の mmproj と DFlash Draft を検索します。", "각 기본 GGUF마다 별도 폴더를 만들고 Hugging Face metadata로 같은 repository 또는 외부 repository의 mmproj와 DFlash Draft를 찾습니다."]
     ,["會檢查 repository 內的 config.json 與 safetensors，並把 Tokenizer、Processor、Chat Template 及所有權重下載到獨立的 MLX 模型目錄。", "Checks config.json and safetensors, then downloads the Tokenizer, Processor, Chat Template, and all weights into a dedicated MLX model folder.", "repository の config.json と safetensors を確認し、Tokenizer、Processor、Chat Template、全ウェイトを専用の MLX モデルフォルダーへ保存します。", "repository의 config.json과 safetensors를 확인한 뒤 Tokenizer, Processor, Chat Template 및 모든 가중치를 별도 MLX 모델 폴더에 저장합니다."]
     ,["輸入欄位會優先使用英數鍵盤，不限制帳號密碼可用字元。", "Input fields prefer an alphanumeric keyboard but do not restrict credential characters.", "入力欄は英数字キーボードを優先しますが、使用できる文字は制限しません。", "입력란은 영문·숫자 키보드를 우선 사용하지만 로그인 문자에는 제한이 없습니다."]
     ,["帳號密碼由", "Credentials are managed by", "認証情報は", "로그인 정보는"]
@@ -195,6 +325,11 @@
     return "auto";
   }
 
+  function normalizeTheme(value) {
+    const normalized = String(value || "tanpopo").trim().toLowerCase();
+    return ["tanpopo", "ocean", "sakura", "wisteria"].includes(normalized) ? normalized : "tanpopo";
+  }
+
   function resolvedLanguage(value = selectedLanguage) {
     const normalized = normalizeLanguage(value);
     if (normalized !== "auto") return normalized;
@@ -210,6 +345,7 @@
   }
 
   let selectedLanguage = normalizeLanguage(localStorage.getItem(LANGUAGE_KEY) || "auto");
+  let selectedTheme = normalizeTheme(localStorage.getItem(THEME_KEY) || "tanpopo");
   const textSources = new WeakMap();
   const attributeSources = new WeakMap();
   const ignoredSelector = "script, style, code, pre, .chat-message, #chatMessages, #logOutput, #commandPreview";
@@ -221,18 +357,24 @@
     if (exact) return exact;
     const rules = {
       en: [
+        [/^有新版本 (.+) 可用。$/, "New version $1 is available."],
+        [/^發現新版本 (.+)，請至「系統設定 → 關於」查看。$/, "New version $1 is available. See System settings → About."],
         [/^(.+) 已就緒$/, "$1 ready"], [/^(.+) 執行中$/, "$1 running"],
         [/^(.+) 已停止$/, "$1 stopped"], [/^(.+) 日誌$/, "$1 log"],
         [/^(.+) 已啟動$/, "$1 started"], [/^修改於 (.+)$/, "Modified $1"],
         [/^更新於 (.+)$/, "Updated $1"]
       ],
       ja: [
+        [/^有新版本 (.+) 可用。$/, "新しいバージョン $1 を利用できます。"],
+        [/^發現新版本 (.+)，請至「系統設定 → 關於」查看。$/, "新しいバージョン $1 を利用できます。「システム設定 → このアプリについて」を確認してください。"],
         [/^(.+) 已就緒$/, "$1 準備完了"], [/^(.+) 執行中$/, "$1 実行中"],
         [/^(.+) 已停止$/, "$1 停止"], [/^(.+) 日誌$/, "$1 ログ"],
         [/^(.+) 已啟動$/, "$1 を起動しました"], [/^修改於 (.+)$/, "更新日時 $1"],
         [/^更新於 (.+)$/, "更新日時 $1"]
       ],
       ko: [
+        [/^有新版本 (.+) 可用。$/, "새 버전 $1을 사용할 수 있습니다."],
+        [/^發現新版本 (.+)，請至「系統設定 → 關於」查看。$/, "새 버전 $1을 사용할 수 있습니다. 시스템 설정 → 정보를 확인하세요."],
         [/^(.+) 已就緒$/, "$1 준비됨"], [/^(.+) 執行中$/, "$1 실행 중"],
         [/^(.+) 已停止$/, "$1 중지됨"], [/^(.+) 日誌$/, "$1 로그"],
         [/^(.+) 已啟動$/, "$1 시작됨"], [/^修改於 (.+)$/, "수정: $1"],
@@ -310,6 +452,23 @@
     return { selected: selectedLanguage, resolved: resolvedLanguage() };
   }
 
+  function applyTheme() {
+    document.documentElement.dataset.theme = selectedTheme;
+    document.dispatchEvent(new CustomEvent("tanpopo:themechange", {
+      detail: { theme: selectedTheme }
+    }));
+  }
+
+  function setTheme(value) {
+    selectedTheme = normalizeTheme(value);
+    localStorage.setItem(THEME_KEY, selectedTheme);
+    applyTheme();
+  }
+
+  function getTheme() {
+    return selectedTheme;
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       credentials: "same-origin",
@@ -384,6 +543,160 @@
     }
   }
 
+  async function syncInterfacePreferences() {
+    try {
+      const response = await fetch("/api/settings", {
+        credentials: "same-origin", cache: "no-store", headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) return;
+      const settings = await response.json();
+      setLanguage(settings.ui_language || "auto");
+      if (Object.prototype.hasOwnProperty.call(settings, "ui_theme")) {
+        setTheme(settings.ui_theme || "tanpopo");
+      }
+    } catch (_) {
+      // 本機保存的偏好仍可使用；下次成功連線時會再同步服務端設定。
+    }
+  }
+
+  function updateNoticeWasShown(status) {
+    const key = `tanpopo.updateNotice.${status.current_version || "unknown"}.${status.latest_version || "unknown"}`;
+    try {
+      if (sessionStorage.getItem(key) === "1") return true;
+      sessionStorage.setItem(key, "1");
+    } catch (_) {
+      // 隱私模式可能停用 Web Storage；通知仍可正常顯示。
+    }
+    return false;
+  }
+
+  async function checkForAppUpdate() {
+    try {
+      const response = await fetch("/api/app-version", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) return;
+      const status = await response.json();
+      if (!status.update_available || updateNoticeWasShown(status)) return;
+      const latest = String(status.latest_version || "").trim() || "—";
+      showMessage(`發現新版本 ${latest}，請至「系統設定 → 關於」查看。`);
+      window.clearTimeout(showMessage.timeout);
+      showMessage.timeout = window.setTimeout(() => {
+        const toast = byId("globalMessage");
+        if (toast) toast.hidden = true;
+      }, 12000);
+    } catch (_) {
+      // 自動更新檢查失敗不影響主要功能；關於頁面仍可手動重試。
+    }
+  }
+
+  function metricBand(metric) {
+    if (!metric?.available || !Number.isFinite(Number(metric.percent))) return "unavailable";
+    const percent = Number(metric.percent);
+    if (percent >= 80) return "high";
+    if (percent >= 50) return "medium";
+    return "low";
+  }
+
+  function renderSystemMetric(name, metric) {
+    const element = document.querySelector(`[data-system-metric="${name}"]`);
+    if (!element) return;
+    const available = Boolean(metric?.available) && Number.isFinite(Number(metric?.percent));
+    const percent = available ? Math.max(0, Math.min(100, Number(metric.percent))) : 0;
+    const band = metricBand(metric);
+    element.dataset.band = band;
+    element.querySelector(".system-metric-value").textContent = available ? `${percent.toFixed(1)}%` : "N/A";
+    const fill = element.querySelector(".system-metric-fill");
+    fill.style.width = `${percent}%`;
+    const label = element.querySelector(".system-metric-label").textContent;
+    element.setAttribute("aria-label", available ? `${label} ${percent.toFixed(1)}%` : `${label} N/A`);
+    const device = String(metric?.device || "").trim();
+    if (device) element.title = device;
+    else element.removeAttribute("title");
+  }
+
+  function installSystemStatusBar() {
+    if (byId("systemStatusBar")) return;
+    const footer = document.createElement("footer");
+    footer.id = "systemStatusBar";
+    footer.className = "system-status-bar";
+    footer.setAttribute("aria-label", "系統資源使用率");
+    footer.innerHTML = `
+      <div class="system-status-inner" role="status" aria-live="off">
+        ${["CPU", "GPU", "MEMORY"].map((label) => `
+          <div class="system-metric" data-system-metric="${label.toLowerCase()}" data-band="unavailable">
+            <span class="system-metric-label">${label}</span>
+            <span class="system-metric-track" aria-hidden="true"><i class="system-metric-fill"></i></span>
+            <strong class="system-metric-value">N/A</strong>
+          </div>
+        `).join("")}
+      </div>`;
+    document.body.appendChild(footer);
+    document.body.classList.add("has-system-status-bar");
+
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/system/metrics", {
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { "Accept": "application/json" }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const snapshot = await response.json();
+        renderSystemMetric("gpu", snapshot.gpu);
+        renderSystemMetric("cpu", snapshot.cpu);
+        renderSystemMetric("memory", snapshot.memory);
+      } catch (_) {
+        renderSystemMetric("gpu", null);
+        renderSystemMetric("cpu", null);
+        renderSystemMetric("memory", null);
+      }
+    };
+    refresh();
+    window.setInterval(refresh, 3000);
+  }
+
+  function installContentScrollBehavior() {
+    const scroller = document.querySelector("body:not(.login-page) > .page-shell");
+    if (!scroller) return;
+    const indicator = document.createElement("i");
+    indicator.className = "content-scrollbar";
+    indicator.setAttribute("aria-hidden", "true");
+    document.body.appendChild(indicator);
+    let hideTimer = 0;
+
+    const updateIndicator = () => {
+      const maximumScroll = scroller.scrollHeight - scroller.clientHeight;
+      if (maximumScroll <= 0) {
+        indicator.hidden = true;
+        return;
+      }
+      indicator.hidden = false;
+      const bounds = scroller.getBoundingClientRect();
+      const trackHeight = Math.max(0, bounds.height - 4);
+      const thumbHeight = Math.max(42, trackHeight * (scroller.clientHeight / scroller.scrollHeight));
+      const availableTravel = Math.max(0, trackHeight - thumbHeight);
+      const offset = availableTravel * (scroller.scrollTop / maximumScroll);
+      indicator.style.top = `${bounds.top + 2 + offset}px`;
+      indicator.style.height = `${thumbHeight}px`;
+    };
+
+    scroller.addEventListener("scroll", () => {
+      updateIndicator();
+      indicator.classList.add("visible");
+      window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => indicator.classList.remove("visible"), 850);
+    }, { passive: true });
+    window.addEventListener("resize", updateIndicator, { passive: true });
+    if (window.ResizeObserver) {
+      const resizeObserver = new ResizeObserver(updateIndicator);
+      resizeObserver.observe(scroller);
+    }
+    window.requestAnimationFrame(updateIndicator);
+  }
+
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       if (mutation.type === "characterData") translateTextNode(mutation.target);
@@ -391,11 +704,17 @@
     });
   });
 
+  applyTheme();
   applyLanguage();
+  installSystemStatusBar();
+  installContentScrollBehavior();
   observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
   byId("logoutButton")?.addEventListener("click", logout);
   updateAuthenticationControls();
+  syncInterfacePreferences();
+  window.setTimeout(checkForAppUpdate, 400);
+  window.setInterval(checkForAppUpdate, 5 * 60 * 1000);
   window.LlamaLoader = {
-    api, byId, showMessage, formatBytes, formatTime, t, setLanguage, getLanguage
+    api, byId, showMessage, formatBytes, formatTime, t, setLanguage, getLanguage, setTheme, getTheme
   };
 })();

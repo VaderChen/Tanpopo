@@ -328,6 +328,14 @@
     byId("logTitle").textContent = `${runtimeLabel} 日誌`;
     const link = byId("serverURL");
     const apiBaseURL = openAIBaseURL(status.url);
+    try {
+      window.webkit?.messageHandlers?.tanpopoNative?.postMessage({
+        type: "runtime-api-url",
+        url: apiBaseURL
+      });
+    } catch (_error) {
+      // 一般瀏覽器沒有原生橋接；網頁內的 API URL 顯示仍可正常使用。
+    }
     link.textContent = apiBaseURL || "—";
     link.href = apiBaseURL || "#";
     byId("copyServerURL").disabled = !apiBaseURL;

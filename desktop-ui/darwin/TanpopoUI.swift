@@ -7,12 +7,18 @@ private struct LaunchOptions {
     let title: String
     let iconURL: URL?
     let resident: Bool
+    let version: String
+    let apiURL: URL?
+    let githubURL: URL?
 
     static func parse(arguments: [String]) throws -> Self {
         var urlValue: String?
         var title = "Tanpopo"
         var iconURL: URL?
         var resident = false
+        var version = "dev"
+        var apiURL: URL?
+        var githubURL: URL?
         var index = 1
         while index < arguments.count {
             let option = arguments[index]
@@ -33,6 +39,12 @@ private struct LaunchOptions {
                 case "0", "false", "no", "off": resident = false
                 default: throw LaunchError.invalidBoolean(option, value)
                 }
+            case "--version":
+                version = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            case "--api-url":
+                apiURL = try optionalWebURL(value, option: option)
+            case "--github-url":
+                githubURL = try optionalWebURL(value, option: option)
             default:
                 throw LaunchError.unknownOption(option)
             }
@@ -49,9 +61,37 @@ private struct LaunchOptions {
             url: url,
             title: title.isEmpty ? "Tanpopo" : title,
             iconURL: iconURL,
-            resident: resident
+            resident: resident,
+            version: version.isEmpty ? "dev" : version,
+            apiURL: normalizedOpenAIBaseURL(apiURL),
+            githubURL: githubURL
         )
     }
+
+    private static func optionalWebURL(_ value: String, option: String) throws -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil else {
+            throw LaunchError.invalidURL("\(option)=\(value)")
+        }
+        return url
+    }
+}
+
+private func normalizedOpenAIBaseURL(_ url: URL?) -> URL? {
+    guard let url,
+          var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+          components.host != nil else {
+        return nil
+    }
+    let root = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    components.path = root.hasSuffix("v1") ? "/\(root)" : (root.isEmpty ? "/v1" : "/\(root)/v1")
+    components.query = nil
+    components.fragment = nil
+    return components.url
 }
 
 private enum LaunchError: LocalizedError {
@@ -76,7 +116,7 @@ private enum LaunchError: LocalizedError {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
-    WKUIDelegate, WKScriptMessageHandler
+    WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler
 {
     private static let nativeMessageHandler = "tanpopoNative"
 
@@ -85,11 +125,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var webView: WKWebView?
     private var statusItem: NSStatusItem?
     private var residentMode: Bool
+    private var runtimeAPIURL: URL?
     private var isQuitting = false
 
     init(options: LaunchOptions) {
         self.options = options
         residentMode = options.resident
+        runtimeAPIURL = options.apiURL
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -106,6 +148,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsMagnification = true
         webView.uiDelegate = self
+        webView.navigationDelegate = self
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
@@ -168,12 +211,90 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
               message.frameInfo.isMainFrame,
               message.frameInfo.securityOrigin.host == options.url.host,
               let object = message.body as? [String: Any],
-              object["type"] as? String == "resident-mode",
-              let enabled = object["enabled"] as? Bool else {
+              let type = object["type"] as? String else {
             return
         }
-        residentMode = enabled
-        updateStatusItem()
+        switch type {
+        case "resident-mode":
+            guard let enabled = object["enabled"] as? Bool else { return }
+            residentMode = enabled
+            updateStatusItem()
+        case "open-model-directory":
+            guard let rawPath = object["path"] as? String else { return }
+            openModelDirectory(rawPath)
+        case "runtime-api-url":
+            guard let rawURL = object["url"] as? String else { return }
+            runtimeAPIURL = normalizedOpenAIBaseURL(URL(string: rawURL))
+            refreshStatusMenu()
+        default:
+            return
+        }
+    }
+
+    private func openModelDirectory(_ rawPath: String) {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix("/") else { return }
+        let directory = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return
+        }
+        NSWorkspace.shared.open(directory)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.navigationType == .linkActivated,
+              navigationAction.targetFrame?.isMainFrame == true,
+              let url = navigationAction.request.url,
+              isExternalWebURL(url) else {
+            decisionHandler(.allow)
+            return
+        }
+        NSWorkspace.shared.open(url)
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard navigationAction.targetFrame == nil,
+              let url = navigationAction.request.url else {
+            return nil
+        }
+        if isExternalWebURL(url) {
+            NSWorkspace.shared.open(url)
+        } else {
+            webView.load(URLRequest(url: url))
+        }
+        return nil
+    }
+
+    private func isExternalWebURL(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return false
+        }
+        return url.scheme?.lowercased() != options.url.scheme?.lowercased()
+            || url.host?.lowercased() != options.url.host?.lowercased()
+            || normalizedPort(url) != normalizedPort(options.url)
+    }
+
+    private func normalizedPort(_ url: URL) -> Int? {
+        if let port = url.port {
+            return port
+        }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
     }
 
     private func updateStatusItem() {
@@ -193,6 +314,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             button.toolTip = options.title
         }
 
+        statusItem = item
+        refreshStatusMenu()
+    }
+
+    private func refreshStatusMenu() {
+        guard let statusItem else { return }
         let menu = NSMenu()
         let showItem = NSMenuItem(
             title: "顯示 \(options.title)",
@@ -202,6 +329,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         showItem.target = self
         menu.addItem(showItem)
         menu.addItem(.separator())
+
+        let versionItem = NSMenuItem(title: "版本 \(options.version)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
+        let apiTitle = runtimeAPIURL?.absoluteString ?? "尚未提供"
+        let copyAPIItem = NSMenuItem(
+            title: "複製 API URL：\(apiTitle)",
+            action: #selector(copyAPIURL(_:)),
+            keyEquivalent: ""
+        )
+        copyAPIItem.target = self
+        copyAPIItem.isEnabled = runtimeAPIURL != nil
+        menu.addItem(copyAPIItem)
+
+        let githubItem = NSMenuItem(
+            title: "開啟 GitHub 專案",
+            action: #selector(openGitHub(_:)),
+            keyEquivalent: ""
+        )
+        githubItem.target = self
+        githubItem.isEnabled = options.githubURL != nil
+        menu.addItem(githubItem)
+        menu.addItem(.separator())
+
         let quitItem = NSMenuItem(
             title: "結束 \(options.title)",
             action: #selector(quitApplication(_:)),
@@ -209,8 +361,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         quitItem.target = self
         menu.addItem(quitItem)
-        item.menu = menu
-        statusItem = item
+        statusItem.menu = menu
     }
 
     private func makeStatusIcon() -> NSImage {
@@ -268,6 +419,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApplication.shared.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func copyAPIURL(_ sender: Any?) {
+        guard let value = runtimeAPIURL?.absoluteString else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+    }
+
+    @objc private func openGitHub(_ sender: Any?) {
+        guard let url = options.githubURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func quitApplication(_ sender: Any?) {

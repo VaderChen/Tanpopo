@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +25,16 @@ import (
 	"LlamaLoader/src/domain"
 )
 
-const maxRememberedJobs = 50
+const (
+	maxRememberedJobs      = 50
+	defaultDownloadChunk   = int64(64 << 20)
+	defaultDownloadWorkers = 4
+)
 
 var (
 	repositoryPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	filenameTokenPattern = regexp.MustCompile(`[^a-z0-9]+`)
+	contentRangePattern  = regexp.MustCompile(`(?i)^bytes\s+(\d+)-(\d+)/(\d+)$`)
 )
 
 type Request struct {
@@ -51,9 +57,26 @@ type BatchResult struct {
 }
 
 type repositoryInfo struct {
+	ID       string   `json:"id"`
+	Tags     []string `json:"tags"`
 	Siblings []struct {
 		Filename string `json:"rfilename"`
 	} `json:"siblings"`
+}
+
+type modelConfiguration struct {
+	Architectures   []string `json:"architectures"`
+	ModelType       string   `json:"model_type"`
+	HiddenSize      int      `json:"hidden_size"`
+	VocabularySize  int      `json:"vocab_size"`
+	NumberOfLayers  int      `json:"num_hidden_layers"`
+	NumberOfTargets int      `json:"num_target_layers"`
+}
+
+type dflashRepository struct {
+	Info          repositoryInfo
+	Configuration modelConfiguration
+	Revision      string
 }
 
 type Manager struct {
@@ -63,6 +86,9 @@ type Manager struct {
 	activeTargets map[string]string
 	client        *http.Client
 	slots         chan struct{}
+	rangeSlots    chan struct{}
+	chunkSize     int64
+	chunkWorkers  int
 }
 
 func NewManager(maxConcurrent int) *Manager {
@@ -83,6 +109,9 @@ func NewManager(maxConcurrent int) *Manager {
 		activeTargets: make(map[string]string),
 		client:        &http.Client{Transport: transport},
 		slots:         make(chan struct{}, maxConcurrent),
+		rangeSlots:    make(chan struct{}, defaultDownloadWorkers),
+		chunkSize:     defaultDownloadChunk,
+		chunkWorkers:  defaultDownloadWorkers,
 	}
 }
 
@@ -104,7 +133,7 @@ func (m *Manager) StartWithCompanions(ctx context.Context, request Request) (Bat
 		return BatchResult{}, err
 	}
 
-	companions, discoveryErr := m.discoverCompanions(ctx, request)
+	companions, targetInfo, discoveryErr := m.discoverCompanions(ctx, request)
 	result := BatchResult{Detected: append([]string(nil), companions...)}
 	if discoveryErr != nil {
 		result.Warnings = append(result.Warnings, "附屬檔案檢查失敗: "+discoveryErr.Error())
@@ -137,6 +166,24 @@ func (m *Manager) StartWithCompanions(ctx context.Context, request Request) (Bat
 		}
 		result.Jobs = append(result.Jobs, job)
 	}
+
+	if !containsDFlashFilename(companions) && discoveryErr == nil {
+		draft, draftErr := m.discoverDFlashRepository(ctx, request, targetInfo)
+		if draftErr != nil {
+			result.Warnings = append(result.Warnings, "DFlash Draft 自動偵測失敗: "+draftErr.Error())
+		} else if draft != nil {
+			filename := selectDFlashGGUF(request.Filename, draft.Info)
+			if filename != "" {
+				result.Detected = append(result.Detected, draft.Info.ID+"/"+filename)
+				draftRequest := request
+				draftRequest.Repository = draft.Info.ID
+				draftRequest.Revision = draft.Revision
+				draftRequest.Filename = filename
+				draftRequest.LocalDirectory = request.LocalDirectory
+				m.queueCompanion(ctx, &result, draftRequest, filename)
+			}
+		}
+	}
 	return result, nil
 }
 
@@ -160,32 +207,84 @@ func (m *Manager) StartRepository(ctx context.Context, request Request) (BatchRe
 	}
 	localDirectory := mlxStorageDirectory(request.Repository, request.Revision)
 	result := BatchResult{Detected: append([]string(nil), files...)}
-	for _, filename := range files {
-		fileRequest := request
-		fileRequest.Filename = filename
-		fileRequest.LocalDirectory = localDirectory
-		destination, joinErr := SafeJoin(fileRequest.ModelDirectory, localDestination(fileRequest))
-		if joinErr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", filename, joinErr))
-			continue
-		}
-		if !fileRequest.Overwrite {
-			if existing, statErr := os.Stat(destination); statErr == nil && existing.Mode().IsRegular() {
-				result.Skipped = append(result.Skipped, filename)
-				continue
+	m.queueRepositoryFiles(ctx, &result, request, files, localDirectory, "")
+
+	targetConfiguration, configurationErr := m.fetchModelConfiguration(ctx, request, info)
+	if configurationErr == nil && isSupportedDFlashTargetConfiguration(targetConfiguration) {
+		draft, draftErr := m.discoverDFlashRepositoryWithConfiguration(
+			ctx,
+			request,
+			info,
+			targetConfiguration,
+		)
+		if draftErr != nil {
+			result.Warnings = append(result.Warnings, "DFlash Draft 自動偵測失敗: "+draftErr.Error())
+		} else if draft != nil {
+			draftFiles, selectErr := selectMLXRepositoryFiles(draft.Info)
+			if selectErr != nil {
+				result.Warnings = append(result.Warnings, "DFlash Draft 檔案清單無效: "+selectErr.Error())
+			} else {
+				draftRequest := request
+				draftRequest.Repository = draft.Info.ID
+				draftRequest.Revision = draft.Revision
+				draftDirectory := mlxStorageDirectory(draftRequest.Repository, draftRequest.Revision)
+				m.queueRepositoryFiles(
+					ctx,
+					&result,
+					draftRequest,
+					draftFiles,
+					draftDirectory,
+					draft.Info.ID+"/",
+				)
 			}
 		}
-		job, startErr := m.startValidated(ctx, fileRequest, destination)
-		if startErr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", filename, startErr))
-			continue
-		}
-		result.Jobs = append(result.Jobs, job)
 	}
 	if len(result.Jobs) == 0 && len(result.Skipped) == 0 {
 		return BatchResult{}, errors.New("repository 沒有可下載的 MLX 模型檔案")
 	}
 	return result, nil
+}
+
+func (m *Manager) queueRepositoryFiles(
+	ctx context.Context,
+	result *BatchResult,
+	request Request,
+	files []string,
+	localDirectory string,
+	displayPrefix string,
+) {
+	for _, filename := range files {
+		fileRequest := request
+		fileRequest.Filename = filename
+		fileRequest.LocalDirectory = localDirectory
+		result.Detected = appendUnique(result.Detected, displayPrefix+filename)
+		m.queueCompanion(ctx, result, fileRequest, displayPrefix+filename)
+	}
+}
+
+func (m *Manager) queueCompanion(
+	ctx context.Context,
+	result *BatchResult,
+	request Request,
+	displayName string,
+) {
+	destination, joinErr := SafeJoin(request.ModelDirectory, localDestination(request))
+	if joinErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", displayName, joinErr))
+		return
+	}
+	if !request.Overwrite {
+		if existing, statErr := os.Stat(destination); statErr == nil && existing.Mode().IsRegular() {
+			result.Skipped = append(result.Skipped, displayName)
+			return
+		}
+	}
+	job, startErr := m.startValidated(ctx, request, destination)
+	if startErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", displayName, startErr))
+		return
+	}
+	result.Jobs = append(result.Jobs, job)
 }
 
 func normalizeRequest(request Request) Request {
@@ -301,12 +400,12 @@ func (m *Manager) startValidated(ctx context.Context, request Request, destinati
 	return job, nil
 }
 
-func (m *Manager) discoverCompanions(ctx context.Context, request Request) ([]string, error) {
+func (m *Manager) discoverCompanions(ctx context.Context, request Request) ([]string, repositoryInfo, error) {
 	info, err := m.fetchRepositoryInfo(ctx, request)
 	if err != nil {
-		return nil, err
+		return nil, repositoryInfo{}, err
 	}
-	return selectCompanionFilenames(request.Filename, info), nil
+	return selectCompanionFilenames(request.Filename, info), info, nil
 }
 
 func (m *Manager) fetchRepositoryInfo(ctx context.Context, request Request) (repositoryInfo, error) {
@@ -336,7 +435,374 @@ func (m *Manager) fetchRepositoryInfo(ctx context.Context, request Request) (rep
 	if err := json.NewDecoder(io.LimitReader(response.Body, 8*1024*1024)).Decode(&info); err != nil {
 		return repositoryInfo{}, fmt.Errorf("解析 Hugging Face repository 檔案清單失敗: %w", err)
 	}
+	if strings.TrimSpace(info.ID) == "" {
+		info.ID = request.Repository
+	}
 	return info, nil
+}
+
+func (m *Manager) fetchModelConfiguration(
+	ctx context.Context,
+	request Request,
+	info repositoryInfo,
+) (modelConfiguration, error) {
+	if !repositoryHasFile(info, "config.json") {
+		return modelConfiguration{}, errors.New("repository 缺少 config.json")
+	}
+	configurationURL, err := buildURL(
+		request.Endpoint,
+		info.ID,
+		request.Revision,
+		"config.json",
+	)
+	if err != nil {
+		return modelConfiguration{}, err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, configurationURL, nil)
+	if err != nil {
+		return modelConfiguration{}, err
+	}
+	setHuggingFaceHeaders(httpRequest, request.Token)
+	response, err := m.client.Do(httpRequest)
+	if err != nil {
+		return modelConfiguration{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return modelConfiguration{}, fmt.Errorf("config.json 回傳 %s", response.Status)
+	}
+	var configuration modelConfiguration
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2*1024*1024)).Decode(&configuration); err != nil {
+		return modelConfiguration{}, fmt.Errorf("解析 config.json 失敗: %w", err)
+	}
+	return configuration, nil
+}
+
+func setHuggingFaceHeaders(request *http.Request, token string) {
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "Tanpopo/1.0")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+}
+
+func (m *Manager) discoverDFlashRepository(
+	ctx context.Context,
+	request Request,
+	targetInfo repositoryInfo,
+) (*dflashRepository, error) {
+	targetConfiguration, err := m.resolveTargetConfiguration(ctx, request, targetInfo)
+	if err != nil || !isSupportedDFlashTargetConfiguration(targetConfiguration) {
+		return nil, nil
+	}
+	return m.discoverDFlashRepositoryWithConfiguration(
+		ctx,
+		request,
+		targetInfo,
+		targetConfiguration,
+	)
+}
+
+func (m *Manager) resolveTargetConfiguration(
+	ctx context.Context,
+	request Request,
+	targetInfo repositoryInfo,
+) (modelConfiguration, error) {
+	if configuration, err := m.fetchModelConfiguration(ctx, request, targetInfo); err == nil {
+		return configuration, nil
+	}
+	for _, repository := range baseModelRepositories(targetInfo.Tags) {
+		baseRequest := request
+		baseRequest.Repository = repository
+		baseRequest.Revision = "main"
+		info, err := m.fetchRepositoryInfo(ctx, baseRequest)
+		if err != nil {
+			continue
+		}
+		if configuration, err := m.fetchModelConfiguration(ctx, baseRequest, info); err == nil {
+			return configuration, nil
+		}
+	}
+	return modelConfiguration{}, errors.New("無法取得 Target 模型架構")
+}
+
+func (m *Manager) discoverDFlashRepositoryWithConfiguration(
+	ctx context.Context,
+	request Request,
+	targetInfo repositoryInfo,
+	targetConfiguration modelConfiguration,
+) (*dflashRepository, error) {
+	if !isSupportedDFlashTargetConfiguration(targetConfiguration) {
+		return nil, nil
+	}
+	targetRepositories := append([]string{request.Repository}, baseModelRepositories(targetInfo.Tags)...)
+	targetIdentities := make(map[string]bool)
+	for _, repository := range targetRepositories {
+		if identity := dflashPairIdentity(repository); identity != "" {
+			targetIdentities[identity] = true
+		}
+	}
+
+	candidates := make(map[string]repositoryInfo)
+	for _, repository := range targetRepositories {
+		name := path.Base(repository)
+		if name == "" || name == "." {
+			continue
+		}
+		found, err := m.searchRepositories(ctx, request, name+" DFlash")
+		if err != nil {
+			continue
+		}
+		for _, candidate := range found {
+			candidates[candidate.ID] = candidate
+		}
+	}
+
+	var selected *dflashRepository
+	selectedScore := -1
+	for _, candidate := range candidates {
+		if candidate.ID == "" || strings.EqualFold(candidate.ID, request.Repository) || !isDFlashRepository(candidate) {
+			continue
+		}
+		score := dflashCandidateScore(candidate, targetRepositories, targetIdentities)
+		if score < 0 {
+			continue
+		}
+		candidateRequest := request
+		candidateRequest.Repository = candidate.ID
+		candidateRequest.Revision = "main"
+		if request.Runtime == domain.RuntimeLlamaServer {
+			if selectDFlashGGUF(request.Filename, candidate) == "" {
+				continue
+			}
+		} else {
+			configuration, err := m.fetchModelConfiguration(ctx, candidateRequest, candidate)
+			if err != nil || !isCompatibleDFlashConfiguration(targetConfiguration, configuration) {
+				continue
+			}
+			if score > selectedScore {
+				selected = &dflashRepository{Info: candidate, Configuration: configuration, Revision: "main"}
+				selectedScore = score
+			}
+			continue
+		}
+		if score > selectedScore {
+			selected = &dflashRepository{Info: candidate, Revision: "main"}
+			selectedScore = score
+		}
+	}
+	return selected, nil
+}
+
+func (m *Manager) searchRepositories(
+	ctx context.Context,
+	request Request,
+	query string,
+) ([]repositoryInfo, error) {
+	searchURL, err := buildModelSearchURL(request.Endpoint, query)
+	if err != nil {
+		return nil, err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	setHuggingFaceHeaders(httpRequest, request.Token)
+	response, err := m.client.Do(httpRequest)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("Hugging Face 模型搜尋回傳 %s", response.Status)
+	}
+	var repositories []repositoryInfo
+	if err := json.NewDecoder(io.LimitReader(response.Body, 16*1024*1024)).Decode(&repositories); err != nil {
+		return nil, fmt.Errorf("解析 Hugging Face 模型搜尋結果失敗: %w", err)
+	}
+	return repositories, nil
+}
+
+func baseModelRepositories(tags []string) []string {
+	result := make([]string, 0)
+	for _, tag := range tags {
+		value, found := strings.CutPrefix(strings.TrimSpace(tag), "base_model:")
+		if !found {
+			continue
+		}
+		for {
+			prefix, remainder, hasRelationship := strings.Cut(value, ":")
+			if !hasRelationship || strings.Contains(prefix, "/") {
+				break
+			}
+			value = remainder
+		}
+		if repositoryPattern.MatchString(value) {
+			result = appendUnique(result, value)
+		}
+	}
+	return result
+}
+
+func isDFlashRepository(info repositoryInfo) bool {
+	if strings.Contains(strings.ToLower(info.ID), "dflash") {
+		return true
+	}
+	for _, tag := range info.Tags {
+		normalized := strings.ToLower(strings.TrimSpace(tag))
+		if normalized == "dflash" || normalized == "dflash2" || normalized == "speculative-decoding-draft" {
+			return true
+		}
+	}
+	return false
+}
+
+func dflashCandidateScore(
+	candidate repositoryInfo,
+	targetRepositories []string,
+	targetIdentities map[string]bool,
+) int {
+	score := -1
+	for _, base := range baseModelRepositories(candidate.Tags) {
+		for _, target := range targetRepositories {
+			if strings.EqualFold(base, target) {
+				score = max(score, 10_000)
+			}
+		}
+		if targetIdentities[dflashPairIdentity(base)] {
+			score = max(score, 8_000)
+		}
+	}
+	if targetIdentities[dflashPairIdentity(candidate.ID)] {
+		score = max(score, 5_000)
+	}
+	if score < 0 {
+		return -1
+	}
+	if strings.HasPrefix(strings.ToLower(candidate.ID), "z-lab/") {
+		score += 100
+	}
+	if hasTag(candidate.Tags, "dflash2") {
+		score += 10
+	}
+	return score
+}
+
+func dflashPairIdentity(repository string) string {
+	name := strings.ToLower(path.Base(strings.TrimSpace(repository)))
+	if index := strings.Index(name, "dflash"); index >= 0 {
+		name = name[:index]
+	}
+	parts := filenameTokenPattern.Split(name, -1)
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch {
+		case part == "", part == "gguf", part == "mlx", part == "model", part == "draft":
+			continue
+		case part == "bf16", part == "fp16", part == "f16", part == "b16":
+			continue
+		case strings.HasSuffix(part, "bit"):
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	if len(filtered) > 1 && filtered[0] == filtered[1] {
+		filtered = filtered[1:]
+	}
+	return strings.Join(filtered, "")
+}
+
+func isSupportedDFlashTargetConfiguration(configuration modelConfiguration) bool {
+	if isDFlashDraftConfiguration(configuration) {
+		return false
+	}
+	switch normalizeDFlashArchitecture(configuration.ModelType) {
+	case "qwen3", "qwen3moe", "qwen35", "qwen35moe":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCompatibleDFlashConfiguration(target, draft modelConfiguration) bool {
+	if !isDFlashDraftConfiguration(draft) || !isSupportedDFlashTargetConfiguration(target) {
+		return false
+	}
+	if draft.NumberOfTargets > 0 && target.NumberOfLayers > 0 && draft.NumberOfTargets != target.NumberOfLayers {
+		return false
+	}
+	if draft.HiddenSize > 0 && target.HiddenSize > 0 && draft.HiddenSize != target.HiddenSize {
+		return false
+	}
+	if draft.VocabularySize > 0 && target.VocabularySize > 0 && draft.VocabularySize != target.VocabularySize {
+		return false
+	}
+	return true
+}
+
+func isDFlashDraftConfiguration(configuration modelConfiguration) bool {
+	for _, architecture := range configuration.Architectures {
+		if architecture == "DFlashDraftModel" || architecture == "DFlash2DraftModel" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDFlashArchitecture(value string) string {
+	value = strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(strings.TrimSpace(value)))
+	return value
+}
+
+func hasTag(tags []string, expected string) bool {
+	for _, tag := range tags {
+		if strings.EqualFold(strings.TrimSpace(tag), expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func repositoryHasFile(info repositoryInfo, expected string) bool {
+	for _, sibling := range info.Siblings {
+		if strings.EqualFold(strings.TrimSpace(sibling.Filename), expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsDFlashFilename(filenames []string) bool {
+	for _, filename := range filenames {
+		if strings.Contains(strings.ToLower(path.Base(filename)), "dflash") {
+			return true
+		}
+	}
+	return false
+}
+
+func selectDFlashGGUF(mainFilename string, info repositoryInfo) string {
+	candidates := make([]string, 0)
+	for _, sibling := range info.Siblings {
+		filename := strings.TrimSpace(strings.ReplaceAll(sibling.Filename, "\\", "/"))
+		if filename == "" || !strings.EqualFold(path.Ext(filename), ".gguf") {
+			continue
+		}
+		if _, err := SafeJoin(".", filename); err != nil {
+			continue
+		}
+		candidates = append(candidates, filename)
+	}
+	return chooseBestCompanion(mainFilename, candidates)
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func selectMLXRepositoryFiles(info repositoryInfo) ([]string, error) {
@@ -535,32 +1001,12 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 		m.fail(id, err.Error())
 		return
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
-	if err != nil {
-		m.fail(id, err.Error())
-		return
+	remote := m.inspectRemote(ctx, downloadURL, request.Token)
+	if remote.RangeSupported && remote.Size > m.chunkSize {
+		err = m.downloadChunked(ctx, id, downloadURL, request.Token, file, remote.Size)
+	} else {
+		err = m.downloadSequential(ctx, id, downloadURL, request.Token, file)
 	}
-	httpRequest.Header.Set("Accept", "application/octet-stream")
-	httpRequest.Header.Set("User-Agent", "Tanpopo/1.0")
-	if request.Token != "" {
-		httpRequest.Header.Set("Authorization", "Bearer "+request.Token)
-	}
-	response, err := m.client.Do(httpRequest)
-	if err != nil {
-		m.fail(id, err.Error())
-		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		m.fail(id, fmt.Sprintf("Hugging Face 回傳 %s: %s", response.Status, strings.TrimSpace(string(message))))
-		return
-	}
-	m.update(id, func(job *domain.DownloadJob) { job.BytesTotal = response.ContentLength })
-
-	written, err := io.Copy(file, &progressReader{reader: response.Body, report: func(delta int64) {
-		m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
-	}})
 	if err != nil {
 		m.fail(id, err.Error())
 		return
@@ -578,13 +1024,258 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 		return
 	}
 	removePart = false
-	m.update(id, func(job *domain.DownloadJob) {
-		job.State = "completed"
-		job.BytesDone = written
-		if job.BytesTotal < 0 {
-			job.BytesTotal = written
+	m.complete(id, destination)
+}
+
+type remoteDownloadInfo struct {
+	Size           int64
+	RangeSupported bool
+}
+
+type downloadByteRange struct {
+	Start int64
+	End   int64
+}
+
+// inspectRemote 只把 Range 當成可選加速能力。遠端無法探測、檔案太小或不支援
+// Range 時，呼叫端會自動退回既有的單一串流下載。
+func (m *Manager) inspectRemote(ctx context.Context, downloadURL, token string) remoteDownloadInfo {
+	info := remoteDownloadInfo{Size: -1}
+	request, err := newDownloadHTTPRequest(ctx, http.MethodHead, downloadURL, token)
+	if err == nil {
+		response, requestErr := m.client.Do(request)
+		if requestErr == nil {
+			response.Body.Close()
+			if response.StatusCode >= 200 && response.StatusCode < 300 {
+				info.Size = response.ContentLength
+			}
 		}
+	}
+	if info.Size > 0 && info.Size <= m.chunkSize {
+		return info
+	}
+
+	request, err = newDownloadHTTPRequest(ctx, http.MethodGet, downloadURL, token)
+	if err != nil {
+		return info
+	}
+	request.Header.Set("Range", "bytes=0-0")
+	response, err := m.client.Do(request)
+	if err != nil {
+		return info
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusPartialContent {
+		return info
+	}
+	start, end, total, ok := parseContentRange(response.Header.Get("Content-Range"))
+	if !ok || start != 0 || end != 0 || total < 1 {
+		return info
+	}
+	info.Size = total
+	info.RangeSupported = true
+	return info
+}
+
+func (m *Manager) downloadSequential(
+	ctx context.Context,
+	id string,
+	downloadURL string,
+	token string,
+	file *os.File,
+) error {
+	request, err := newDownloadHTTPRequest(ctx, http.MethodGet, downloadURL, token)
+	if err != nil {
+		return err
+	}
+	response, err := m.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return downloadResponseError(response)
+	}
+	m.update(id, func(job *domain.DownloadJob) {
+		job.BytesDone = 0
+		job.BytesTotal = response.ContentLength
 	})
+	_, err = io.Copy(file, &progressReader{reader: response.Body, report: func(delta int64) {
+		m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
+	}})
+	return err
+}
+
+func (m *Manager) downloadChunked(
+	ctx context.Context,
+	id string,
+	downloadURL string,
+	token string,
+	file *os.File,
+	total int64,
+) error {
+	if err := file.Truncate(total); err != nil {
+		return err
+	}
+	m.update(id, func(job *domain.DownloadJob) {
+		job.BytesDone = 0
+		job.BytesTotal = total
+	})
+	ranges := planDownloadRanges(total, m.chunkSize)
+	workerCount := m.chunkWorkers
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(ranges) {
+		workerCount = len(ranges)
+	}
+
+	workerContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	queue := make(chan downloadByteRange, len(ranges))
+	for _, item := range ranges {
+		queue <- item
+	}
+	close(queue)
+
+	var workers sync.WaitGroup
+	var failureOnce sync.Once
+	var failure error
+	for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-workerContext.Done():
+					return
+				case item, ok := <-queue:
+					if !ok {
+						return
+					}
+					if err := m.downloadRange(workerContext, id, downloadURL, token, file, item, total); err != nil {
+						failureOnce.Do(func() {
+							failure = err
+							cancel()
+						})
+						return
+					}
+				}
+			}
+		}()
+	}
+	workers.Wait()
+	if failure != nil {
+		return failure
+	}
+	return ctx.Err()
+}
+
+func (m *Manager) downloadRange(
+	ctx context.Context,
+	id string,
+	downloadURL string,
+	token string,
+	file *os.File,
+	item downloadByteRange,
+	total int64,
+) error {
+	select {
+	case m.rangeSlots <- struct{}{}:
+		defer func() { <-m.rangeSlots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	request, err := newDownloadHTTPRequest(ctx, http.MethodGet, downloadURL, token)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", item.Start, item.End))
+	response, err := m.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusPartialContent {
+		return fmt.Errorf("遠端伺服器未依 Range 回傳分段內容: %s", response.Status)
+	}
+	start, end, responseTotal, ok := parseContentRange(response.Header.Get("Content-Range"))
+	if !ok || start != item.Start || end != item.End || responseTotal != total {
+		return fmt.Errorf("遠端伺服器回傳無效的 Content-Range: %q", response.Header.Get("Content-Range"))
+	}
+	expected := item.End - item.Start + 1
+	written, err := io.CopyN(
+		io.NewOffsetWriter(file, item.Start),
+		&progressReader{reader: response.Body, report: func(delta int64) {
+			m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
+		}},
+		expected,
+	)
+	if err != nil {
+		return err
+	}
+	if written != expected {
+		return fmt.Errorf("分段下載大小不符: 取得 %d bytes，預期 %d bytes", written, expected)
+	}
+	return nil
+}
+
+func planDownloadRanges(total, chunkSize int64) []downloadByteRange {
+	if total < 1 || chunkSize < 1 {
+		return nil
+	}
+	ranges := make([]downloadByteRange, 0, (total+chunkSize-1)/chunkSize)
+	for start := int64(0); start < total; start += chunkSize {
+		end := start + chunkSize - 1
+		if end >= total {
+			end = total - 1
+		}
+		ranges = append(ranges, downloadByteRange{Start: start, End: end})
+	}
+	return ranges
+}
+
+func parseContentRange(value string) (start, end, total int64, ok bool) {
+	parts := contentRangePattern.FindStringSubmatch(strings.TrimSpace(value))
+	if len(parts) != 4 {
+		return 0, 0, 0, false
+	}
+	start, startErr := strconv.ParseInt(parts[1], 10, 64)
+	end, endErr := strconv.ParseInt(parts[2], 10, 64)
+	total, totalErr := strconv.ParseInt(parts[3], 10, 64)
+	if startErr != nil || endErr != nil || totalErr != nil || start < 0 || end < start || total <= end {
+		return 0, 0, 0, false
+	}
+	return start, end, total, true
+}
+
+func newDownloadHTTPRequest(ctx context.Context, method, downloadURL, token string) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, method, downloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/octet-stream")
+	request.Header.Set("User-Agent", "Tanpopo/1.0")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	return request, nil
+}
+
+func downloadResponseError(response *http.Response) error {
+	message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	return fmt.Errorf("Hugging Face 回傳 %s: %s", response.Status, strings.TrimSpace(string(message)))
+}
+
+// complete 會在檔案安全落地後立即清除已完成工作，避免下載佇列持續累積。
+// 失敗工作仍會保留，讓使用者可以查看錯誤原因。
+func (m *Manager) complete(id, destination string) {
+	m.mu.Lock()
+	delete(m.jobs, id)
+	if m.activeTargets[destination] == id {
+		delete(m.activeTargets, destination)
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) releaseDestination(destination, id string) {
@@ -704,6 +1395,21 @@ func buildRepositoryInfoURL(endpoint, repository, revision string) (string, erro
 	base.Path = basePath + "/api/models/" + repository + "/revision/" + revision
 	base.RawPath = baseEscapedPath + "/api/models/" + escapeURLPath(repository) + "/revision/" + url.PathEscape(revision)
 	base.RawQuery = ""
+	return base.String(), nil
+}
+
+func buildModelSearchURL(endpoint, query string) (string, error) {
+	base, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/models"
+	base.RawPath = strings.TrimRight(base.EscapedPath(), "/") + "/api/models"
+	parameters := base.Query()
+	parameters.Set("search", strings.TrimSpace(query))
+	parameters.Set("limit", "50")
+	parameters.Set("full", "true")
+	base.RawQuery = parameters.Encode()
 	return base.String(), nil
 }
 

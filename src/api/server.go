@@ -6,21 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"LlamaLoader/src/accesscontrol"
+	"LlamaLoader/src/appversion"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/directorybrowser"
 	"LlamaLoader/src/domain"
 	"LlamaLoader/src/download"
 	"LlamaLoader/src/llamacpp"
+	"LlamaLoader/src/netpass"
 	"LlamaLoader/src/session"
 	"LlamaLoader/src/startupcommand"
+	"LlamaLoader/src/systemmetrics"
+	"LlamaLoader/src/updatecheck"
 )
 
 type Server struct {
@@ -33,6 +40,9 @@ type Server struct {
 	sessions        *session.Store
 	downloads       *download.Manager
 	llama           *llamacpp.Manager
+	updates         *updatecheck.Checker
+	metrics         *systemmetrics.Collector
+	netPass         *netpass.Manager
 	credentialsMu   sync.Mutex
 }
 
@@ -47,6 +57,16 @@ func NewServer(
 	downloads *download.Manager,
 	llama *llamacpp.Manager,
 ) *Server {
+	updates := updatecheck.New(updatecheck.Options{
+		CurrentVersion: appversion.Release(),
+		DisplayVersion: appversion.Current(),
+		Repository:     appversion.RepositoryName(),
+	})
+	updates.Start(ctx)
+	metrics := systemmetrics.NewCollector()
+	metrics.Start(ctx, 3*time.Second)
+	netPassConfigPath := filepath.Join(filepath.Dir(agentConfigPath), "data", "netpass.json")
+	netPass := netpass.NewManager(ctx, netPassConfigPath, loadManagementPort(agentConfigPath))
 	return &Server{
 		ctx:             ctx,
 		webPath:         webPath,
@@ -57,7 +77,18 @@ func NewServer(
 		sessions:        sessions,
 		downloads:       downloads,
 		llama:           llama,
+		updates:         updates,
+		metrics:         metrics,
+		netPass:         netPass,
 	}
+}
+
+func loadManagementPort(agentConfigPath string) int {
+	agentConfig, err := config.LoadAgentConfig(agentConfigPath)
+	if err != nil {
+		return config.DefaultAgentConfig().HTTPPort
+	}
+	return agentConfig.HTTPPort
 }
 
 func (s *Server) Handler() http.Handler {
@@ -70,6 +101,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.webPath, "assets")))))
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/system/metrics", s.handleSystemMetrics)
+	mux.HandleFunc("GET /api/system/info", s.requireAPI(s.handleSystemInfo))
+	mux.HandleFunc("GET /api/netpass/status", s.requireAPI(s.handleNetPassStatus))
+	mux.HandleFunc("PUT /api/netpass/config", s.requireAPI(s.handleNetPassConfigUpdate))
+	mux.HandleFunc("POST /api/netpass/start", s.requireAPI(s.handleNetPassStart))
+	mux.HandleFunc("POST /api/netpass/stop", s.requireAPI(s.handleNetPassStop))
+	mux.HandleFunc("GET /api/app-version", s.handleAppVersion)
+	mux.HandleFunc("POST /api/app-version/check", s.requireAPI(s.handleAppVersionCheck))
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
@@ -137,6 +176,158 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, name string) 
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now()})
+}
+
+func (s *Server) handleSystemMetrics(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.metrics.Snapshot())
+}
+
+func (s *Server) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
+	info := s.metrics.Info()
+	if agentConfig, err := config.LoadAgentConfig(s.agentConfigPath); err == nil {
+		info.ManagementURLs = managementURLs(agentConfig.HTTPHost, agentConfig.HTTPPort, info.Network)
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+type netPassStatusResponse struct {
+	netpass.Status
+	AuthenticationEnabled bool   `json:"authentication_enabled"`
+	APIKeyEnabled         bool   `json:"api_key_enabled"`
+	AccessKeyCount        int    `json:"access_key_count"`
+	SecurityReady         bool   `json:"security_ready"`
+	SecurityMessage       string `json:"security_message,omitempty"`
+}
+
+func (s *Server) netPassStatus() netPassStatusResponse {
+	authenticationEnabled := s.sessions.AuthenticationEnabled()
+	accessControl := s.accessControl.Public()
+	apiKeyEnabled := accessControl.Policy.APIKeyEnabled && len(accessControl.Keys) > 0
+	securityReady := authenticationEnabled && apiKeyEnabled
+	status := s.netPass.Status()
+	if status.Running && !securityReady {
+		_ = s.netPass.Stop()
+		status = s.netPass.Status()
+	}
+	message := ""
+	if !authenticationEnabled && !apiKeyEnabled {
+		message = "請先開啟管理介面帳號密碼與模型 API Access Key 驗證"
+	} else if !authenticationEnabled {
+		message = "請先開啟管理介面帳號密碼驗證"
+	} else if !apiKeyEnabled {
+		message = "請先核發 Access Key 並開啟模型 API 金鑰驗證"
+	}
+	return netPassStatusResponse{
+		Status:                status,
+		AuthenticationEnabled: authenticationEnabled,
+		APIKeyEnabled:         apiKeyEnabled,
+		AccessKeyCount:        len(accessControl.Keys),
+		SecurityReady:         securityReady,
+		SecurityMessage:       message,
+	}
+}
+
+func (s *Server) handleNetPassStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.netPassStatus())
+}
+
+func (s *Server) handleNetPassConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	var request netpass.ConfigUpdate
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if _, err := s.netPass.UpdateConfig(request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.netPassStatus())
+}
+
+func (s *Server) handleNetPassStart(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		AcceptUsagePolicy bool `json:"accept_usage_policy"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !request.AcceptUsagePolicy {
+		writeError(w, http.StatusBadRequest, errors.New("請先閱讀並同意 NetPass 使用政策與責任說明"))
+		return
+	}
+	security := s.netPassStatus()
+	if !security.SecurityReady {
+		writeError(w, http.StatusBadRequest, errors.New(security.SecurityMessage))
+		return
+	}
+	if _, err := s.netPass.Start(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.netPassStatus())
+}
+
+func (s *Server) handleNetPassStop(w http.ResponseWriter, _ *http.Request) {
+	if err := s.netPass.Stop(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.netPassStatus())
+}
+
+// managementURLs 依管理服務的實際監聽設定列出可直接開啟的 HTTP 入口。
+// Wildcard 監聽會展開為 Loopback 與各張已連線網卡的位址，避免對 UI 暴露不可連線的 0.0.0.0 或 ::。
+func managementURLs(configuredHost string, port int, interfaces []systemmetrics.NetworkInterface) []string {
+	configuredHost = strings.Trim(strings.TrimSpace(configuredHost), "[]")
+	hosts := make([]string, 0, len(interfaces)+1)
+	if configuredHost != "" && configuredHost != "0.0.0.0" && configuredHost != "::" {
+		hosts = append(hosts, configuredHost)
+	} else {
+		hosts = append(hosts, "127.0.0.1")
+		for _, networkInterface := range interfaces {
+			if !networkInterface.Up {
+				continue
+			}
+			for _, address := range networkInterface.Addresses {
+				ip, _, err := net.ParseCIDR(strings.TrimSpace(address))
+				if err != nil {
+					ip = net.ParseIP(strings.TrimSpace(address))
+				}
+				if ip == nil || !ip.IsGlobalUnicast() {
+					continue
+				}
+				hosts = append(hosts, ip.String())
+			}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(hosts))
+	result := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		host = strings.Trim(strings.TrimSpace(host), "[]")
+		if host == "" {
+			continue
+		}
+		managementURL := "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+		if _, exists := seen[managementURL]; exists {
+			continue
+		}
+		seen[managementURL] = struct{}{}
+		result = append(result, managementURL)
+	}
+	if len(result) > 1 {
+		sort.Strings(result[1:])
+	}
+	return result
+}
+
+func (s *Server) handleAppVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.updates.Check(r.Context(), false))
+}
+
+func (s *Server) handleAppVersionCheck(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.updates.Check(r.Context(), true))
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +419,9 @@ func (s *Server) handleAdminCredentialsUpdate(w http.ResponseWriter, r *http.Req
 			updated.DefaultAccount,
 			updated.DefaultPassword,
 		)
+		if updated.DisableAuthentication {
+			_ = s.netPass.Stop()
+		}
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -266,6 +460,7 @@ type settingsUpdateRequest struct {
 	MLXModelDirectory     string `json:"mlx_model_directory"`
 	ResidentMode          bool   `json:"resident_mode"`
 	UILanguage            string `json:"ui_language"`
+	UITheme               string `json:"ui_theme"`
 	HuggingFaceEndpoint   string `json:"huggingface_endpoint"`
 	HuggingFaceToken      string `json:"huggingface_token"`
 	ClearHuggingFaceToken bool   `json:"clear_huggingface_token"`
@@ -290,6 +485,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		MLXModelDirectory:   request.MLXModelDirectory,
 		ResidentMode:        request.ResidentMode,
 		UILanguage:          request.UILanguage,
+		UITheme:             request.UITheme,
 		HuggingFaceEndpoint: request.HuggingFaceEndpoint,
 		HuggingFaceToken:    token,
 		DefaultRevision:     request.DefaultRevision,
@@ -330,6 +526,9 @@ func (s *Server) handleAccessControlUpdate(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if !view.Policy.APIKeyEnabled {
+		_ = s.netPass.Stop()
+	}
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -353,6 +552,9 @@ func (s *Server) handleAccessKeyRevoke(w http.ResponseWriter, r *http.Request) {
 	if err := s.accessControl.RevokeKey(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if len(s.accessControl.Public().Keys) == 0 {
+		_ = s.netPass.Stop()
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

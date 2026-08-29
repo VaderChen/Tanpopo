@@ -20,9 +20,12 @@ const (
 
 // Options 定義原生 UI 視窗的啟動參數。
 type Options struct {
-	URL      string
-	Title    string
-	Resident bool
+	URL       string
+	Title     string
+	Resident  bool
+	Version   string
+	APIURL    string
+	GitHubURL string
 }
 
 // Launch 在支援的圖形工作階段啟動原生 UI。第二個回傳值代表是否成功啟動；
@@ -50,6 +53,9 @@ func Launch(ctx context.Context, options Options) (done <-chan error, launched b
 		"--url", strings.TrimSpace(options.URL),
 		"--title", strings.TrimSpace(options.Title),
 		"--resident", fmt.Sprintf("%t", options.Resident),
+		"--version", strings.TrimSpace(options.Version),
+		"--api-url", strings.TrimSpace(options.APIURL),
+		"--github-url", strings.TrimSpace(options.GitHubURL),
 	}
 	if iconPath := resolveIcon(binaryPath); iconPath != "" {
 		arguments = append(arguments, "--icon", iconPath)

@@ -38,6 +38,7 @@ func DefaultSettings() domain.Settings {
 		ModelDirectory:      filepath.Join(homeDirectory, "services", "models"),
 		MLXModelDirectory:   filepath.Join(homeDirectory, "services", "mlx-models"),
 		UILanguage:          "auto",
+		UITheme:             "tanpopo",
 		HuggingFaceEndpoint: "https://huggingface.co",
 		DefaultRevision:     "main",
 		ServerHost:          "0.0.0.0",
@@ -168,6 +169,7 @@ func (s *Store) Public() domain.PublicSettings {
 		MLXModelDirectory:   value.MLXModelDirectory,
 		ResidentMode:        value.ResidentMode,
 		UILanguage:          value.UILanguage,
+		UITheme:             value.UITheme,
 		HuggingFaceEndpoint: value.HuggingFaceEndpoint,
 		HuggingFaceTokenSet: value.HuggingFaceToken != "",
 		DefaultRevision:     value.DefaultRevision,
@@ -201,6 +203,7 @@ func normalizeSettings(value domain.Settings) domain.Settings {
 		value.MLXModelDirectory = defaults.MLXModelDirectory
 	}
 	value.UILanguage = normalizeUILanguage(value.UILanguage)
+	value.UITheme = normalizeUITheme(value.UITheme)
 	value.HuggingFaceEndpoint = strings.TrimRight(strings.TrimSpace(value.HuggingFaceEndpoint), "/")
 	value.HuggingFaceToken = strings.TrimSpace(value.HuggingFaceToken)
 	value.DefaultRevision = strings.TrimSpace(value.DefaultRevision)
@@ -242,6 +245,15 @@ func normalizeUILanguage(value string) string {
 	}
 }
 
+func normalizeUITheme(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "tanpopo", "ocean", "sakura", "wisteria":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "tanpopo"
+	}
+}
+
 func expandHome(path string) string {
 	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
 		return path
@@ -261,6 +273,11 @@ func ValidateSettings(value domain.Settings) error {
 	case "auto", "zh-Hant", "en", "ja", "ko":
 	default:
 		return errors.New("ui_language 只支援 auto、zh-Hant、en、ja 或 ko")
+	}
+	switch value.UITheme {
+	case "tanpopo", "ocean", "sakura", "wisteria":
+	default:
+		return errors.New("ui_theme 只支援 tanpopo、ocean、sakura 或 wisteria")
 	}
 	if strings.TrimSpace(value.ModelDirectory) == "" {
 		return errors.New("model_directory 不可為空")

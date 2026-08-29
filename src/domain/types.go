@@ -29,6 +29,7 @@ type Settings struct {
 	MLXModelDirectory   string   `json:"mlx_model_directory"`
 	ResidentMode        bool     `json:"resident_mode"`
 	UILanguage          string   `json:"ui_language"`
+	UITheme             string   `json:"ui_theme"`
 	HuggingFaceEndpoint string   `json:"huggingface_endpoint"`
 	HuggingFaceToken    string   `json:"huggingface_token,omitempty"`
 	DefaultRevision     string   `json:"default_revision"`
@@ -46,6 +47,7 @@ type PublicSettings struct {
 	MLXModelDirectory   string `json:"mlx_model_directory"`
 	ResidentMode        bool   `json:"resident_mode"`
 	UILanguage          string `json:"ui_language"`
+	UITheme             string `json:"ui_theme"`
 	HuggingFaceEndpoint string `json:"huggingface_endpoint"`
 	HuggingFaceTokenSet bool   `json:"huggingface_token_set"`
 	DefaultRevision     string `json:"default_revision"`

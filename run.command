@@ -5,6 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")" || exit 1
 
 PROJECT_DIR="$(pwd)"
+APP_VERSION="$(tr -d '[:space:]' < "${PROJECT_DIR}/VERSION")"
+APP_BUILD="${TANPOPO_BUILD:-$(date +%H%M)}"
+UPDATE_REPOSITORY="${TANPOPO_UPDATE_REPOSITORY:-VaderChen/Tanpopo}"
+if [[ ! "${APP_BUILD}" =~ ^[0-9]{4}$ ]]; then
+  echo "Tanpopo build 編號格式錯誤：${APP_BUILD}（應為 HHmm）" >&2
+  exit 1
+fi
+APP_LDFLAGS="-X LlamaLoader/src/appversion.Version=${APP_VERSION} -X LlamaLoader/src/appversion.Build=${APP_BUILD} -X LlamaLoader/src/appversion.Repository=${UPDATE_REPOSITORY}"
 UI_MODE="${TANPOPO_UI:-${OPEN_LOADER_UI:-${LLAMA_LOADER_UI:-auto}}}"
 UI_MODE="$(printf '%s' "${UI_MODE}" | tr '[:upper:]' '[:lower:]')"
 
@@ -55,7 +63,7 @@ fi
 if [[ -x "${PROJECT_DIR}/scripts/ensure-local-runtimes.sh" ]]; then
   "${PROJECT_DIR}/scripts/ensure-local-runtimes.sh"
   mkdir -p "${PROJECT_DIR}/bin" "${PROJECT_DIR}/data"
-  go build -buildvcs=false -trimpath -o "${PROJECT_DIR}/bin/Tanpopo" ./src/cmd/llamaloader
+  go build -buildvcs=false -trimpath -ldflags "${APP_LDFLAGS}" -o "${PROJECT_DIR}/bin/Tanpopo" ./src/cmd/llamaloader
   TANPOPO_BINARY="${PROJECT_DIR}/bin/Tanpopo"
 else
   if [[ ! -x "${PROJECT_DIR}/Tanpopo" ]]; then
