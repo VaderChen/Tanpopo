@@ -27,7 +27,9 @@ type chatMessage struct {
 }
 
 type chatCompletionRequest struct {
-	Messages []chatMessage `json:"messages"`
+	Messages  []chatMessage `json:"messages"`
+	Stream    bool          `json:"stream"`
+	MaxTokens int           `json:"max_tokens"`
 }
 
 type runtimeChatCompletion struct {
@@ -74,6 +76,14 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	maxTokens := request.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 2048
+	}
+	if maxTokens < 1 || maxTokens > 4096 {
+		writeError(w, http.StatusBadRequest, errors.New("max_tokens 必須介於 1 與 4096 之間"))
+		return
+	}
 
 	status := s.llama.Status()
 	if !status.Running {
@@ -85,11 +95,17 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	body, err := json.Marshal(map[string]any{
+	upstreamPayload := map[string]any{
 		"messages":   request.Messages,
-		"max_tokens": 2048,
-		"stream":     false,
-	})
+		"max_tokens": maxTokens,
+		"stream":     request.Stream,
+	}
+	if request.Stream {
+		// llama-server 需要此選項才會在最後一個 SSE event 附上 usage；
+		// mlx-server 會忽略不認識的欄位並照常串流。
+		upstreamPayload["stream_options"] = map[string]any{"include_usage": true}
+	}
+	body, err := json.Marshal(upstreamPayload)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, errors.New("無法建立對話請求"))
 		return
@@ -100,7 +116,11 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("無法建立 Runtime 請求"))
 		return
 	}
-	upstreamRequest.Header.Set("Accept", "application/json")
+	if request.Stream {
+		upstreamRequest.Header.Set("Accept", "text/event-stream")
+	} else {
+		upstreamRequest.Header.Set("Accept", "application/json")
+	}
 	upstreamRequest.Header.Set("Content-Type", "application/json")
 	if runtimeKey := strings.TrimSpace(r.Header.Get("X-Tanpopo-Key")); runtimeKey != "" {
 		if len(runtimeKey) > 256 {
@@ -122,10 +142,23 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	requestStartedAt := time.Now()
 	response, err := client.Do(upstreamRequest)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("無法連線至模型 Runtime: %w", err))
+		latest := s.llama.Status()
+		if latest.Running && !latest.Ready {
+			writeError(w, http.StatusConflict, errors.New("模型服務仍在載入中，請稍候"))
+		} else {
+			writeError(w, http.StatusBadGateway, errors.New("模型 Runtime 已停止或無法連線，請返回執行狀態確認"))
+		}
 		return
 	}
 	defer response.Body.Close()
+	if request.Stream {
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			writeRuntimeChatError(w, response)
+			return
+		}
+		proxyRuntimeChatStream(w, response)
+		return
+	}
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxRuntimeResponse+1))
 	if err != nil {
@@ -201,6 +234,52 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			"tokens_per_second": tokensPerSecond,
 		},
 	})
+}
+
+func writeRuntimeChatError(w http.ResponseWriter, response *http.Response) {
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxRuntimeResponse+1))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, errors.New("讀取模型 Runtime 回應失敗"))
+		return
+	}
+	if len(responseBody) > maxRuntimeResponse {
+		writeError(w, http.StatusBadGateway, errors.New("模型 Runtime 回應超過大小限制"))
+		return
+	}
+	var completion runtimeChatCompletion
+	_ = json.Unmarshal(responseBody, &completion)
+	message := strings.TrimSpace(completion.Error.Message)
+	if message == "" {
+		message = fmt.Sprintf("模型 Runtime 拒絕請求（HTTP %d）", response.StatusCode)
+	}
+	writeError(w, http.StatusBadGateway, errors.New(message))
+}
+
+func proxyRuntimeChatStream(w http.ResponseWriter, response *http.Response) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("目前的 HTTP 連線不支援串流回應"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	buffer := make([]byte, 32*1024)
+	for {
+		readCount, readErr := response.Body.Read(buffer)
+		if readCount > 0 {
+			if _, writeErr := w.Write(buffer[:readCount]); writeErr != nil {
+				return
+			}
+			flusher.Flush()
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }
 
 func splitRuntimeReasoning(content string) (answer string, reasoning string) {

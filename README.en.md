@@ -7,7 +7,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 ## Highlights
 
 - Start, stop, restore, and inspect local model runtimes from one web interface.
-- Scan nested GGUF files and complete MLX model directories without exposing full directory paths in model selectors.
+- Scan nested GGUF files and complete MLX model directories without exposing full directory paths in model selectors. On Apple Silicon, `mlx-server` can load supported GGUF models directly without a safetensors conversion step.
 - Download public, gated, or private Hugging Face GGUF files and MLX repositories.
 - Pick popular GGUF or MLX models from a separate JSON catalog; the quick picker fills in the Runtime, repository, revision, and GGUF filename without hard-coding model entries in JavaScript.
 - When the server supports byte ranges, download large files in 64 MiB segments with at most four workers; otherwise fall back to one stream. Completed queue entries are removed automatically. The desktop app can open the destination folder, while browser mode keeps that action disabled.
@@ -55,13 +55,15 @@ The application version uses `1.YY.MMDD build HHmm`, for example `1.26.0829 buil
 
 ### llama-server
 
-`llama-server` provides the broadest GGUF and platform compatibility. The default GGUF directory is `~/services/models`. Tanpopo combines a selected model with a saved launch profile only when starting the runtime. Multimodal models may select a matching `mmproj` file; the mmproj control is hidden when MLX is selected.
+`llama-server` provides the broadest GGUF and platform compatibility. The default GGUF directory is `~/services/models`. Tanpopo combines a selected model with a saved launch profile only when starting the runtime. Multimodal models may select a matching `mmproj` file.
 
 DFlash is off by default. Tanpopo inspects model architecture and pairing metadata before enabling the switch. If the required Draft GGUF is missing, the switch is reset and the UI asks the user to download it.
 
 ### mlx-server
 
-`mlx-server` is a native Apple Silicon runtime built with Swift, SwiftNIO, and MLX Swift. It does not invoke Python, pip, or `mlx_lm.server`. The default MLX model directory is `~/services/mlx-models`; a valid model directory must contain `config.json` and safetensors weights.
+`mlx-server` is a native Apple Silicon runtime built with Swift, SwiftNIO, and MLX Swift. It does not invoke Python, pip, or `mlx_lm.server`. It accepts complete MLX directories from `~/services/mlx-models` and supported GGUF files from the regular GGUF directory. The runtime reads embedded GGUF model and tokenizer metadata, converts supported quantized weights during MLX loading, and supports Qwen 3.5, Qwen 3, Qwen 2, and Llama architectures. A matching `mmproj` may be selected for multimodal Qwen 3.5 models.
+
+GGUF loading defaults to a group size of 64 and the quality profile; these can be changed with `--gguf-group-size 32|64` and `--gguf-profile quality|speed`. GGUF targets use standard MLX generation. Existing DFlash profiles continue to require an MLX safetensors target and a compatible Draft model.
 
 Supported compatibility endpoints include:
 

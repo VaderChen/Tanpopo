@@ -135,6 +135,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installStandardMenus()
         if let iconURL = options.iconURL,
            let icon = NSImage(contentsOf: iconURL) {
             NSApplication.shared.applicationIconImage = icon
@@ -159,9 +160,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.title = options.title
         window.minSize = NSSize(width: 960, height: 640)
         window.contentView = webView
+        window.initialFirstResponder = webView
         window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(webView)
         NSApplication.shared.activate(ignoringOtherApps: true)
         self.window = window
         self.webView = webView
@@ -173,6 +176,64 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             timeoutInterval: 30
         )
         webView.load(request)
+    }
+
+    private func installStandardMenus() {
+        let application = NSApplication.shared
+        let mainMenu = application.mainMenu ?? NSMenu(title: "")
+        application.mainMenu = mainMenu
+
+        if mainMenu.items.isEmpty {
+            let applicationRoot = NSMenuItem(title: options.title, action: nil, keyEquivalent: "")
+            let applicationMenu = NSMenu(title: options.title)
+            let quitItem = NSMenuItem(
+                title: "結束 \(options.title)",
+                action: #selector(NSApplication.terminate(_:)),
+                keyEquivalent: "q"
+            )
+            quitItem.target = nil
+            quitItem.keyEquivalentModifierMask = [.command]
+            applicationMenu.addItem(quitItem)
+            applicationRoot.submenu = applicationMenu
+            mainMenu.addItem(applicationRoot)
+        }
+
+        guard !mainMenu.items.contains(where: { $0.submenu?.title == "編輯" }) else {
+            return
+        }
+        let editRoot = NSMenuItem(title: "編輯", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "編輯")
+        editMenu.addItem(standardEditMenuItem("復原", action: "undo:", key: "z"))
+        editMenu.addItem(standardEditMenuItem(
+            "重做",
+            action: "redo:",
+            key: "z",
+            modifiers: [.command, .shift]
+        ))
+        editMenu.addItem(.separator())
+        editMenu.addItem(standardEditMenuItem("剪下", action: "cut:", key: "x"))
+        editMenu.addItem(standardEditMenuItem("複製", action: "copy:", key: "c"))
+        editMenu.addItem(standardEditMenuItem("貼上", action: "paste:", key: "v"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(standardEditMenuItem("全選", action: "selectAll:", key: "a"))
+        editRoot.submenu = editMenu
+        mainMenu.addItem(editRoot)
+    }
+
+    private func standardEditMenuItem(
+        _ title: String,
+        action: String,
+        key: String,
+        modifiers: NSEvent.ModifierFlags = [.command]
+    ) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: NSSelectorFromString(action),
+            keyEquivalent: key
+        )
+        item.target = nil
+        item.keyEquivalentModifierMask = modifiers
+        return item
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -418,6 +479,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     @objc private func showWindow(_ sender: Any?) {
         NSApplication.shared.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(webView)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 

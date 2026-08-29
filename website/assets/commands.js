@@ -66,7 +66,7 @@
     const isMLX = command.runtime === MLX_RUNTIME;
     const args = [
       ...command.extra_args,
-      "--model", isMLX ? "<選擇的 MLX 模型目錄>" : "<選擇的 GGUF>"
+      "--model", isMLX ? "<選擇的 MLX 模型目錄或 GGUF>" : "<選擇的 GGUF>"
     ];
     if (command.draft_model) {
       if (isMLX) args.push("--model-type", "text");

@@ -367,7 +367,9 @@ bool server_http_context::init(const common_params & params) {
             res.set_header("Access-Control-Allow-Origin", params.cors_origins);
         }
         // CORS preflight has no API key, but its actual peer IP must still pass the allowlist.
-        if (!middleware_validate_openloader_access(req, res, req.method != "OPTIONS")) {
+        const bool validate_openloader_api_key = req.method != "OPTIONS"
+            && get_public_endpoints.find(req.path) == get_public_endpoints.end();
+        if (!middleware_validate_openloader_access(req, res, validate_openloader_api_key)) {
             return httplib::Server::HandlerResponse::Handled;
         }
         // If this is OPTIONS request, skip key validation because browsers don't include Authorization header

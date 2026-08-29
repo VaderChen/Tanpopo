@@ -7,7 +7,7 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 ## 주요 기능
 
 - 하나의 관리 화면에서 모델 Runtime 시작, 중지, 상태 복원 및 로그 확인.
-- 하위 폴더를 포함한 GGUF 파일과 완전한 MLX 모델 폴더 자동 탐색.
+- 하위 폴더를 포함한 GGUF 파일과 완전한 MLX 모델 폴더 자동 탐색. Apple Silicon의 `mlx-server`는 safetensors로 미리 변환하지 않고 지원되는 GGUF를 직접 불러올 수 있습니다.
 - Hugging Face의 공개, gated, private repository에서 GGUF 또는 MLX 모델 다운로드.
 - 별도 JSON 목록에서 자주 사용하는 GGUF 및 MLX 모델을 빠르게 선택하고 Runtime, repository, revision, GGUF 파일 이름을 자동 입력. 모델 항목은 JavaScript에 하드코딩하지 않습니다.
 - 서버가 Range를 지원하면 큰 파일을 64 MiB 단위, 최대 4개 Worker로 병렬 다운로드하고, 지원하지 않으면 단일 Stream으로 자동 전환합니다. 완료 항목은 자동으로 지워집니다. 저장 위치 열기는 Desktop App에서만 활성화되고 Browser에서는 비활성화됩니다.
@@ -55,13 +55,15 @@ TANPOPO_UI=gui ./run.command    # 지원 환경에서 네이티브 UI 강제
 
 ### llama-server
 
-`llama-server`는 GGUF와 여러 플랫폼에 대한 높은 호환성을 제공합니다. 기본 GGUF 폴더는 `~/services/models`입니다. 실행할 때 선택한 모델과 저장된 시작 프로필을 결합합니다. 멀티모달 모델은 대응하는 `mmproj`를 선택할 수 있으며 MLX 선택 시 mmproj 항목은 숨겨집니다.
+`llama-server`는 GGUF와 여러 플랫폼에 대한 높은 호환성을 제공합니다. 기본 GGUF 폴더는 `~/services/models`입니다. 실행할 때 선택한 모델과 저장된 시작 프로필을 결합합니다. 멀티모달 모델은 대응하는 `mmproj`를 선택할 수 있습니다.
 
 DFlash는 기본적으로 꺼져 있습니다. Tanpopo가 아키텍처와 페어링 정보를 확인하며, 필요한 Draft GGUF가 없으면 스위치를 다시 끄고 다운로드를 안내합니다.
 
 ### mlx-server
 
-`mlx-server`는 Swift, SwiftNIO, MLX Swift로 만든 Apple Silicon 전용 Runtime입니다. Python, pip, `mlx_lm.server`를 호출하지 않습니다. 기본 MLX 모델 폴더는 `~/services/mlx-models`이며 유효한 모델에는 `config.json`과 safetensors 가중치가 있어야 합니다.
+`mlx-server`는 Swift, SwiftNIO, MLX Swift로 만든 Apple Silicon 전용 Runtime입니다. Python, pip, `mlx_lm.server`를 호출하지 않습니다. `~/services/mlx-models`의 완전한 MLX 모델과 일반 GGUF 폴더의 지원되는 GGUF를 직접 불러올 수 있습니다. GGUF에 포함된 모델 설정과 Tokenizer metadata를 읽고 MLX 로딩 중 지원되는 양자화 가중치를 변환합니다. Qwen 3.5, Qwen 3, Qwen 2, Llama를 지원하며 멀티모달 Qwen 3.5는 대응하는 `mmproj`를 선택할 수 있습니다.
+
+GGUF 기본값은 group size 64와 quality profile이며 `--gguf-group-size 32|64`, `--gguf-profile quality|speed`로 변경할 수 있습니다. GGUF Target은 일반 MLX 생성을 사용하고, DFlash는 기존처럼 MLX safetensors Target과 호환 Draft 조합에서만 사용합니다.
 
 주요 호환 엔드포인트:
 

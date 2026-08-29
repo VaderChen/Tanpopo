@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandDelete))
 	mux.HandleFunc("GET /api/downloads", s.requireAPI(s.handleDownloads))
 	mux.HandleFunc("POST /api/downloads", s.requireAPI(s.handleDownloadStart))
+	mux.HandleFunc("DELETE /api/downloads/{id}", s.requireAPI(s.handleDownloadCancel))
 	mux.HandleFunc("GET /api/llama/status", s.requireAPI(s.handleLlamaStatus))
 	mux.HandleFunc("GET /api/llama/logs", s.requireAPI(s.handleLlamaLogs))
 	mux.HandleFunc("DELETE /api/llama/logs", s.requireAPI(s.handleLlamaLogsClear))
@@ -584,7 +585,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(r.URL.Query().Get("role")) == "draft" {
 			models, err = llamacpp.ListMLXDFlashModels(settings.MLXModelDirectory)
 		} else {
-			models, err = llamacpp.ListMLXModels(settings.MLXModelDirectory)
+			models, err = llamacpp.ListMLXRuntimeModels(
+				settings.MLXModelDirectory,
+				settings.ModelDirectory,
+			)
 		}
 	} else {
 		models, err = llamacpp.ListModels(settings.ModelDirectory)
@@ -670,6 +674,14 @@ func (s *Server) handleStartupCommandDelete(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleDownloads(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"downloads": s.downloads.List()})
+}
+
+func (s *Server) handleDownloadCancel(w http.ResponseWriter, r *http.Request) {
+	if err := s.downloads.Cancel(strings.TrimSpace(r.PathValue("id"))); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {

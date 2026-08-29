@@ -103,6 +103,65 @@ func TestPlanDownloadRangesUses64MiBChunks(t *testing.T) {
 	}
 }
 
+func TestCancelStopsDownloadAndRemovesPartialFile(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Length", "512")
+		if request.Method == http.MethodHead {
+			return
+		}
+		response.WriteHeader(http.StatusOK)
+		if flusher, ok := response.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	directory := t.TempDir()
+	manager := NewManager(1)
+	job, err := manager.Start(context.Background(), Request{
+		Runtime:        domain.RuntimeLlamaServer,
+		Repository:     "fixture/cancel-model",
+		Filename:       "cancel-model.gguf",
+		Revision:       "main",
+		ModelDirectory: directory,
+		Endpoint:       server.URL,
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("下載沒有開始")
+	}
+	if err := manager.Cancel(job.ID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := manager.Wait(waitContext); err != nil {
+		t.Fatalf("取消後工作未停止：%v", err)
+	}
+	if jobs := manager.List(); len(jobs) != 0 {
+		t.Fatalf("取消後工作仍存在：%+v", jobs)
+	}
+	partialFiles, err := filepath.Glob(filepath.Join(directory, "**", "*.part-*"))
+	if err != nil {
+		t.Fatalf("檢查暫存檔失敗：%v", err)
+	}
+	if len(partialFiles) != 0 {
+		t.Fatalf("取消後仍有暫存檔：%v", partialFiles)
+	}
+}
+
 func TestStartWithCompanionsDownloadsExternalDFlashGGUF(t *testing.T) {
 	t.Parallel()
 	server := newHuggingFaceFixture(t)

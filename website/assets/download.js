@@ -5,6 +5,7 @@
   const QUICK_MODEL_URL = "/assets/popular-models.json";
   let quickModelCatalog = null;
   let storageDirectories = { gguf: "", mlx: "" };
+  const cancellingJobs = new Set();
 
   function nativeBridge() {
     return window.webkit?.messageHandlers?.tanpopoNative || null;
@@ -165,7 +166,7 @@
     if (!visibleJobs.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = "目前沒有下載工作。";
+      empty.textContent = t("目前沒有下載工作。");
       container.append(empty);
       return;
     }
@@ -178,8 +179,33 @@
       name.textContent = `${job.runtime === MLX_RUNTIME ? "MLX" : "GGUF"} · ${job.filename}`;
       const stateLabel = document.createElement("span");
       stateLabel.className = "job-state";
-      stateLabel.textContent = ({ queued: "等待中", downloading: "下載中", completed: "完成", failed: "失敗" })[job.state] || job.state;
-      header.append(name, stateLabel);
+      stateLabel.textContent = t(({ queued: "等待中", downloading: "下載中", cancelling: "取消中…", completed: "完成", failed: "失敗" })[job.state] || job.state);
+      const actions = document.createElement("div");
+      actions.className = "job-actions";
+      actions.append(stateLabel);
+      if (job.state === "queued" || job.state === "downloading" || job.state === "cancelling") {
+        const cancelButton = document.createElement("button");
+        cancelButton.className = "job-cancel-button";
+        cancelButton.type = "button";
+        cancelButton.textContent = t("取消");
+        cancelButton.disabled = job.state === "cancelling" || cancellingJobs.has(job.id);
+        cancelButton.addEventListener("click", async () => {
+          cancellingJobs.add(job.id);
+          cancelButton.disabled = true;
+          stateLabel.textContent = t("取消中…");
+          try {
+            await api(`/api/downloads/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+            showMessage("下載已取消");
+          } catch (error) {
+            showMessage(error.message, "error");
+          } finally {
+            cancellingJobs.delete(job.id);
+            await loadDownloads();
+          }
+        });
+        actions.append(cancelButton);
+      }
+      header.append(name, actions);
       const progress = document.createElement("div");
       progress.className = "progress-track";
       const bar = document.createElement("div");

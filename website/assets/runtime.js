@@ -1,7 +1,9 @@
 (() => {
-  const { api, byId, showMessage, formatBytes, formatTime } = window.LlamaLoader;
+  const { api, byId, showMessage, formatBytes, formatTime, t } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
+  const RUNTIME_TEST_TIMEOUT_MS = 180000;
+  const RUNTIME_TEST_RETRY_MS = 750;
   const state = {
     settings: null,
     models: [],
@@ -10,7 +12,8 @@
     draftModels: [],
     commands: [],
     runtime: null,
-    selectionTouched: false
+    selectionTouched: false,
+    testing: false
   };
 
   function selectedCommand() {
@@ -21,11 +24,18 @@
     return byId("runtimeSelect").value || LLAMA_RUNTIME;
   }
 
-  function updateRuntimeSpecificFields() {
+  function isMLXGGUFModel(model) {
+    return model?.format === "gguf" || String(model?.path || "").startsWith("gguf:");
+  }
+
+  function updateRuntimeSpecificFields(status = state.runtime) {
     const isMLX = selectedRuntime() === MLX_RUNTIME;
-    byId("mmprojField").hidden = isMLX;
-    byId("mmprojMeta").hidden = isMLX;
-    byId("runningMMProjRow").hidden = isMLX;
+    const supportsMMProj = !isMLX
+      || isMLXGGUFModel(selectedModel())
+      || (Boolean(status?.running) && String(status?.model || "").startsWith("gguf:"));
+    byId("mmprojField").hidden = !supportsMMProj;
+    byId("mmprojMeta").hidden = !supportsMMProj;
+    byId("runningMMProjRow").hidden = !supportsMMProj;
   }
 
   function isMMProjModel(model) {
@@ -40,6 +50,24 @@
     return state.mainModels.find((model) => model.path === byId("modelSelect").value) || null;
   }
 
+  function matchedMMProjModel(target = selectedModel()) {
+    if (!isMLXGGUFModel(target) || !state.mmprojModels.length) return null;
+    const targetDirectory = pathDirectory(target.path);
+    const sameDirectory = state.mmprojModels.filter(
+      (model) => pathDirectory(model.path) === targetDirectory
+    );
+    if (sameDirectory.length === 1) return sameDirectory[0];
+    if (!targetDirectory && state.mmprojModels.length === 1) return state.mmprojModels[0];
+    return null;
+  }
+
+  function selectMatchedMMProj(force = false) {
+    const select = byId("mmprojSelect");
+    const currentIsValid = state.mmprojModels.some((model) => model.path === select.value);
+    if (!force && currentIsValid) return;
+    select.value = matchedMMProjModel()?.path || "";
+  }
+
   function pathDirectory(path) {
     const normalized = String(path || "").replace(/\\/g, "/");
     const separator = normalized.lastIndexOf("/");
@@ -47,7 +75,10 @@
   }
 
   function displayModelName(path) {
-    const normalized = String(path || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalized = String(path || "")
+      .replace(/^gguf:/, "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
     return normalized.split("/").pop() || "—";
   }
 
@@ -146,13 +177,13 @@
         : Promise.resolve({ models: [] })
     ]);
     state.models = payload.models || [];
-    state.mmprojModels = runtimeName === LLAMA_RUNTIME ? state.models.filter(isMMProjModel) : [];
+    state.mmprojModels = state.models.filter(isMMProjModel);
     state.draftModels = runtimeName === LLAMA_RUNTIME
       ? state.models.filter(isDFlashDraftModel)
       : (draftPayload.models || []);
-    state.mainModels = runtimeName === LLAMA_RUNTIME
-      ? state.models.filter((model) => !isMMProjModel(model) && !isDFlashDraftModel(model))
-      : state.models;
+    state.mainModels = state.models.filter(
+      (model) => !isMMProjModel(model) && !isDFlashDraftModel(model)
+    );
 
     if (!preserveSelection) byId("dflashToggle").checked = false;
 
@@ -161,16 +192,35 @@
       const emptyOption = document.createElement("option");
       emptyOption.value = "";
       emptyOption.textContent = runtimeName === MLX_RUNTIME
-        ? "尚無支援的 MLX 模型"
+        ? "尚無支援的 MLX 或 GGUF 模型"
         : "尚無支援的 GGUF 模型";
       modelSelect.append(emptyOption);
     }
-    state.mainModels.forEach((model) => {
-      const option = document.createElement("option");
-      option.value = model.path;
-      option.textContent = displayModelName(model.path);
-      modelSelect.append(option);
-    });
+    if (runtimeName === MLX_RUNTIME) {
+      [
+        { format: "gguf", label: "GGUF" },
+        { format: "mlx", label: "MLX" }
+      ].forEach(({ format, label }) => {
+        const models = state.mainModels.filter((model) => model.format === format);
+        if (!models.length) return;
+        const group = document.createElement("optgroup");
+        group.label = label;
+        models.forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.path;
+          option.textContent = displayModelName(model.path);
+          group.append(option);
+        });
+        modelSelect.append(group);
+      });
+    } else {
+      state.mainModels.forEach((model) => {
+        const option = document.createElement("option");
+        option.value = model.path;
+        option.textContent = displayModelName(model.path);
+        modelSelect.append(option);
+      });
+    }
     if (previousModel && state.mainModels.some((model) => model.path === previousModel)) {
       modelSelect.value = previousModel;
     }
@@ -189,11 +239,13 @@
     });
     if (previousMMProj && state.mmprojModels.some((model) => model.path === previousMMProj)) {
       mmprojSelect.value = previousMMProj;
+    } else {
+      selectMatchedMMProj();
     }
 
     const isMLX = runtimeName === MLX_RUNTIME;
     byId("modelFieldLabel").textContent = isMLX
-      ? "選擇 mlx-server 支援的 MLX 模型"
+      ? "選擇 mlx-server 支援的 MLX 或 GGUF 模型"
       : "選擇 llama-server 支援的 GGUF 模型";
     updateRuntimeSpecificFields();
     renderModelMeta();
@@ -241,7 +293,7 @@
       return;
     }
     if (selectedRuntime() === MLX_RUNTIME) {
-      byId("modelMeta").textContent = "尚無可用的 MLX 模型。";
+      byId("modelMeta").textContent = "尚無可用的 MLX 或 GGUF 模型。";
       return;
     }
     byId("modelMeta").textContent = "尚無可用的 GGUF 模型。";
@@ -307,16 +359,21 @@
   function renderRuntime(status) {
     if (!status) return;
     const running = Boolean(status.running);
+    const ready = running && Boolean(status.ready);
     const restoreSelection = running || !state.selectionTouched;
     if (restoreSelection && status.runtime) {
       byId("runtimeSelect").value = status.runtime;
     }
     const runtimeName = selectedRuntime();
     const runtimeLabel = runtimeName === MLX_RUNTIME ? "mlx-server" : "llama-server";
-    byId("statusDot").classList.toggle("online", running);
-    byId("statusLabel").textContent = running ? `${runtimeLabel} 執行中` : `${runtimeLabel} 已停止`;
+    byId("statusDot").classList.toggle("online", ready);
+    byId("statusLabel").textContent = ready
+      ? `${runtimeLabel} 執行中`
+      : running ? `${runtimeLabel} · ${t("載入模型中…")}` : `${runtimeLabel} 已停止`;
     byId("statusDetail").textContent = running
-      ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}`
+      ? (ready
+        ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}`
+        : `${t("模型載入完成後即可測試。")} · ${status.startup_command_name || "未命名參數"}`)
       : (status.last_error ? `上次錯誤：${status.last_error}` : "選擇模型後即可啟動");
     byId("runningRuntime").textContent = running ? runtimeLabel : "—";
     byId("runningModel").textContent = status.model ? displayModelName(status.model) : "—";
@@ -337,8 +394,8 @@
       // 一般瀏覽器沒有原生橋接；網頁內的 API URL 顯示仍可正常使用。
     }
     link.textContent = apiBaseURL || "—";
-    link.href = apiBaseURL || "#";
-    byId("copyServerURL").disabled = !apiBaseURL;
+    link.href = ready && apiBaseURL ? apiBaseURL : "#";
+    byId("copyServerURL").disabled = !ready || !apiBaseURL;
     if (restoreSelection && state.commands.some((command) => command.id === status.startup_command_id)) {
       renderCommandOptions(status.startup_command_id);
       byId("commandSelect").value = status.startup_command_id;
@@ -359,10 +416,103 @@
     byId("runtimeSelect").disabled = running;
     byId("commandSelect").disabled = running || !commandReady;
     byId("modelSelect").disabled = running || !commandReady || !state.mainModels.length;
-    byId("mmprojSelect").disabled = running || selectedRuntime() === MLX_RUNTIME || !state.mmprojModels.length;
+    byId("mmprojSelect").disabled = running
+      || (selectedRuntime() === MLX_RUNTIME && !isMLXGGUFModel(selectedModel()))
+      || !state.mmprojModels.length;
     byId("startButton").disabled = running || !modelReady || !commandReady;
     byId("stopButton").disabled = !running && !status.desired_running;
+    // 測試本身就是 Runtime 的可用性檢查；只要程序仍在執行就應允許
+    // 使用者觸發，避免健康端點受 Access Key 保護時永遠無法測試。
+    byId("testRuntimeButton").disabled = !running || state.testing;
+    byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
     renderDFlashControl(status);
+  }
+
+  function showRuntimeTestResult(result = {}) {
+    const dialog = byId("runtimeTestDialog");
+    const usage = result.usage || {};
+    const success = !result.error;
+    const speed = Number(usage.tokens_per_second || 0);
+    byId("runtimeTestStatus").textContent = success ? t("模型服務運作正常") : t(result.error);
+    byId("runtimeTestStatus").className = `runtime-test-status ${success ? "success" : "error"}`;
+    byId("runtimeTestRuntime").textContent = result.runtime || state.runtime?.runtime || "—";
+    byId("runtimeTestModel").textContent = displayModelName(state.runtime?.model);
+    byId("runtimeTestPromptTokens").textContent = success ? Number(usage.prompt_tokens || 0).toLocaleString() : "—";
+    byId("runtimeTestCompletionTokens").textContent = success ? Number(usage.completion_tokens || 0).toLocaleString() : "—";
+    byId("runtimeTestSpeed").textContent = success && Number.isFinite(speed) && speed > 0
+      ? `${speed.toFixed(1)} tokens/sec`
+      : "—";
+    byId("runtimeTestElapsed").textContent = success && Number.isFinite(result.elapsedSeconds)
+      ? `${result.elapsedSeconds.toFixed(2)} sec`
+      : "—";
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function showRuntimeTestLoading() {
+    const dialog = byId("runtimeTestDialog");
+    byId("runtimeTestStatus").textContent = t("正在測試模型效能…");
+    byId("runtimeTestStatus").className = "runtime-test-status testing";
+    byId("runtimeTestRuntime").textContent = state.runtime?.runtime || "—";
+    byId("runtimeTestModel").textContent = displayModelName(state.runtime?.model);
+    byId("runtimeTestPromptTokens").textContent = "—";
+    byId("runtimeTestCompletionTokens").textContent = "—";
+    byId("runtimeTestSpeed").textContent = "—";
+    byId("runtimeTestElapsed").textContent = "—";
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function wait(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  function isRuntimeLoadingError(error) {
+    return String(error?.message || "").includes("模型服務仍在載入中");
+  }
+
+  async function requestRuntimeTest() {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), RUNTIME_TEST_TIMEOUT_MS);
+    try {
+      return await api("/api/chat/completions", {
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({
+          messages: [{
+            role: "user",
+            content: "Write one compact English paragraph of approximately 100 words about the benefits of running AI models locally. Do not use headings or lists."
+          }],
+          max_tokens: 128
+        })
+      });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function waitAndRunRuntimeTest(startedAt) {
+    while (true) {
+      try {
+        return await requestRuntimeTest();
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          throw new Error(t("模型效能測試逾時，請稍後再試"));
+        }
+        if (!isRuntimeLoadingError(error)) throw error;
+        if (performance.now() - startedAt >= RUNTIME_TEST_TIMEOUT_MS) {
+          throw new Error(t("模型載入逾時，請查看日誌後重新啟動服務"));
+        }
+
+        const latest = await api("/api/runtime/status");
+        state.runtime = latest;
+        renderRuntime(latest);
+        if (!latest.running) {
+          throw new Error(latest.last_error || t("模型 Runtime 已停止或無法連線，請返回執行狀態確認"));
+        }
+        byId("runtimeTestStatus").textContent = t("模型載入中，完成後將自動開始測試…");
+        byId("runtimeTestStatus").className = "runtime-test-status testing";
+        await wait(RUNTIME_TEST_RETRY_MS);
+      }
+    }
   }
 
   async function loadLogs() {
@@ -371,6 +521,15 @@
     const shouldFollow = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
     output.textContent = payload.logs || "尚無日誌。";
     if (shouldFollow) output.scrollTop = output.scrollHeight;
+  }
+
+  function setLogsExpanded(expanded) {
+    const output = byId("logOutput");
+    const button = byId("toggleLogsButton");
+    output.hidden = !expanded;
+    button.setAttribute("aria-expanded", String(expanded));
+    button.textContent = t(expanded ? "收合日誌" : "展開日誌");
+    if (expanded) output.scrollTop = output.scrollHeight;
   }
 
   async function refreshRuntime() {
@@ -396,7 +555,9 @@
         method: "POST",
         body: JSON.stringify({
           model: byId("modelSelect").value,
-          mmproj: runtimeName === MLX_RUNTIME ? "" : byId("mmprojSelect").value,
+          mmproj: runtimeName === MLX_RUNTIME && !isMLXGGUFModel(selectedModel())
+            ? ""
+            : byId("mmprojSelect").value,
           draft_model: draftModel?.path || "",
           dflash_enabled: dflashEnabled,
           startup_command_id: byId("commandSelect").value
@@ -424,6 +585,30 @@
     }
   });
 
+  byId("testRuntimeButton").addEventListener("click", async () => {
+    if (!state.runtime?.running || state.testing) return;
+    state.testing = true;
+    renderRuntime(state.runtime);
+    showRuntimeTestLoading();
+    const startedAt = performance.now();
+    try {
+      const result = await waitAndRunRuntimeTest(startedAt);
+      showRuntimeTestResult({
+        ...result,
+        elapsedSeconds: (performance.now() - startedAt) / 1000
+      });
+    } catch (error) {
+      showRuntimeTestResult({ error: error.message });
+    } finally {
+      state.testing = false;
+      renderRuntime(state.runtime);
+    }
+  });
+
+  const closeRuntimeTestDialog = () => byId("runtimeTestDialog").close();
+  byId("closeRuntimeTestButton").addEventListener("click", closeRuntimeTestDialog);
+  byId("closeRuntimeTestIcon").addEventListener("click", closeRuntimeTestDialog);
+
   byId("clearLogsButton").addEventListener("click", async () => {
     const button = byId("clearLogsButton");
     button.disabled = true;
@@ -436,6 +621,11 @@
     } finally {
       button.disabled = false;
     }
+  });
+
+  byId("toggleLogsButton").addEventListener("click", () => {
+    const expanded = byId("toggleLogsButton").getAttribute("aria-expanded") !== "true";
+    setLogsExpanded(expanded);
   });
 
   byId("copyServerURL").addEventListener("click", async () => {
@@ -473,7 +663,10 @@
   byId("modelSelect").addEventListener("change", () => {
     state.selectionTouched = true;
     byId("dflashToggle").checked = false;
+    selectMatchedMMProj(true);
     renderModelMeta();
+    renderMMProjMeta();
+    updateRuntimeSpecificFields();
     renderRuntime(state.runtime);
   });
   byId("mmprojSelect").addEventListener("change", () => {

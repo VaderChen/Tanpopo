@@ -6,9 +6,9 @@
   <title>Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-31">
-  <script src="/assets/common.js?v=20260829-44" defer></script>
-  <script src="/assets/runtime.js?v=20260829-9" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-34">
+  <script src="/assets/common.js?v=20260829-50" defer></script>
+  <script src="/assets/runtime.js?v=20260829-16" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -110,6 +110,7 @@
           <div class="button-row">
             <button id="startButton" class="button primary" type="button">載入並啟動</button>
             <button id="stopButton" class="button danger" type="button">停止服務</button>
+            <button id="testRuntimeButton" class="button secondary runtime-test-button" type="button" disabled>測試</button>
           </div>
         </article>
       </div>
@@ -123,11 +124,39 @@
           <div class="log-toolbar">
             <span class="muted">保留最近 128 KiB</span>
             <button id="clearLogsButton" class="button secondary compact" type="button">清除</button>
+            <button id="toggleLogsButton" class="button secondary compact log-toggle" type="button"
+              aria-controls="logOutput" aria-expanded="false">展開日誌</button>
           </div>
         </div>
-        <pre id="logOutput">尚無日誌。</pre>
+        <pre id="logOutput" hidden>尚無日誌。</pre>
       </article>
     </section>
   </main>
+
+  <dialog id="runtimeTestDialog" class="runtime-test-dialog" aria-labelledby="runtimeTestTitle">
+    <article class="runtime-test-card">
+      <header class="runtime-test-heading">
+        <div>
+          <p class="section-kicker">RUNTIME TEST</p>
+          <h3 id="runtimeTestTitle">模型效能測試結果</h3>
+        </div>
+        <button id="closeRuntimeTestIcon" class="runtime-test-close" type="button" aria-label="關閉視窗">×</button>
+      </header>
+      <div class="runtime-test-body">
+        <p id="runtimeTestStatus" class="runtime-test-status" role="status"></p>
+        <dl class="runtime-test-results">
+          <div><dt>Runtime</dt><dd id="runtimeTestRuntime">—</dd></div>
+          <div><dt>模型</dt><dd id="runtimeTestModel">—</dd></div>
+          <div><dt>輸入 Tokens</dt><dd id="runtimeTestPromptTokens">—</dd></div>
+          <div><dt>輸出 Tokens</dt><dd id="runtimeTestCompletionTokens">—</dd></div>
+          <div class="runtime-test-speed"><dt>生成速度</dt><dd id="runtimeTestSpeed">—</dd></div>
+          <div><dt>測試時間</dt><dd id="runtimeTestElapsed">—</dd></div>
+        </dl>
+      </div>
+      <footer class="runtime-test-actions">
+        <button id="closeRuntimeTestButton" class="button primary" type="button">關閉視窗</button>
+      </footer>
+    </article>
+  </dialog>
 </body>
 </html>

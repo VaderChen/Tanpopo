@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,8 @@ import (
 	"LlamaLoader/src/domain"
 	"LlamaLoader/src/download"
 )
+
+const mlxGGUFPathPrefix = "gguf:"
 
 type SettingsProvider func() domain.Settings
 
@@ -92,7 +95,7 @@ func (m *Manager) Start(model, mmproj, draftModel string, dflashEnabled bool, st
 	var status domain.LlamaStatus
 	var err error
 	if startupCommand.Runtime == domain.RuntimeMLXServer {
-		status, err = m.startMLXLocked(settings, model, startupCommand)
+		status, err = m.startMLXLocked(settings, model, mmproj, startupCommand)
 	} else {
 		status, err = m.startLlamaLocked(settings, model, mmproj, startupCommand)
 	}
@@ -192,10 +195,11 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		StartedAt:          time.Now(),
 	}
 	go m.wait(command, done)
+	go m.monitorReady(command, m.status.URL)
 	return m.status, nil
 }
 
-func (m *Manager) startMLXLocked(settings domain.Settings, model string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) startMLXLocked(settings domain.Settings, model, mmproj string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		return m.status, fmt.Errorf("mlx-server 僅支援 macOS Apple Silicon；目前平台為 %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
@@ -203,15 +207,45 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 	if err != nil {
 		return m.status, err
 	}
-	modelArgument, err := resolveMLXModel(settings.MLXModelDirectory, model, "模型")
+	modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
 	if err != nil {
 		return m.status, err
 	}
-	if isMLXDFlashDraftDirectory(modelArgument) {
+	ggufArchitecture := ""
+	if isGGUF {
+		if isMMProjGGUF(modelArgument) {
+			return m.status, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
+		}
+		architecture, metadataErr := readGGUFStringMetadata(modelArgument, "general.architecture")
+		if metadataErr != nil || !isSupportedMLXGGUFArchitecture(architecture) {
+			return m.status, fmt.Errorf("mlx-server 尚未支援此 GGUF 架構：%s", strings.TrimSpace(architecture))
+		}
+		ggufArchitecture = canonicalMLXGGUFArchitecture(architecture)
+	}
+	if (isGGUF && isGGUFDFlashDraft(modelArgument)) || (!isGGUF && isMLXDFlashDraftDirectory(modelArgument)) {
 		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
+	}
+	var mmprojArgument string
+	statusMMProj := strings.TrimSpace(mmproj)
+	if strings.TrimSpace(mmproj) != "" {
+		if !isGGUF {
+			return m.status, errors.New("mmproj 只能搭配 GGUF Target 模型")
+		}
+		mmprojArgument, err = resolveMLXGGUFFile(settings.ModelDirectory, mmproj, "mmproj")
+		if err != nil {
+			return m.status, err
+		}
+	} else if ggufArchitecture == "qwen35" {
+		mmprojArgument, statusMMProj, err = resolveCompanionMMProj(settings.ModelDirectory, modelArgument)
+		if err != nil {
+			return m.status, err
+		}
 	}
 	var draftModelArgument string
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
+		if isGGUF {
+			return m.status, errors.New("GGUF Target 目前使用一般 MLX 生成；DFlash 請搭配 MLX safetensors Target")
+		}
 		if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
 			return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
 		}
@@ -229,6 +263,9 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 
 	args := append([]string(nil), startupCommand.ExtraArgs...)
 	args = append(args, "--model", modelArgument)
+	if mmprojArgument != "" {
+		args = append(args, "--mmproj", mmprojArgument)
+	}
 	if draftModelArgument != "" {
 		// Qwen3.5 的完整 checkpoint 可能同時帶有 Vision 設定；DFlash 目前只使用
 		// language target，因此明確覆寫自動偵測結果。
@@ -242,9 +279,10 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 		"--port", strconv.Itoa(startupCommand.ServerPort),
 		"--openloader-access-control", m.accessControlPath,
 	)
-	// DFlash 必須精確回退 target cache；設定 Draft 時不可用 --max-kv-size 建立
-	// rotating target cache。未使用 DFlash 時仍套用啟動設定的 Context Size。
-	if draftModelArgument == "" {
+	// 未量化的 256K rotating KV Cache 對大型模型會一次占用過多記憶體；
+	// 一般 MLX 與 DFlash 使用可逐步成長的 Cache。只有參數明確啟用 KV
+	// 量化時，才把啟動參數的 Context Size 套用為 rotating Cache 上限。
+	if draftModelArgument == "" && hasAnyArgument(startupCommand.ExtraArgs, "--kv-bits", "--kv-scheme") {
 		args = append(args, "--max-kv-size", strconv.Itoa(startupCommand.ContextSize))
 	}
 
@@ -264,6 +302,7 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 		Runtime:            domain.RuntimeMLXServer,
 		PID:                command.Process.Pid,
 		Model:              strings.TrimSpace(model),
+		MMProj:             statusMMProj,
 		DraftModel:         filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
@@ -272,7 +311,30 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model string, startup
 		StartedAt:          time.Now(),
 	}
 	go m.wait(command, done)
+	go m.monitorReady(command, m.status.URL)
 	return m.status, nil
+}
+
+func resolveMLXTargetModel(settings domain.Settings, value, label string) (string, bool, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, mlxGGUFPathPrefix) {
+		path, err := resolveMLXGGUFFile(settings.ModelDirectory, value, label)
+		return path, true, err
+	}
+	path, err := resolveMLXModel(settings.MLXModelDirectory, value, label)
+	return path, false, err
+}
+
+func resolveMLXGGUFFile(directory, value, label string) (string, error) {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), mlxGGUFPathPrefix))
+	path, err := resolveModelFile(directory, value, label)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".gguf") {
+		return "", fmt.Errorf("指定的%s不是 GGUF 檔案", label)
+	}
+	return path, nil
 }
 
 func resolveMLXModel(directory, value, label string) (string, error) {
@@ -435,6 +497,7 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 	if m.cmd == command {
 		wasStopping := m.stopping
 		m.status.Running = false
+		m.status.Ready = false
 		m.status.PID = 0
 		m.status.StoppedAt = time.Now()
 		if err != nil && !wasStopping {
@@ -448,6 +511,50 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 	}
 	close(done)
 	m.mu.Unlock()
+}
+
+func (m *Manager) monitorReady(command *exec.Cmd, baseURL string) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 1200 * time.Millisecond}
+	healthURL := strings.TrimRight(baseURL, "/") + "/health"
+
+	for {
+		m.mu.Lock()
+		active := m.cmd == command && m.status.Running
+		m.mu.Unlock()
+		if !active {
+			return
+		}
+
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, healthURL, nil)
+		if err == nil {
+			response, requestErr := client.Do(request)
+			if requestErr == nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4*1024))
+				_ = response.Body.Close()
+				// 舊版 Runtime 可能讓 /health 先經過模型 API 的 Access Key
+				// 驗證。401／403 已足以證明服務完成監聽，不能因此讓管理介面
+				// 永遠停在「載入中」；實際模型請求仍會照原安全策略驗證。
+				if runtimeHealthResponseReady(response.StatusCode) {
+					m.mu.Lock()
+					if m.cmd == command && m.status.Running {
+						m.status.Ready = true
+					}
+					m.mu.Unlock()
+					return
+				}
+			}
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+}
+
+func runtimeHealthResponseReady(statusCode int) bool {
+	return statusCode >= 200 && statusCode < 300 ||
+		statusCode == http.StatusUnauthorized ||
+		statusCode == http.StatusForbidden
 }
 
 func (m *Manager) refreshURL() {
@@ -606,6 +713,7 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 		isDraft := architecture == "dflash"
 		result = append(result, domain.ModelFile{
 			Path:            filepath.ToSlash(relative),
+			Format:          "gguf",
 			Size:            info.Size(),
 			ModifiedAt:      info.ModTime(),
 			Architecture:    architecture,
@@ -627,6 +735,93 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 
 func ListMLXModels(directory string) ([]domain.ModelFile, error) {
 	return listMLXModels(directory, false)
+}
+
+// ListMLXRuntimeModels 合併原生 MLX safetensors 目錄與 mlx-server 可載入的
+// GGUF。GGUF 使用明確前綴，避免兩個模型根目錄出現同名項目時解析錯誤。
+func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFile, error) {
+	if strings.TrimSpace(mlxDirectory) == "" && strings.TrimSpace(ggufDirectory) == "" {
+		return nil, errors.New("請先設定 MLX 或 GGUF 模型目錄")
+	}
+	result := make([]domain.ModelFile, 0)
+	if strings.TrimSpace(mlxDirectory) != "" {
+		mlxModels, err := ListMLXModels(mlxDirectory)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, mlxModels...)
+	}
+	if strings.TrimSpace(ggufDirectory) != "" {
+		ggufModels, err := ListModels(ggufDirectory)
+		if err != nil {
+			return nil, err
+		}
+		for _, model := range ggufModels {
+			if model.DFlashDraft {
+				continue
+			}
+			if !isMMProjGGUF(model.Path) && !isSupportedMLXGGUFArchitecture(model.Architecture) {
+				continue
+			}
+			model.Path = mlxGGUFPathPrefix + model.Path
+			model.Format = "gguf"
+			// GGUF Target 目前不接 DFlash Draft；保留原生 MLX Target 的既有支援。
+			model.DFlashSupported = false
+			result = append(result, model)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Format != result[j].Format {
+			return result[i].Format < result[j].Format
+		}
+		return strings.ToLower(result[i].Path) < strings.ToLower(result[j].Path)
+	})
+	return result, nil
+}
+
+func isSupportedMLXGGUFArchitecture(architecture string) bool {
+	canonical := canonicalMLXGGUFArchitecture(architecture)
+	switch canonical {
+	case "qwen35", "qwen3", "qwen2", "llama":
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalMLXGGUFArchitecture(architecture string) string {
+	return strings.NewReplacer("_", "", "-", "", ".", "").Replace(
+		normalizeModelArchitecture(architecture),
+	)
+}
+
+func resolveCompanionMMProj(modelRoot, targetPath string) (string, string, error) {
+	entries, err := os.ReadDir(filepath.Dir(targetPath))
+	if err != nil {
+		return "", "", fmt.Errorf("讀取 GGUF 模型目錄失敗: %w", err)
+	}
+	candidates := make([]string, 0, 1)
+	for _, entry := range entries {
+		if entry.IsDir() || !isMMProjGGUF(entry.Name()) || !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
+			continue
+		}
+		candidates = append(candidates, filepath.Join(filepath.Dir(targetPath), entry.Name()))
+	}
+	if len(candidates) == 0 {
+		return "", "", errors.New("Qwen3.5 GGUF 需要搭配同目錄的 mmproj 才能由 mlx-server 正確生成內容；請先下載配對的 mmproj")
+	}
+	if len(candidates) > 1 {
+		return "", "", errors.New("找到多個 mmproj，請在執行狀態頁選擇與 GGUF 模型配對的檔案")
+	}
+	relative, err := filepath.Rel(modelRoot, candidates[0])
+	if err != nil {
+		return "", "", fmt.Errorf("解析 mmproj 路徑失敗: %w", err)
+	}
+	return candidates[0], mlxGGUFPathPrefix + filepath.ToSlash(relative), nil
+}
+
+func isMMProjGGUF(path string) bool {
+	return strings.Contains(strings.ToLower(filepath.Base(path)), "mmproj")
 }
 
 // ListMLXDFlashModels 只列出目前原生 Swift Runtime 已支援的 DFlash Draft。
@@ -737,6 +932,7 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 		}
 		result = append(result, domain.ModelFile{
 			Path:            filepath.ToSlash(relative),
+			Format:          "mlx",
 			Size:            size,
 			ModifiedAt:      modified,
 			Architecture:    architecture,
@@ -889,6 +1085,18 @@ func withoutDFlashArguments(arguments []string) []string {
 		filtered = append(filtered, arguments[index])
 	}
 	return filtered
+}
+
+func hasAnyArgument(arguments []string, expected ...string) bool {
+	for _, rawArgument := range arguments {
+		argument := strings.TrimSpace(rawArgument)
+		for _, candidate := range expected {
+			if argument == candidate || strings.HasPrefix(argument, candidate+"=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func withoutDraftModelArguments(arguments []string) []string {

@@ -1165,6 +1165,10 @@ h3 {
   margin-top: auto;
 }
 
+.runtime-test-button {
+  margin-left: auto;
+}
+
 .button {
   min-height: 40px;
   display: inline-flex;
@@ -1234,6 +1238,17 @@ h3 {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.log-toggle::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform .16s ease;
+}
+
+.log-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
 }
 
 .log-panel pre {
@@ -1779,10 +1794,40 @@ textarea:focus {
 }
 
 .job-header strong {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+}
+
+.job-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.job-cancel-button {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--danger-border);
+  border-radius: 7px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.job-cancel-button:hover:not(:disabled) {
+  filter: brightness(.97);
+}
+
+.job-cancel-button:disabled {
+  cursor: default;
+  opacity: .55;
 }
 
 .job-state,
@@ -1797,6 +1842,171 @@ textarea:focus {
 .job-item.failed .job-state,
 .job-item.failed .job-meta {
   color: var(--danger);
+}
+
+.job-item.cancelling .job-state {
+  color: var(--danger);
+}
+
+.runtime-test-dialog {
+  width: min(580px, calc(100vw - 36px));
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  box-shadow: var(--shadow);
+}
+
+.runtime-test-dialog::backdrop {
+  background: rgba(23, 24, 22, .42);
+  backdrop-filter: blur(3px);
+}
+
+.runtime-test-dialog[open] .runtime-test-card {
+  animation: runtime-test-dialog-in .2s ease-out both;
+}
+
+.runtime-test-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.runtime-test-heading,
+.runtime-test-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.runtime-test-heading {
+  border-bottom: 1px solid var(--line);
+}
+
+.runtime-test-heading h3 {
+  margin: 3px 0 0;
+}
+
+.runtime-test-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.runtime-test-body {
+  padding: 24px;
+}
+
+.runtime-test-status {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.runtime-test-status.success {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.runtime-test-status.error {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.runtime-test-status.testing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.runtime-test-status.testing::before {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  content: "";
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: runtime-test-spin .75s linear infinite;
+}
+
+@keyframes runtime-test-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes runtime-test-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.runtime-test-results {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.runtime-test-results > div {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(130px, .8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.runtime-test-results > div:last-child {
+  border-bottom: 0;
+}
+
+.runtime-test-results dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.runtime-test-results dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-test-results .runtime-test-speed dd {
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 850;
+}
+
+.runtime-test-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
 }
 
 .progress-track {

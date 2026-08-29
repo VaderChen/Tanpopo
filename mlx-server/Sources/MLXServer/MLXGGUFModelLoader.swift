@@ -1,0 +1,2465 @@
+import Foundation
+import MLX
+import MLXHuggingFace
+import MLXLLM
+import MLXLMCommon
+import MLXNN
+import MLXVLM
+import Tokenizers
+
+struct MLXGGUFTensorInfo {
+    let name: String
+    let dimensions: [Int]
+    let type: UInt32
+    let offset: UInt64
+}
+
+enum MLXGGUFMetadataValue: Equatable, Sendable {
+    case uint8(UInt8)
+    case int8(Int8)
+    case uint16(UInt16)
+    case int16(Int16)
+    case uint32(UInt32)
+    case int32(Int32)
+    case float32(Float)
+    case boolean(Bool)
+    case string(String)
+    case array([MLXGGUFMetadataValue])
+    case uint64(UInt64)
+    case int64(Int64)
+    case float64(Double)
+
+    var integerValue: Int? {
+        switch self {
+        case let .uint8(value): Int(value)
+        case let .int8(value): Int(value)
+        case let .uint16(value): Int(value)
+        case let .int16(value): Int(value)
+        case let .uint32(value): Int(exactly: value)
+        case let .int32(value): Int(value)
+        case let .uint64(value): value <= UInt64(Int.max) ? Int(value) : nil
+        case let .int64(value): Int(exactly: value)
+        case let .float32(value): Int(exactly: value)
+        case let .float64(value): Int(exactly: value)
+        default: nil
+        }
+    }
+
+    var floatValue: Float? {
+        switch self {
+        case let .uint8(value): Float(value)
+        case let .int8(value): Float(value)
+        case let .uint16(value): Float(value)
+        case let .int16(value): Float(value)
+        case let .uint32(value): Float(value)
+        case let .int32(value): Float(value)
+        case let .float32(value): value
+        case let .uint64(value): Float(value)
+        case let .int64(value): Float(value)
+        case let .float64(value): Float(value)
+        default: nil
+        }
+    }
+
+    var booleanValue: Bool? {
+        if case let .boolean(value) = self { return value }
+        return nil
+    }
+
+    var stringValue: String? {
+        if case let .string(value) = self { return value }
+        return nil
+    }
+
+    var arrayValue: [MLXGGUFMetadataValue]? {
+        if case let .array(value) = self { return value }
+        return nil
+    }
+
+    var jsonValue: Any {
+        switch self {
+        case let .uint8(value): Int(value)
+        case let .int8(value): Int(value)
+        case let .uint16(value): Int(value)
+        case let .int16(value): Int(value)
+        case let .uint32(value): Int(value)
+        case let .int32(value): Int(value)
+        case let .float32(value): value
+        case let .boolean(value): value
+        case let .string(value): value
+        case let .array(value): value.map(\.jsonValue)
+        case let .uint64(value): value <= UInt64(Int.max) ? Int(value) : String(value)
+        case let .int64(value): value
+        case let .float64(value): value
+        }
+    }
+}
+
+private struct MLXGGUFFileLayout {
+    let version: UInt32
+    let alignment: Int
+    let tensorDataOffset: Int
+    let metadataCount: Int
+    let metadata: [String: MLXGGUFMetadataValue]
+    let tensors: [MLXGGUFTensorInfo]
+}
+
+private struct MLXGGUFReader {
+    let data: Data
+    var offset = 0
+
+    mutating func readUInt8() throws -> UInt8 {
+        guard offset < data.count else { throw MLXGGUFLoaderError.truncated }
+        defer { offset += 1 }
+        return data[offset]
+    }
+
+    mutating func readUInt16() throws -> UInt16 {
+        let first = UInt16(try readUInt8())
+        let second = UInt16(try readUInt8()) << 8
+        return first | second
+    }
+
+    mutating func readUInt32() throws -> UInt32 {
+        var value: UInt32 = 0
+        for byteIndex in 0..<4 {
+            value |= UInt32(try readUInt8()) << UInt32(byteIndex * 8)
+        }
+        return value
+    }
+
+    mutating func readUInt64() throws -> UInt64 {
+        var value: UInt64 = 0
+        for byteIndex in 0..<8 {
+            value |= UInt64(try readUInt8()) << UInt64(byteIndex * 8)
+        }
+        return value
+    }
+
+    mutating func readCount() throws -> Int {
+        let value = try readUInt64()
+        guard value <= UInt64(Int.max) else { throw MLXGGUFLoaderError.invalidSize }
+        return Int(value)
+    }
+
+    mutating func readString() throws -> String {
+        let length = try readCount()
+        guard length <= data.count - offset else { throw MLXGGUFLoaderError.truncated }
+        let end = offset + length
+        let value = String(data: Data(data[offset..<end]), encoding: .utf8)
+        offset = end
+        guard let value else { throw MLXGGUFLoaderError.invalidText }
+        return value
+    }
+
+    mutating func skip(bytes: Int) throws {
+        guard bytes >= 0, bytes <= data.count - offset else {
+            throw MLXGGUFLoaderError.truncated
+        }
+        offset += bytes
+    }
+
+    mutating func skip(valueType: UInt32) throws {
+        let byteCount: Int
+        switch valueType {
+        case 0, 1, 7:
+            byteCount = 1
+        case 2, 3:
+            byteCount = 2
+        case 4, 5, 6:
+            byteCount = 4
+        case 10, 11, 12:
+            byteCount = 8
+        case 8:
+            _ = try readString()
+            return
+        case 9:
+            let elementType = try readUInt32()
+            let count = try readCount()
+            for _ in 0..<count {
+                try skip(valueType: elementType)
+            }
+            return
+        default:
+            throw MLXGGUFLoaderError.unsupportedMetadataType(valueType)
+        }
+        try skip(bytes: byteCount)
+    }
+
+    mutating func readMetadataValue(type: UInt32) throws -> MLXGGUFMetadataValue {
+        switch type {
+        case 0: return .uint8(try readUInt8())
+        case 1: return .int8(Int8(bitPattern: try readUInt8()))
+        case 2: return .uint16(try readUInt16())
+        case 3: return .int16(Int16(bitPattern: try readUInt16()))
+        case 4: return .uint32(try readUInt32())
+        case 5: return .int32(Int32(bitPattern: try readUInt32()))
+        case 6: return .float32(Float(bitPattern: try readUInt32()))
+        case 7: return .boolean(try readUInt8() != 0)
+        case 8: return .string(try readString())
+        case 9:
+            let elementType = try readUInt32()
+            let count = try readCount()
+            var values = [MLXGGUFMetadataValue]()
+            values.reserveCapacity(count)
+            for _ in 0..<count {
+                values.append(try readMetadataValue(type: elementType))
+            }
+            return .array(values)
+        case 10: return .uint64(try readUInt64())
+        case 11: return .int64(Int64(bitPattern: try readUInt64()))
+        case 12: return .float64(Double(bitPattern: try readUInt64()))
+        default: throw MLXGGUFLoaderError.unsupportedMetadataType(type)
+        }
+    }
+}
+
+enum MLXGGUFLoaderError: LocalizedError, Sendable {
+    case invalidMagic
+    case unsupportedVersion(UInt32)
+    case truncated
+    case invalidSize
+    case invalidText
+    case invalidAlignment
+    case unsupportedTensorType(UInt32, String)
+    case invalidTensor(String)
+    case duplicateWeight(String)
+    case unsupportedMetadataType(UInt32)
+    case embeddedConfigurationUnavailable(URL)
+    case embeddedTokenizerUnavailable(URL)
+    case missingRuntimeAssets(URL, [String])
+    case missingConfiguration(URL)
+    case invalidConfiguration(URL)
+    case missingTokenizer(URL)
+    case missingMultimodalProjector(URL)
+    case ambiguousWeights(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidMagic:
+            "GGUF 檔案標頭不正確。"
+        case let .unsupportedVersion(version):
+            "不支援 GGUF 版本：\(version)。"
+        case .truncated:
+            "GGUF 檔案內容不完整。"
+        case .invalidSize:
+            "GGUF 檔案尺寸超出目前平台可處理範圍。"
+        case .invalidText:
+            "GGUF 檔案包含無法解碼的文字欄位。"
+        case .invalidAlignment:
+            "GGUF 檔案的資料對齊設定不正確。"
+        case let .unsupportedTensorType(type, name):
+            "GGUF 權重「\(name)」使用目前未支援的量化型別 \(type)。"
+        case let .invalidTensor(name):
+            "GGUF 權重「\(name)」的形狀或資料範圍不正確。"
+        case let .duplicateWeight(name):
+            "GGUF 權重名稱重複：\(name)。"
+        case let .unsupportedMetadataType(type):
+            "GGUF metadata 型別 \(type) 不支援。"
+        case let .embeddedConfigurationUnavailable(url):
+            "GGUF 內嵌 metadata 無法建立模型設定：\(url.path)。"
+        case let .embeddedTokenizerUnavailable(url):
+            "GGUF 內嵌 metadata 無法建立 tokenizer：\(url.path)。"
+        case let .missingRuntimeAssets(url, assets):
+            "GGUF 模型缺少必要的 Hugging Face runtime 資產（\(assets.joined(separator: ", "))）：\(url.path)"
+        case let .missingConfiguration(url):
+            "GGUF 模型缺少設定檔：\(url.path)。"
+        case let .invalidConfiguration(url):
+            "無法解析 GGUF 模型設定檔：\(url.path)。"
+        case let .missingTokenizer(url):
+            "GGUF 模型缺少 tokenizer 檔案：\(url.path)。"
+        case let .missingMultimodalProjector(url):
+            "多模態 GGUF 模型缺少 mmproj 視覺投影檔：\(url.path)。"
+        case let .ambiguousWeights(url):
+            "GGUF 模型目錄中的權重檔不唯一：\(url.path)。"
+        }
+    }
+
+}
+
+enum MLXGGUFModelSource {
+    static func missingRuntimeAssetNames(
+        in directoryURL: URL,
+        weightURL: URL? = nil
+    ) -> [String] {
+        let fileManager = FileManager.default
+        let ggufFiles = files(in: directoryURL, withExtension: "gguf")
+        let mainGGUF = weightURL ?? ggufFiles.first {
+            !$0.lastPathComponent.lowercased().contains("mmproj")
+        }
+        var missing = [String]()
+        let hasEmbeddedConfiguration = mainGGUF.map(MLXGGUFLoader.hasEmbeddedModelConfiguration) ?? false
+        if !fileManager.fileExists(atPath: directoryURL.appendingPathComponent("config.json").path),
+           !hasEmbeddedConfiguration {
+            missing.append("config.json")
+        }
+        let hasTokenizer = fileManager.fileExists(
+            atPath: directoryURL.appendingPathComponent("tokenizer.json").path
+        ) || mainGGUF.map(MLXGGUFLoader.hasEmbeddedTokenizer) == true
+        if !hasTokenizer {
+            missing.append("tokenizer.json")
+        }
+        return missing
+    }
+
+    private static func files(in directoryURL: URL, withExtension pathExtension: String) -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return enumerator.compactMap { item in
+            guard let url = item as? URL,
+                  url.pathExtension.lowercased() == pathExtension,
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { return nil }
+            return url
+        }.sorted { $0.path < $1.path }
+    }
+
+}
+
+enum MLXGGUFLoader {
+    static func metadata(from url: URL) throws -> [String: MLXGGUFMetadataValue] {
+        try readInspectionData(from: url).layout.metadata
+    }
+
+    static func hasEmbeddedTokenizer(at url: URL) -> Bool {
+        guard let metadata = try? metadata(from: url) else { return false }
+        return metadata["tokenizer.ggml.tokens"]?.arrayValue?.contains {
+            $0.stringValue != nil
+        } == true
+            && metadata["tokenizer.ggml.merges"]?.arrayValue != nil
+    }
+
+    static func hasEmbeddedModelConfiguration(at url: URL) -> Bool {
+        (try? MLXGGUFEmbeddedAssets.configurationData(weightURL: url, mmprojURL: nil)) != nil
+    }
+
+    static func inspect(from url: URL) throws -> GGUFBackendInspection {
+        let inspectionData = try readInspectionData(from: url)
+        let layout = inspectionData.layout
+        let fileSize = try fileSize(of: url)
+        let descriptors = layout.tensors.map { tensor in
+            let elementCount = (try? checkedProduct(tensor.dimensions)) ?? 0
+            let byteSize = try? tensorByteCount(
+                type: tensor.type,
+                elementCount: elementCount
+            )
+            return GGUFTensorDescriptor(
+                name: tensor.name,
+                shape: Array(tensor.dimensions.reversed()),
+                type: ggufTypeName(tensor.type),
+                offset: tensor.offset,
+                byteSize: byteSize.map(UInt64.init),
+                isMaterializable: GGUFStoragePolicy.isMaterializable(
+                    ggufTypeName(tensor.type)
+                ),
+                storageType: GGUFStoragePolicy.storageType(for: ggufTypeName(tensor.type)),
+                preservesSourceQuantization: GGUFStoragePolicy.preservesSourceQuantization(
+                    for: ggufTypeName(tensor.type)
+                ),
+                requiresConversion: GGUFStoragePolicy.requiresConversion(
+                    for: ggufTypeName(tensor.type)
+                )
+            )
+        }
+        var quantizationCounts = [String: Int]()
+        for descriptor in descriptors {
+            quantizationCounts[descriptor.type, default: 0] += 1
+        }
+        let unsupportedTypes = Set(
+            descriptors
+                .filter { !$0.isMaterializable }
+                .map(\.type)
+        ).sorted()
+        return GGUFBackendInspection(
+            version: layout.version,
+            alignment: UInt64(layout.alignment),
+            dataOffset: UInt64(layout.tensorDataOffset),
+            fileSize: fileSize,
+            metadataCount: layout.metadataCount,
+            tensors: descriptors,
+            quantizationCounts: quantizationCounts,
+            unsupportedTypes: unsupportedTypes
+        )
+    }
+
+    static func loadWeights(
+        from url: URL,
+        targetGroupSize: Int = 32,
+        quantizationProfile: GGUFQuantizationProfile = .quality,
+        convertQwen35StateSpaceParameters: Bool = false
+    ) throws -> [String: MLXArray] {
+        guard targetGroupSize == 32 || targetGroupSize == 64 else {
+            throw MLXGGUFLoaderError.invalidTensor("量化群組設定")
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        } catch {
+            throw MLXGGUFLoaderError.truncated
+        }
+
+        let layout = try parse(data)
+        let tensors = layout.tensors
+        let tensorDataOffset = layout.tensorDataOffset
+
+        var weights = [String: MLXArray]()
+        for tensor in tensors {
+            let shape = tensor.dimensions.reversed()
+            let mlxShape = Array(shape)
+            let elementCount = try checkedProduct(mlxShape)
+            guard let support = GGUFStoragePolicy.support(
+                for: ggufTypeName(tensor.type),
+                profile: quantizationProfile
+            ) else {
+                throw MLXGGUFLoaderError.unsupportedTensorType(tensor.type, tensor.name)
+            }
+            switch support.materialization {
+            case .directFloat32:
+                let value = MLXArray(
+                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                  byteCount: try checkedByteCount(elementCount, elementSize: 4)),
+                    mlxShape,
+                    dtype: .float32
+                )
+                try insert(
+                    convertQwen35StateSpaceParameters
+                        && Self.isStateSpaceParameterTensorName(tensor.name)
+                        // GGUF stores Qwen3.5's A parameter as -exp(A_log),
+                        // while mlx-swift's GatedDeltaNet expects A_log.
+                        ? (-value).log()
+                        : value.asType(.bfloat16),
+                    name: tensor.name,
+                    into: &weights
+                )
+            case .directFloat16:
+                let value = MLXArray(
+                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                  byteCount: try checkedByteCount(elementCount, elementSize: 2)),
+                    mlxShape,
+                    dtype: .float16
+                )
+                try insert(
+                    value.asType(.bfloat16),
+                    name: tensor.name,
+                    into: &weights
+                )
+            case .directBFloat16:
+                let value = MLXArray(
+                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                  byteCount: try checkedByteCount(elementCount, elementSize: 2)),
+                    mlxShape,
+                    dtype: .bfloat16
+                )
+                try insert(
+                    convertQwen35StateSpaceParameters
+                        && Self.isStateSpaceParameterTensorName(tensor.name)
+                        ? (-value).log()
+                        : value,
+                    name: tensor.name,
+                    into: &weights
+                )
+            case .quantized4, .quantized8:
+                let quantized = try quantizedArrays(
+                    data,
+                    tensor: tensor,
+                    shape: mlxShape,
+                    elementCount: elementCount,
+                    dataOffset: tensorDataOffset,
+                    targetGroupSize: targetGroupSize
+                )
+                for (name, array) in quantized {
+                    try insert(array, name: name, into: &weights)
+                }
+            case .quantizedMXFP4:
+                let quantized = try mxfp4Arrays(
+                    data,
+                    tensor: tensor,
+                    shape: mlxShape,
+                    elementCount: elementCount,
+                    dataOffset: tensorDataOffset
+                )
+                let namePrefix = tensor.name.hasSuffix(".weight")
+                    ? String(tensor.name.dropLast(".weight".count))
+                    : tensor.name
+                try insert(quantized.wq, name: tensor.name, into: &weights)
+                try insert(quantized.scales, name: namePrefix + ".scales", into: &weights)
+            case .requantized4, .requantized8:
+                let bits = support.materialization == .requantized4 ? 4 : 8
+                let quantized = try directlyRequantizedArrays(
+                    data,
+                    tensor: tensor,
+                    shape: mlxShape,
+                    elementCount: elementCount,
+                    dataOffset: tensorDataOffset,
+                    bits: bits,
+                    targetGroupSize: targetGroupSize
+                )
+                let namePrefix = tensor.name.hasSuffix(".weight")
+                    ? String(tensor.name.dropLast(".weight".count))
+                    : tensor.name
+                try insert(
+                    quantized.wq,
+                    name: tensor.name,
+                    into: &weights
+                )
+                try insert(
+                    quantized.scales,
+                    name: namePrefix + ".scales",
+                    into: &weights
+                )
+                try insert(
+                    quantized.biases,
+                    name: namePrefix + ".biases",
+                    into: &weights
+                )
+            case .directInt8:
+                try insert(
+                    MLXArray(
+                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                      byteCount: elementCount),
+                        mlxShape,
+                        dtype: .int8
+                    ),
+                    name: tensor.name,
+                    into: &weights
+                )
+            case .directInt16:
+                try insert(
+                    MLXArray(
+                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                      byteCount: try checkedByteCount(elementCount, elementSize: 2)),
+                        mlxShape,
+                        dtype: .int16
+                    ),
+                    name: tensor.name,
+                    into: &weights
+                )
+            case .directInt32:
+                try insert(
+                    MLXArray(
+                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
+                                      byteCount: try checkedByteCount(elementCount, elementSize: 4)),
+                        mlxShape,
+                        dtype: .int32
+                    ),
+                    name: tensor.name,
+                    into: &weights
+                )
+            }
+        }
+        return weights
+    }
+
+    /// Qwen3.5 的 `blk.N.ssm_a` 對應 MLX 的 `linear_attn.A_log`，其參考
+    /// checkpoint 保留 F32；其餘 GGUF F32 權重統一降為 BF16 compute dtype。
+    private static func isStateSpaceParameterTensorName(_ name: String) -> Bool {
+        let components = name.split(separator: ".")
+        return components.count == 3
+            && components[0] == "blk"
+            && Int(components[1]) != nil
+            && components[2] == "ssm_a"
+    }
+
+    private static func readInspectionData(
+        from url: URL
+    ) throws -> (data: Data, layout: MLXGGUFFileLayout) {
+        let totalSize = try fileSize(of: url)
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw MLXGGUFLoaderError.truncated
+        }
+        defer { try? handle.close() }
+
+        var readSize = min(totalSize, UInt64(1_048_576))
+        while readSize > 0 {
+            do {
+                try handle.seek(toOffset: 0)
+                guard let data = try handle.read(upToCount: Int(readSize)) else {
+                    throw MLXGGUFLoaderError.truncated
+                }
+                do {
+                    return (data, try parse(data))
+                } catch MLXGGUFLoaderError.truncated where readSize < totalSize {
+                    readSize = min(totalSize, readSize * 2)
+                }
+            } catch let error as MLXGGUFLoaderError {
+                throw error
+            } catch {
+                throw MLXGGUFLoaderError.truncated
+            }
+        }
+        throw MLXGGUFLoaderError.truncated
+    }
+
+    private static func fileSize(of url: URL) throws -> UInt64 {
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: [.fileSizeKey])
+        } catch {
+            throw MLXGGUFLoaderError.truncated
+        }
+        guard let size = values.fileSize, size >= 0 else {
+            throw MLXGGUFLoaderError.truncated
+        }
+        return UInt64(size)
+    }
+
+    private static func parse(_ data: Data) throws -> MLXGGUFFileLayout {
+        var reader = MLXGGUFReader(data: data)
+        let magic = try reader.readUInt32()
+        guard magic == 0x46554747 else { throw MLXGGUFLoaderError.invalidMagic }
+        let version = try reader.readUInt32()
+        guard version == 2 || version == 3 else {
+            throw MLXGGUFLoaderError.unsupportedVersion(version)
+        }
+        let tensorCount = try reader.readCount()
+        let metadataCount = try reader.readCount()
+        var alignment = 32
+        var metadata = [String: MLXGGUFMetadataValue]()
+        metadata.reserveCapacity(metadataCount)
+
+        for _ in 0..<metadataCount {
+            let key = try reader.readString()
+            let valueType = try reader.readUInt32()
+            let value = try reader.readMetadataValue(type: valueType)
+            metadata[key] = value
+            if key == "general.alignment", valueType == 4 {
+                alignment = value.integerValue ?? 0
+            } else if key == "general.alignment", valueType == 10 {
+                alignment = value.integerValue ?? 0
+            }
+        }
+        guard alignment > 0 else { throw MLXGGUFLoaderError.invalidAlignment }
+
+        var tensors = [MLXGGUFTensorInfo]()
+        tensors.reserveCapacity(tensorCount)
+        for _ in 0..<tensorCount {
+            let name = try reader.readString()
+            let dimensionCount = try reader.readUInt32()
+            guard UInt64(dimensionCount) <= UInt64(Int.max) else {
+                throw MLXGGUFLoaderError.invalidSize
+            }
+            var dimensions = [Int]()
+            dimensions.reserveCapacity(Int(dimensionCount))
+            for _ in 0..<dimensionCount {
+                dimensions.append(try reader.readCount())
+            }
+            let type = try reader.readUInt32()
+            let offset = try reader.readUInt64()
+            tensors.append(
+                MLXGGUFTensorInfo(
+                    name: name,
+                    dimensions: dimensions,
+                    type: type,
+                    offset: offset
+                )
+            )
+        }
+
+        let remainder = reader.offset % alignment
+        if remainder != 0 {
+            try reader.skip(bytes: alignment - remainder)
+        }
+        return MLXGGUFFileLayout(
+            version: version,
+            alignment: alignment,
+            tensorDataOffset: reader.offset,
+            metadataCount: metadataCount,
+            metadata: metadata,
+            tensors: tensors
+        )
+    }
+
+    private static func tensorByteCount(
+        type: UInt32,
+        elementCount: Int
+    ) throws -> Int {
+        switch type {
+        case 0: return try checkedByteCount(elementCount, elementSize: 4)
+        case 1: return try checkedByteCount(elementCount, elementSize: 2)
+        case 2: return try checkedByteCount(try divisible(elementCount, by: 32), elementSize: 18)
+        case 3: return try checkedByteCount(try divisible(elementCount, by: 32), elementSize: 20)
+        case 8: return try checkedByteCount(try divisible(elementCount, by: 32), elementSize: 34)
+        case 10: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 84)
+        case 11: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 110)
+        case 12: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 144)
+        case 13: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 176)
+        case 14: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 210)
+        case 20: return try checkedByteCount(try divisible(elementCount, by: 32), elementSize: 18)
+        case 21: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 110)
+        case 23: return try checkedByteCount(try divisible(elementCount, by: 256), elementSize: 136)
+        case 39: return try checkedByteCount(try divisible(elementCount, by: 32), elementSize: 17)
+        case 24: return elementCount
+        case 25: return try checkedByteCount(elementCount, elementSize: 2)
+        case 26: return try checkedByteCount(elementCount, elementSize: 4)
+        case 30: return try checkedByteCount(elementCount, elementSize: 2)
+        case 41: return try checkedByteCount(try divisible(elementCount, by: 128), elementSize: 18)
+        case 42: return try checkedByteCount(try divisible(elementCount, by: 64), elementSize: 18)
+        default: throw MLXGGUFLoaderError.unsupportedTensorType(type, "")
+        }
+    }
+
+    private static func divisible(_ value: Int, by divisor: Int) throws -> Int {
+        guard value >= 0, value % divisor == 0 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        return value / divisor
+    }
+
+    private static func ggufTypeName(_ type: UInt32) -> String {
+        switch type {
+        case 0: return "F32"
+        case 1: return "F16"
+        case 2: return "Q4_0"
+        case 3: return "Q4_1"
+        case 6: return "Q5_0"
+        case 7: return "Q5_1"
+        case 8: return "Q8_0"
+        case 9: return "Q8_1"
+        case 10: return "Q2_K"
+        case 11: return "Q3_K"
+        case 12: return "Q4_K"
+        case 13: return "Q5_K"
+        case 14: return "Q6_K"
+        case 15: return "Q8_K"
+        case 16: return "IQ2_XXS"
+        case 17: return "IQ2_XS"
+        case 18: return "IQ3_XXS"
+        case 19: return "IQ1_S"
+        case 20: return "IQ4_NL"
+        case 21: return "IQ3_S"
+        case 22: return "IQ2_S"
+        case 23: return "IQ4_XS"
+        case 24: return "I8"
+        case 25: return "I16"
+        case 26: return "I32"
+        case 27: return "I64"
+        case 28: return "F64"
+        case 29: return "IQ1_M"
+        case 30: return "BF16"
+        case 34: return "TQ1_0"
+        case 35: return "TQ2_0"
+        case 39: return "MXFP4"
+        case 40: return "NVFP4"
+        case 41: return "Q1_0"
+        case 42: return "Q2_0"
+        default: return "TYPE_\(type)"
+        }
+    }
+
+    private static func quantizedArrays(
+        _ data: Data,
+        tensor: MLXGGUFTensorInfo,
+        shape: [Int],
+        elementCount: Int,
+        dataOffset: Int,
+        targetGroupSize: Int
+    ) throws -> [String: MLXArray] {
+        guard let lastDimension = shape.last,
+              lastDimension > 0,
+              lastDimension % 32 == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        let bits: Int
+        let bytesPerBlock: Int
+        switch tensor.type {
+        case 2:
+            bits = 4
+            bytesPerBlock = 18
+        case 3:
+            bits = 4
+            bytesPerBlock = 20
+        case 8:
+            bits = 8
+            bytesPerBlock = 34
+        default:
+            throw MLXGGUFLoaderError.unsupportedTensorType(tensor.type, tensor.name)
+        }
+        let blockCount = elementCount / 32
+        let byteCount = try checkedByteCount(blockCount, elementSize: bytesPerBlock)
+        let raw = try dataSlice(data, tensor: tensor, dataOffset: dataOffset, byteCount: byteCount)
+        var weightShape = shape
+        weightShape[weightShape.count - 1] /= bits == 4 ? 8 : 4
+        var scaleShape = shape
+        scaleShape[scaleShape.count - 1] /= targetGroupSize
+        let namePrefix = tensor.name.hasSuffix(".weight")
+            ? String(tensor.name.dropLast(".weight".count))
+            : tensor.name
+        let packed: (wq: MLXArray, scales: MLXArray, biases: MLXArray)
+        if targetGroupSize == 32 {
+            packed = try MLXGGUFMetalQuantizer.packPreserved(
+                raw: raw,
+                sourceType: tensor.type,
+                sourceShape: shape,
+                targetWeightShape: weightShape,
+                targetScaleShape: scaleShape
+            )
+        } else {
+            packed = try MLXGGUFMetalQuantizer.quantize(
+                raw: raw,
+                sourceType: tensor.type,
+                targetBits: bits,
+                sourceShape: shape,
+                targetGroupSize: targetGroupSize,
+                targetWeightShape: weightShape,
+                targetScaleShape: scaleShape
+            )
+        }
+        return [
+            tensor.name: packed.wq,
+            namePrefix + ".scales": packed.scales,
+            namePrefix + ".biases": packed.biases
+        ]
+    }
+
+    private static func mxfp4Arrays(
+        _ data: Data,
+        tensor: MLXGGUFTensorInfo,
+        shape: [Int],
+        elementCount: Int,
+        dataOffset: Int
+    ) throws -> (wq: MLXArray, scales: MLXArray) {
+        guard tensor.type == 39,
+              let lastDimension = shape.last,
+              lastDimension > 0,
+              lastDimension % 32 == 0,
+              elementCount % 32 == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        let blockCount = elementCount / 32
+        let byteCount = try checkedByteCount(blockCount, elementSize: 17)
+        let raw = try dataSlice(data, tensor: tensor, dataOffset: dataOffset, byteCount: byteCount)
+        var weightShape = shape
+        weightShape[weightShape.count - 1] /= 8
+        var scaleShape = shape
+        scaleShape[scaleShape.count - 1] /= 32
+        return try MLXGGUFMetalQuantizer.packMXFP4(
+            raw: raw,
+            sourceShape: shape,
+            targetWeightShape: weightShape,
+            targetScaleShape: scaleShape
+        )
+    }
+
+    private static func directlyRequantizedArrays(
+        _ data: Data,
+        tensor: MLXGGUFTensorInfo,
+        shape: [Int],
+        elementCount: Int,
+        dataOffset: Int,
+        bits: Int,
+        targetGroupSize: Int
+    ) throws -> (wq: MLXArray, scales: MLXArray, biases: MLXArray) {
+        guard bits == 4 || bits == 8,
+              targetGroupSize == 32 || targetGroupSize == 64,
+              let lastDimension = shape.last,
+              lastDimension > 0,
+              lastDimension % targetGroupSize == 0,
+              elementCount % targetGroupSize == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+
+        let elementsPerBlock: Int
+        let bytesPerBlock: Int
+        switch tensor.type {
+        case 10:
+            elementsPerBlock = 256
+            bytesPerBlock = 84
+        case 11:
+            elementsPerBlock = 256
+            bytesPerBlock = 110
+        case 12:
+            elementsPerBlock = 256
+            bytesPerBlock = 144
+        case 13:
+            elementsPerBlock = 256
+            bytesPerBlock = 176
+        case 14:
+            elementsPerBlock = 256
+            bytesPerBlock = 210
+        case 20:
+            elementsPerBlock = 32
+            bytesPerBlock = 18
+        case 21:
+            elementsPerBlock = 256
+            bytesPerBlock = 110
+        case 23:
+            elementsPerBlock = 256
+            bytesPerBlock = 136
+        case 41, 42:
+            elementsPerBlock = tensor.type == 41 ? 128 : 64
+            bytesPerBlock = 18
+        default:
+            throw MLXGGUFLoaderError.unsupportedTensorType(tensor.type, tensor.name)
+        }
+        guard elementCount % elementsPerBlock == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+
+        let blockCount = elementCount / elementsPerBlock
+        let byteCount = try checkedByteCount(blockCount, elementSize: bytesPerBlock)
+        let raw = try dataSlice(data, tensor: tensor, dataOffset: dataOffset, byteCount: byteCount)
+        var weightShape = shape
+        weightShape[weightShape.count - 1] /= bits == 4 ? 8 : 4
+        var scaleShape = shape
+        scaleShape[scaleShape.count - 1] /= targetGroupSize
+        return try MLXGGUFMetalQuantizer.quantize(
+            raw: raw,
+            sourceType: tensor.type,
+            targetBits: bits,
+            sourceShape: shape,
+            targetGroupSize: targetGroupSize,
+            targetWeightShape: weightShape,
+            targetScaleShape: scaleShape
+        )
+    }
+
+    private static func directlyQuantizeQ1_0(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        for group in 0..<4 {
+            let sourceOffset = group * 32
+            for index in 0..<32 {
+                let sourceIndex = sourceOffset + index
+                let bit = (raw[rawOffset + 2 + sourceIndex / 8] >> (sourceIndex % 8)) & 1
+                values[index] = Float(Float16(bit == 0 ? -scale : scale))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + group,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+        }
+    }
+
+    private static func directlyQuantizeQ2_0(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        for group in 0..<2 {
+            let sourceOffset = group * 32
+            for index in 0..<32 {
+                let sourceIndex = sourceOffset + index
+                let quantized = (raw[rawOffset + 2 + sourceIndex / 4]
+                    >> ((sourceIndex % 4) * 2)) & 3
+                values[index] = Float(Float16(Float(Int(quantized) - 1) * scale))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + group,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+        }
+    }
+
+    private static func directlyQuantizeQ2K(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let minimumScale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let scalesOffset = rawOffset + 4
+        let quantizedOffset = rawOffset + 20
+
+        for half in 0..<2 {
+            let quantizedHalfOffset = quantizedOffset + half * 32
+            for chunk in 0..<4 {
+                let targetGroup = targetGroupOffset + half * 4 + chunk
+                let shift = chunk * 2
+                let firstScaleByte = raw[scalesOffset + (half * 8) + chunk * 2]
+                let secondScaleByte = raw[scalesOffset + (half * 8) + chunk * 2 + 1]
+                let first = scale * Float(firstScaleByte & 0x0f)
+                let firstMinimum = minimumScale * Float(firstScaleByte >> 4)
+                let second = scale * Float(secondScaleByte & 0x0f)
+                let secondMinimum = minimumScale * Float(secondScaleByte >> 4)
+                for index in 0..<16 {
+                    let firstQuantized = (raw[quantizedHalfOffset + index] >> shift) & 3
+                    let secondQuantized = (raw[quantizedHalfOffset + index + 16] >> shift) & 3
+                    values[index] = Float(Float16(
+                        first * Float(firstQuantized) - firstMinimum
+                    ))
+                    values[index + 16] = Float(Float16(
+                        second * Float(secondQuantized) - secondMinimum
+                    ))
+                }
+                appendAffineQuantizedGroup(
+                    values,
+                    groupIndex: targetGroup,
+                    bits: bits,
+                    packedWeights: &packedWeights,
+                    scales: &scales,
+                    biases: &biases
+                )
+            }
+        }
+    }
+
+    private static func directlyQuantizeQ3K(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 108)))
+        let scaleWords = q3KScaleWords(raw, offset: rawOffset + 96)
+        let quantizedOffset = rawOffset + 32
+
+        for half in 0..<2 {
+            let quantizedHalfOffset = quantizedOffset + half * 32
+            for chunk in 0..<4 {
+                let targetGroup = targetGroupOffset + half * 4 + chunk
+                let shift = chunk * 2
+                let highBitMask = UInt8(1 << (half * 4 + chunk))
+                let firstScale = scale * Float(q3KScaleValue(scaleWords, index: half * 8 + chunk * 2))
+                let secondScale = scale * Float(q3KScaleValue(scaleWords, index: half * 8 + chunk * 2 + 1))
+                for index in 0..<16 {
+                    let firstLow = (raw[quantizedHalfOffset + index] >> shift) & 3
+                    let firstHigh = (raw[rawOffset + index] & highBitMask) == 0 ? 4 : 0
+                    let secondLow = (raw[quantizedHalfOffset + index + 16] >> shift) & 3
+                    let secondHigh = (raw[rawOffset + index + 16] & highBitMask) == 0 ? 4 : 0
+                    values[index] = Float(Float16(
+                        firstScale * Float(Int(firstLow) - firstHigh)
+                    ))
+                    values[index + 16] = Float(Float16(
+                        secondScale * Float(Int(secondLow) - secondHigh)
+                    ))
+                }
+                appendAffineQuantizedGroup(
+                    values,
+                    groupIndex: targetGroup,
+                    bits: bits,
+                    packedWeights: &packedWeights,
+                    scales: &scales,
+                    biases: &biases
+                )
+            }
+        }
+    }
+
+    private static func directlyQuantizeQ4K(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let minimumScale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let scalesOffset = rawOffset + 4
+        let quantizedOffset = rawOffset + 16
+        for segment in 0..<4 {
+            let firstScaleIndex = segment * 2
+            let first = kScaleAndMin(index: firstScaleIndex, raw: raw, offset: scalesOffset)
+            let second = kScaleAndMin(index: firstScaleIndex + 1, raw: raw, offset: scalesOffset)
+            let segmentOffset = quantizedOffset + segment * 32
+            for index in 0..<32 {
+                let quantized = raw[segmentOffset + index]
+                values[index] = Float(Float16(
+                    scale * Float(first.0) * Float(quantized & 0x0f)
+                        - minimumScale * Float(first.1)
+                ))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + segment * 2,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+            for index in 0..<32 {
+                let quantized = raw[segmentOffset + index]
+                values[index] = Float(Float16(
+                    scale * Float(second.0) * Float(quantized >> 4)
+                        - minimumScale * Float(second.1)
+                ))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + segment * 2 + 1,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+        }
+    }
+
+    private static func directlyQuantizeQ5K(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let minimumScale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let highBitsOffset = rawOffset + 16
+        let lowBitsOffset = rawOffset + 48
+        let scalesOffset = rawOffset + 4
+        for segment in 0..<4 {
+            let first = kScaleAndMin(index: segment * 2, raw: raw, offset: scalesOffset)
+            let second = kScaleAndMin(index: segment * 2 + 1, raw: raw, offset: scalesOffset)
+            let lowOffset = lowBitsOffset + segment * 32
+            let highBit1 = UInt8(1 << (segment * 2))
+            let highBit2 = UInt8(2 << (segment * 2))
+            for index in 0..<32 {
+                let high = raw[highBitsOffset + index]
+                let firstQuantized = Int(raw[lowOffset + index] & 0x0f)
+                    + ((high & highBit1) == 0 ? 0 : 16)
+                values[index] = Float(Float16(
+                    scale * Float(first.0) * Float(firstQuantized)
+                        - minimumScale * Float(first.1)
+                ))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + segment * 2,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+            for index in 0..<32 {
+                let high = raw[highBitsOffset + index]
+                let secondQuantized = Int(raw[lowOffset + index] >> 4)
+                    + ((high & highBit2) == 0 ? 0 : 16)
+                values[index] = Float(Float16(
+                    scale * Float(second.0) * Float(secondQuantized)
+                        - minimumScale * Float(second.1)
+                ))
+            }
+            appendAffineQuantizedGroup(
+                values,
+                groupIndex: targetGroupOffset + segment * 2 + 1,
+                bits: bits,
+                packedWeights: &packedWeights,
+                scales: &scales,
+                biases: &biases
+            )
+        }
+    }
+
+    private static func directlyQuantizeQ6K(
+        _ raw: Data,
+        rawOffset: Int,
+        targetGroupOffset: Int,
+        values: inout [Float],
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16],
+        bits: Int
+    ) {
+        let lowBitsOffset = rawOffset
+        let highBitsOffset = rawOffset + 128
+        let scalesOffset = rawOffset + 192
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 208)))
+        for half in 0..<2 {
+            let lowOffset = lowBitsOffset + half * 64
+            let highOffset = highBitsOffset + half * 32
+            let scaleOffset = scalesOffset + half * 8
+            for plane in 0..<4 {
+                for index in 0..<32 {
+                    let high = raw[highOffset + index]
+                    let quantized: Int
+                    switch plane {
+                    case 0:
+                        quantized = Int((raw[lowOffset + index] & 0x0f)
+                            | ((high & 0x03) << 4)) - 32
+                    case 1:
+                        quantized = Int((raw[lowOffset + index + 32] & 0x0f)
+                            | (((high >> 2) & 0x03) << 4)) - 32
+                    case 2:
+                        quantized = Int((raw[lowOffset + index] >> 4)
+                            | (((high >> 4) & 0x03) << 4)) - 32
+                    default:
+                        quantized = Int((raw[lowOffset + index + 32] >> 4)
+                            | (((high >> 6) & 0x03) << 4)) - 32
+                    }
+                    let sourceScale = Float(Int8(bitPattern: raw[scaleOffset + plane * 2 + index / 16]))
+                    values[index] = Float(Float16(scale * sourceScale * Float(quantized)))
+                }
+                appendAffineQuantizedGroup(
+                    values,
+                    groupIndex: targetGroupOffset + half * 4 + plane,
+                    bits: bits,
+                    packedWeights: &packedWeights,
+                    scales: &scales,
+                    biases: &biases
+                )
+            }
+        }
+    }
+
+    private static func appendAffineQuantizedGroup(
+        _ values: [Float],
+        groupIndex: Int,
+        bits: Int,
+        packedWeights: inout [UInt8],
+        scales: inout [UInt16],
+        biases: inout [UInt16]
+    ) {
+        let maximumQuantizedValue = Float((1 << bits) - 1)
+        var minimum = values[0]
+        var maximum = values[0]
+        for value in values.dropFirst() {
+            minimum = min(minimum, value)
+            maximum = max(maximum, value)
+        }
+
+        var scale = max((maximum - minimum) / maximumQuantizedValue, 1e-7)
+        let usesMinimumAsEdge = abs(minimum) > abs(maximum)
+        scale = usesMinimumAsEdge ? scale : -scale
+        let edge = usesMinimumAsEdge ? minimum : maximum
+        let initialQuantizedEdge = (edge / scale).rounded()
+        let bias: Float
+        if initialQuantizedEdge == 0 {
+            bias = 0
+        } else {
+            scale = edge / initialQuantizedEdge
+            bias = edge
+        }
+        scales[groupIndex] = Float16(scale).bitPattern
+        biases[groupIndex] = Float16(bias).bitPattern
+
+        if bits == 8 {
+            let outputOffset = groupIndex * 32
+            for index in 0..<32 {
+                let quantized = min(
+                    max(((values[index] - bias) / scale).rounded(), 0),
+                    maximumQuantizedValue
+                )
+                packedWeights[outputOffset + index] = UInt8(quantized)
+            }
+        } else {
+            let outputOffset = groupIndex * 16
+            for index in stride(from: 0, to: 32, by: 2) {
+                let first = min(
+                    max(((values[index] - bias) / scale).rounded(), 0),
+                    maximumQuantizedValue
+                )
+                let second = min(
+                    max(((values[index + 1] - bias) / scale).rounded(), 0),
+                    maximumQuantizedValue
+                )
+                packedWeights[outputOffset + index / 2] =
+                    UInt8(first) | (UInt8(second) << 4)
+            }
+        }
+    }
+
+    private static func q3KScaleWords(
+        _ raw: Data,
+        offset: Int
+    ) -> (UInt32, UInt32, UInt32, UInt32) {
+        var first = littleEndianUInt32(raw, at: offset)
+        var second = littleEndianUInt32(raw, at: offset + 4)
+        let packed = littleEndianUInt32(raw, at: offset + 8)
+        let mask1: UInt32 = 0x03030303
+        let mask2: UInt32 = 0x0f0f0f0f
+        let third = ((first >> 4) & mask2) | (((packed >> 4) & mask1) << 4)
+        let fourth = ((second >> 4) & mask2) | (((packed >> 6) & mask1) << 4)
+        first = (first & mask2) | (((packed >> 0) & mask1) << 4)
+        second = (second & mask2) | (((packed >> 2) & mask1) << 4)
+        return (first, second, third, fourth)
+    }
+
+    private static func q3KScaleValue(
+        _ words: (UInt32, UInt32, UInt32, UInt32),
+        index: Int
+    ) -> Int8 {
+        let word: UInt32
+        switch index / 4 {
+        case 0: word = words.0
+        case 1: word = words.1
+        case 2: word = words.2
+        default: word = words.3
+        }
+        return Int8(bitPattern: UInt8(truncatingIfNeeded: word >> ((index % 4) * 8))) - 32
+    }
+
+    private static func dequantizedArray(
+        _ data: Data,
+        tensor: MLXGGUFTensorInfo,
+        shape: [Int],
+        elementCount: Int,
+        dataOffset: Int
+    ) throws -> MLXArray {
+        let bytesPerBlock: Int
+        let elementsPerBlock: Int
+        switch tensor.type {
+        case 10:
+            bytesPerBlock = 84
+            elementsPerBlock = 256
+        case 11:
+            bytesPerBlock = 110
+            elementsPerBlock = 256
+        case 12:
+            bytesPerBlock = 144
+            elementsPerBlock = 256
+        case 13:
+            bytesPerBlock = 176
+            elementsPerBlock = 256
+        case 14:
+            bytesPerBlock = 210
+            elementsPerBlock = 256
+        case 41:
+            bytesPerBlock = 18
+            elementsPerBlock = 128
+        case 42:
+            bytesPerBlock = 18
+            elementsPerBlock = 64
+        default:
+            throw MLXGGUFLoaderError.unsupportedTensorType(tensor.type, tensor.name)
+        }
+        guard let lastDimension = shape.last,
+              lastDimension > 0,
+              lastDimension % elementsPerBlock == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        guard elementCount % elementsPerBlock == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        let blockCount = elementCount / elementsPerBlock
+        let byteCount = try checkedByteCount(blockCount, elementSize: bytesPerBlock)
+        let raw = try dataSlice(data, tensor: tensor, dataOffset: dataOffset, byteCount: byteCount)
+        var values = [Float16](repeating: 0, count: elementCount)
+
+        for block in 0..<blockCount {
+            let rawOffset = block * bytesPerBlock
+            if tensor.type == 10 {
+                dequantizeQ2K(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * elementsPerBlock
+                )
+            } else if tensor.type == 11 {
+                dequantizeQ3K(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * elementsPerBlock
+                )
+            } else if tensor.type == 12 {
+                dequantizeQ4K(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * 256
+                )
+            } else if tensor.type == 13 {
+                dequantizeQ5K(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * 256
+                )
+            } else if tensor.type == 14 {
+                dequantizeQ6K(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * 256
+                )
+            } else if tensor.type == 41 {
+                dequantizeQ1_0(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * elementsPerBlock
+                )
+            } else if tensor.type == 42 {
+                dequantizeQ2_0(
+                    raw,
+                    rawOffset: rawOffset,
+                    values: &values,
+                    outputOffset: block * elementsPerBlock
+                )
+            }
+        }
+
+        let valuesArray = MLXArray(
+            Data(bytes: values, count: values.count * MemoryLayout<Float16>.stride),
+            shape,
+            dtype: .float16
+        )
+        return valuesArray.asType(.bfloat16)
+    }
+
+    private static func dequantizeQ1_0(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        for index in 0..<128 {
+            let bit = (raw[rawOffset + 2 + index / 8] >> (index % 8)) & 1
+            values[outputOffset + index] = Float16(bit == 0 ? -scale : scale)
+        }
+    }
+
+    private static func dequantizeQ2_0(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        for index in 0..<64 {
+            let quantized = (raw[rawOffset + 2 + index / 4] >> ((index % 4) * 2)) & 3
+            values[outputOffset + index] = Float16(Float(Int(quantized) - 1) * scale)
+        }
+    }
+
+    private static func dequantizeQ2K(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let minimumScale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let scalesOffset = rawOffset + 4
+        let quantizedOffset = rawOffset + 20
+        var scaleIndex = 0
+
+        for half in 0..<2 {
+            let quantizedHalfOffset = quantizedOffset + half * 32
+            let outputHalfOffset = outputOffset + half * 128
+            var shift = 0
+            for _ in 0..<4 {
+                let outputChunkOffset = outputHalfOffset + (shift / 2) * 32
+                let firstScale = raw[scalesOffset + scaleIndex]
+                scaleIndex += 1
+                let first = scale * Float(firstScale & 0x0f)
+                let firstMinimum = minimumScale * Float(firstScale >> 4)
+                for index in 0..<16 {
+                    let quantized = (raw[quantizedHalfOffset + index] >> shift) & 3
+                    values[outputChunkOffset + index] = Float16(
+                        first * Float(quantized) - firstMinimum
+                    )
+                }
+
+                let secondScale = raw[scalesOffset + scaleIndex]
+                scaleIndex += 1
+                let second = scale * Float(secondScale & 0x0f)
+                let secondMinimum = minimumScale * Float(secondScale >> 4)
+                for index in 0..<16 {
+                    let quantized = (raw[quantizedHalfOffset + index + 16] >> shift) & 3
+                    values[outputChunkOffset + 16 + index] = Float16(
+                        second * Float(quantized) - secondMinimum
+                    )
+                }
+                shift += 2
+            }
+        }
+    }
+
+    private static func dequantizeQ3K(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 108)))
+        let highMaskOffset = rawOffset
+        let quantizedOffset = rawOffset + 32
+        let scalesOffset = rawOffset + 96
+        var auxiliary = [UInt32](repeating: 0, count: 4)
+        for index in 0..<3 {
+            auxiliary[index] = UInt32(raw[scalesOffset + index * 4])
+                | UInt32(raw[scalesOffset + index * 4 + 1]) << 8
+                | UInt32(raw[scalesOffset + index * 4 + 2]) << 16
+                | UInt32(raw[scalesOffset + index * 4 + 3]) << 24
+        }
+        let mask1: UInt32 = 0x03030303
+        let mask2: UInt32 = 0x0f0f0f0f
+        let temporary = auxiliary[2]
+        auxiliary[2] = ((auxiliary[0] >> 4) & mask2) | (((temporary >> 4) & mask1) << 4)
+        auxiliary[3] = ((auxiliary[1] >> 4) & mask2) | (((temporary >> 6) & mask1) << 4)
+        auxiliary[0] = (auxiliary[0] & mask2) | (((temporary >> 0) & mask1) << 4)
+        auxiliary[1] = (auxiliary[1] & mask2) | (((temporary >> 2) & mask1) << 4)
+
+        var scaleIndex = 0
+        var highBitMask: UInt8 = 1
+        for half in 0..<2 {
+            let quantizedHalfOffset = quantizedOffset + half * 32
+            let outputHalfOffset = outputOffset + half * 128
+            var shift = 0
+            for _ in 0..<4 {
+                let outputChunkOffset = outputHalfOffset + (shift / 2) * 32
+                let firstScale = Int8(bitPattern: UInt8(truncatingIfNeeded: auxiliary[scaleIndex / 4] >> ((scaleIndex % 4) * 8)))
+                scaleIndex += 1
+                let firstDequantizedScale = scale * (Float(firstScale) - 32)
+                for index in 0..<16 {
+                    let low = (raw[quantizedHalfOffset + index] >> shift) & 3
+                    let high = (raw[highMaskOffset + index] & highBitMask) == 0 ? 4 : 0
+                    values[outputChunkOffset + index] = Float16(
+                        firstDequantizedScale * Float(Int(low) - high)
+                    )
+                }
+
+                let secondScale = Int8(bitPattern: UInt8(truncatingIfNeeded: auxiliary[scaleIndex / 4] >> ((scaleIndex % 4) * 8)))
+                scaleIndex += 1
+                let secondDequantizedScale = scale * (Float(secondScale) - 32)
+                for index in 0..<16 {
+                    let low = (raw[quantizedHalfOffset + index + 16] >> shift) & 3
+                    let high = (raw[highMaskOffset + index + 16] & highBitMask) == 0 ? 4 : 0
+                    values[outputChunkOffset + 16 + index] = Float16(
+                        secondDequantizedScale * Float(Int(low) - high)
+                    )
+                }
+                shift += 2
+                highBitMask <<= 1
+            }
+        }
+    }
+
+    private static func dequantizeQ4K(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let d = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let dMin = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let scalesOffset = rawOffset + 4
+        let quantizedOffset = rawOffset + 16
+        var scaleIndex = 0
+
+        for segment in 0..<4 {
+            let (scale1, min1) = kScaleAndMin(
+                index: scaleIndex,
+                raw: raw,
+                offset: scalesOffset
+            )
+            let (scale2, min2) = kScaleAndMin(
+                index: scaleIndex + 1,
+                raw: raw,
+                offset: scalesOffset
+            )
+            let segmentOffset = quantizedOffset + segment * 32
+            let firstOutput = outputOffset + segment * 64
+
+            for index in 0..<32 {
+                let quantized = raw[segmentOffset + index]
+                values[firstOutput + index] = Float16(
+                    d * Float(scale1) * Float(quantized & 0x0f) - dMin * Float(min1)
+                )
+                values[firstOutput + 32 + index] = Float16(
+                    d * Float(scale2) * Float(quantized >> 4) - dMin * Float(min2)
+                )
+            }
+            scaleIndex += 2
+        }
+    }
+
+    private static func dequantizeQ5K(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let d = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset)))
+        let dMin = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 2)))
+        let scalesOffset = rawOffset + 4
+        let highBitsOffset = rawOffset + 16
+        let lowBitsOffset = rawOffset + 48
+        var scaleIndex = 0
+
+        for segment in 0..<4 {
+            let (scale1, min1) = kScaleAndMin(
+                index: scaleIndex,
+                raw: raw,
+                offset: scalesOffset
+            )
+            let (scale2, min2) = kScaleAndMin(
+                index: scaleIndex + 1,
+                raw: raw,
+                offset: scalesOffset
+            )
+            let lowOffset = lowBitsOffset + segment * 32
+            let highBit1 = UInt8(1 << (segment * 2))
+            let highBit2 = UInt8(2 << (segment * 2))
+            let firstOutput = outputOffset + segment * 64
+
+            for index in 0..<32 {
+                let high = raw[highBitsOffset + index]
+                let q1 = Int(raw[lowOffset + index] & 0x0f)
+                    + ((high & highBit1) == 0 ? 0 : 16)
+                let q2 = Int(raw[lowOffset + index] >> 4)
+                    + ((high & highBit2) == 0 ? 0 : 16)
+                values[firstOutput + index] = Float16(
+                    d * Float(scale1) * Float(q1) - dMin * Float(min1)
+                )
+                values[firstOutput + 32 + index] = Float16(
+                    d * Float(scale2) * Float(q2) - dMin * Float(min2)
+                )
+            }
+            scaleIndex += 2
+        }
+    }
+
+    private static func kScaleAndMin(
+        index: Int,
+        raw: Data,
+        offset: Int
+    ) -> (UInt8, UInt8) {
+        if index < 4 {
+            return (raw[offset + index] & 63, raw[offset + index + 4] & 63)
+        }
+        let scale = (raw[offset + index + 4] & 0x0f)
+            | ((raw[offset + index - 4] >> 6) << 4)
+        let min = (raw[offset + index + 4] >> 4)
+            | ((raw[offset + index] >> 6) << 4)
+        return (scale, min)
+    }
+
+    private static func dequantizeQ6K(
+        _ raw: Data,
+        rawOffset: Int,
+        values: inout [Float16],
+        outputOffset: Int
+    ) {
+        let lowBitsOffset = rawOffset
+        let highBitsOffset = rawOffset + 128
+        let scalesOffset = rawOffset + 192
+        let scale = Float(Float16(bitPattern: littleEndianUInt16(raw, at: rawOffset + 208)))
+
+        for half in 0..<2 {
+            let valueOffset = outputOffset + half * 128
+            let lowOffset = lowBitsOffset + half * 64
+            let highOffset = highBitsOffset + half * 32
+            let scaleOffset = scalesOffset + half * 8
+            for index in 0..<32 {
+                let high = raw[highOffset + index]
+                let q1 = Int((raw[lowOffset + index] & 0x0f)
+                    | ((high & 0x03) << 4)) - 32
+                let q2 = Int((raw[lowOffset + 32 + index] & 0x0f)
+                    | (((high >> 2) & 0x03) << 4)) - 32
+                let q3 = Int((raw[lowOffset + index] >> 4)
+                    | (((high >> 4) & 0x03) << 4)) - 32
+                let q4 = Int((raw[lowOffset + 32 + index] >> 4)
+                    | (((high >> 6) & 0x03) << 4)) - 32
+                values[valueOffset + index] = Float16(
+                    scale * Float(Int8(bitPattern: raw[scaleOffset + index / 16])) * Float(q1)
+                )
+                values[valueOffset + 32 + index] = Float16(
+                    scale * Float(Int8(bitPattern: raw[scaleOffset + 2 + index / 16])) * Float(q2)
+                )
+                values[valueOffset + 64 + index] = Float16(
+                    scale * Float(Int8(bitPattern: raw[scaleOffset + 4 + index / 16])) * Float(q3)
+                )
+                values[valueOffset + 96 + index] = Float16(
+                    scale * Float(Int8(bitPattern: raw[scaleOffset + 6 + index / 16])) * Float(q4)
+                )
+            }
+        }
+    }
+
+    private static func insert(
+        _ array: MLXArray,
+        name: String,
+        into weights: inout [String: MLXArray]
+    ) throws {
+        guard weights[name] == nil else { throw MLXGGUFLoaderError.duplicateWeight(name) }
+        weights[name] = array
+    }
+
+    private static func dataSlice(
+        _ data: Data,
+        tensor: MLXGGUFTensorInfo,
+        dataOffset: Int,
+        byteCount: Int
+    ) throws -> Data {
+        guard dataOffset >= 0,
+              dataOffset <= data.count,
+              byteCount >= 0,
+              tensor.offset <= UInt64(data.count - dataOffset),
+              tensor.offset <= UInt64(Int.max) else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        let (start, overflow) = dataOffset.addingReportingOverflow(Int(tensor.offset))
+        guard !overflow,
+              start <= data.count,
+              byteCount <= data.count - start else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        return data.subdata(in: start..<(start + byteCount))
+    }
+
+    private static func littleEndianUInt16(_ data: Data, at offset: Int) -> UInt16 {
+        UInt16(data[offset]) | UInt16(data[offset + 1]) << 8
+    }
+
+    private static func littleEndianUInt32(_ data: Data, at offset: Int) -> UInt32 {
+        UInt32(data[offset])
+            | UInt32(data[offset + 1]) << 8
+            | UInt32(data[offset + 2]) << 16
+            | UInt32(data[offset + 3]) << 24
+    }
+
+    private static func checkedProduct(_ values: [Int]) throws -> Int {
+        var product = 1
+        for value in values {
+            guard value >= 0 else { throw MLXGGUFLoaderError.invalidSize }
+            let result = product.multipliedReportingOverflow(by: value)
+            guard !result.overflow else { throw MLXGGUFLoaderError.invalidSize }
+            product = result.partialValue
+        }
+        return product
+    }
+
+    private static func checkedByteCount(_ count: Int, elementSize: Int) throws -> Int {
+        let result = count.multipliedReportingOverflow(by: elementSize)
+        guard !result.overflow, count >= 0, elementSize >= 0 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        return result.partialValue
+    }
+}
+
+enum MLXGGUFWeightNameNormalizer {
+    static func normalize(
+        _ weights: [String: MLXArray],
+        maximumLayerIndex: Int? = nil
+    ) throws -> [String: MLXArray] {
+        var normalized = [String: MLXArray]()
+        normalized.reserveCapacity(weights.count)
+        for (name, array) in weights {
+            guard let normalizedName = normalize(
+                name,
+                maximumLayerIndex: maximumLayerIndex
+            ) else { continue }
+            var normalizedArray = array
+            if normalizedName.hasSuffix("linear_attn.conv1d.weight"), array.ndim == 2 {
+                normalizedArray = array.expandedDimensions(axis: -1)
+            }
+            guard normalized[normalizedName] == nil else {
+                throw MLXGGUFLoaderError.duplicateWeight(normalizedName)
+            }
+            normalized[normalizedName] = normalizedArray
+        }
+        return normalized
+    }
+
+    private static func normalize(
+        _ name: String,
+        maximumLayerIndex: Int?
+    ) -> String? {
+        guard !name.contains(".nextn.") else { return nil }
+        if let maximumLayerIndex,
+           let layerIndex = layerIndex(in: name),
+           layerIndex >= maximumLayerIndex {
+            return nil
+        }
+        if name.hasSuffix(".attn_sinks.weight") {
+            return normalizeBase(String(name.dropLast(".weight".count)))
+        }
+        let suffixes = [".scales", ".biases", ".weight", ".bias"]
+        if let suffix = suffixes.first(where: { name.hasSuffix($0) }) {
+            let base = String(name.dropLast(suffix.count))
+            let normalizedBase = normalizeBase(base)
+            if normalizedBase.hasSuffix(".linear_attn.dt_bias") {
+                return normalizedBase
+            }
+            return normalizedBase + suffix
+        }
+        return normalizeBase(name)
+    }
+
+    private static func layerIndex(in name: String) -> Int? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: true)
+        guard parts.count >= 2, parts[0] == "blk" else { return nil }
+        return Int(parts[1])
+    }
+
+    private static func normalizeBase(_ base: String) -> String {
+        switch base {
+        case "token_embd": return "model.embed_tokens"
+        case "output_norm": return "model.norm"
+        case "output": return "lm_head"
+        default: break
+        }
+
+        let parts = base.split(separator: ".", omittingEmptySubsequences: true)
+        guard parts.count >= 3,
+              parts[0] == "blk",
+              let layerIndex = Int(parts[1]) else {
+            return base
+        }
+        let tail = parts.dropFirst(2).joined(separator: ".")
+        let mappedTail: String
+        switch tail {
+        case "attn_norm": mappedTail = "self_attn.input_layernorm"
+        case "attn_sinks": mappedTail = "self_attn.sinks"
+        case "attn_gate": mappedTail = "linear_attn.in_proj_z"
+        case "attn_qkv": mappedTail = "linear_attn.in_proj_qkv"
+        case "attn_q": mappedTail = "self_attn.q_proj"
+        case "attn_k": mappedTail = "self_attn.k_proj"
+        case "attn_v": mappedTail = "self_attn.v_proj"
+        case "attn_output": mappedTail = "self_attn.o_proj"
+        case "attn_q_norm": mappedTail = "self_attn.q_norm"
+        case "attn_k_norm": mappedTail = "self_attn.k_norm"
+        case "post_attention_norm": mappedTail = "post_attention_layernorm"
+        case "ffn_gate": mappedTail = "mlp.gate_proj"
+        case "ffn_down": mappedTail = "mlp.down_proj"
+        case "ffn_up": mappedTail = "mlp.up_proj"
+        case "ffn_gate_exps": mappedTail = "mlp.experts.gate_proj"
+        case "ffn_down_exps": mappedTail = "mlp.experts.down_proj"
+        case "ffn_up_exps": mappedTail = "mlp.experts.up_proj"
+        case "ffn_gate_inp": mappedTail = "mlp.router"
+        case "ssm_a": mappedTail = "linear_attn.A_log"
+        case "ssm_alpha": mappedTail = "linear_attn.in_proj_a"
+        case "ssm_beta": mappedTail = "linear_attn.in_proj_b"
+        case "ssm_conv1d": mappedTail = "linear_attn.conv1d"
+        case "ssm_dt": mappedTail = "linear_attn.dt_bias"
+        case "ssm_norm": mappedTail = "linear_attn.norm"
+        case "ssm_out": mappedTail = "linear_attn.out_proj"
+        default: return base
+        }
+        if mappedTail == "self_attn.input_layernorm" {
+            return "model.layers.\(layerIndex).input_layernorm"
+        }
+        return "model.layers.\(layerIndex).\(mappedTail)"
+    }
+}
+
+enum MLXGGUFMultimodalWeightMapper {
+    static func map(_ weights: [String: MLXArray]) throws -> [String: MLXArray] {
+        var mapped = [String: MLXArray]()
+        mapped.reserveCapacity(weights.count)
+
+        for (name, value) in weights {
+            if name == "v.patch_embd.weight" || name == "v.patch_embd.weight.1" {
+                continue
+            }
+            let mappedName: String
+            switch name {
+            case "v.patch_embd.bias":
+                mappedName = "vision_tower.patch_embed.proj.bias"
+            case "v.position_embd.weight":
+                mappedName = "vision_tower.pos_embed.weight"
+            case "v.post_ln.weight":
+                mappedName = "vision_tower.merger.norm.weight"
+            case "v.post_ln.bias":
+                mappedName = "vision_tower.merger.norm.bias"
+            case "mm.0.weight":
+                mappedName = "vision_tower.merger.linear_fc1.weight"
+            case "mm.0.bias":
+                mappedName = "vision_tower.merger.linear_fc1.bias"
+            case "mm.2.weight":
+                mappedName = "vision_tower.merger.linear_fc2.weight"
+            case "mm.2.bias":
+                mappedName = "vision_tower.merger.linear_fc2.bias"
+            default:
+                mappedName = try mapVisionBlockName(name)
+            }
+            guard mapped[mappedName] == nil else {
+                throw MLXGGUFLoaderError.duplicateWeight(mappedName)
+            }
+            mapped[mappedName] = value
+        }
+
+        guard let firstPatch = weights["v.patch_embd.weight"],
+              let secondPatch = weights["v.patch_embd.weight.1"],
+              firstPatch.ndim == 4,
+              secondPatch.ndim == 4,
+              firstPatch.shape == secondPatch.shape else {
+            throw MLXGGUFLoaderError.invalidTensor("v.patch_embd.weight")
+        }
+        let patchKernel = stacked(
+            [
+                firstPatch.transposed(0, 2, 3, 1),
+                secondPatch.transposed(0, 2, 3, 1)
+            ],
+            axis: 1
+        )
+        mapped["vision_tower.patch_embed.proj.weight"] = patchKernel
+        return mapped
+    }
+
+    private static func mapVisionBlockName(_ name: String) throws -> String {
+        let components = name.split(separator: ".")
+        guard components.count == 5,
+              components[0] == "v",
+              components[1] == "blk",
+              let layerIndex = Int(components[2]) else {
+            throw MLXGGUFLoaderError.invalidTensor(name)
+        }
+        let moduleName: String
+        switch components[3] {
+        case "attn_out": moduleName = "attn.proj"
+        case "attn_qkv": moduleName = "attn.qkv"
+        case "ffn_up": moduleName = "mlp.linear_fc1"
+        case "ffn_down": moduleName = "mlp.linear_fc2"
+        case "ln1": moduleName = "norm1"
+        case "ln2": moduleName = "norm2"
+        default: throw MLXGGUFLoaderError.invalidTensor(name)
+        }
+        guard components[4] == "weight" || components[4] == "bias" else {
+            throw MLXGGUFLoaderError.invalidTensor(name)
+        }
+        return "vision_tower.blocks.\(layerIndex).\(moduleName).\(components[4])"
+    }
+}
+
+private struct MLXGGUFUserInputProcessor: UserInputProcessor {
+    let tokenizer: any MLXLMCommon.Tokenizer
+    let messageGenerator: any MessageGenerator
+
+    func prepare(input: UserInput) async throws -> LMInput {
+        let messages = messageGenerator.generate(from: input)
+        do {
+            let promptTokens = try tokenizer.applyChatTemplate(
+                messages: messages,
+                tools: input.tools,
+                additionalContext: input.additionalContext
+            )
+            return LMInput(tokens: MLXArray(promptTokens))
+        } catch MLXLMCommon.TokenizerError.missingChatTemplate {
+            let prompt = messages
+                .compactMap { $0["content"] as? String }
+                .joined(separator: "\n\n")
+            return LMInput(tokens: MLXArray(tokenizer.encode(text: prompt)))
+        }
+    }
+}
+
+enum MLXGGUFModelLoader {
+    static func loadContainer(
+        from directoryURL: URL,
+        weightURL: URL,
+        quantizationGroupSize: Int = 64,
+        quantizationProfile: GGUFQuantizationProfile = .quality
+    ) async throws -> ModelContainer {
+        try await loadContainer(
+            from: directoryURL,
+            weightURL: weightURL,
+            mmprojURL: nil,
+            useVLMProcessor: false,
+            quantizationGroupSize: quantizationGroupSize,
+            quantizationProfile: quantizationProfile
+        )
+    }
+
+    static func loadVLMContainer(
+        from directoryURL: URL,
+        weightURL: URL,
+        mmprojURL: URL,
+        quantizationGroupSize: Int = 64,
+        quantizationProfile: GGUFQuantizationProfile = .quality
+    ) async throws -> ModelContainer {
+        try await loadContainer(
+            from: directoryURL,
+            weightURL: weightURL,
+            mmprojURL: mmprojURL,
+            useVLMProcessor: true,
+            quantizationGroupSize: quantizationGroupSize,
+            quantizationProfile: quantizationProfile
+        )
+    }
+
+    private static func loadContainer(
+        from directoryURL: URL,
+        weightURL: URL,
+        mmprojURL: URL?,
+        useVLMProcessor: Bool,
+        quantizationGroupSize: Int,
+        quantizationProfile: GGUFQuantizationProfile
+    ) async throws -> ModelContainer {
+        guard quantizationGroupSize == 32 || quantizationGroupSize == 64 else {
+            throw MLXGGUFLoaderError.invalidTensor("量化群組設定")
+        }
+        let configurationURL = directoryURL.appendingPathComponent("config.json")
+        let missingAssets = MLXGGUFModelSource.missingRuntimeAssetNames(
+            in: directoryURL,
+            weightURL: weightURL
+        )
+        guard missingAssets.isEmpty else {
+            throw MLXGGUFLoaderError.missingRuntimeAssets(directoryURL, missingAssets)
+        }
+        let configData: Data
+        do {
+            configData = try MLXGGUFEmbeddedAssets.configurationData(
+                weightURL: weightURL,
+                mmprojURL: mmprojURL
+            )
+        } catch {
+            guard FileManager.default.fileExists(atPath: configurationURL.path) else {
+                throw error
+            }
+            do {
+                configData = try Data(contentsOf: configurationURL)
+            } catch {
+                throw MLXGGUFLoaderError.invalidConfiguration(configurationURL)
+            }
+        }
+        let baseConfiguration: BaseConfiguration
+        do {
+            baseConfiguration = try JSONDecoder.json5().decode(
+                BaseConfiguration.self,
+                from: configData
+            )
+        } catch {
+            throw MLXGGUFLoaderError.invalidConfiguration(configurationURL)
+        }
+        let model: LanguageModel
+        if mmprojURL != nil || baseConfiguration.modelType == "qwen3_5" {
+            model = try await VLMTypeRegistry.shared.createModel(
+                configuration: configData,
+                modelType: baseConfiguration.modelType
+            )
+        } else {
+            model = try await LLMModelFactory.shared.typeRegistry.createModel(
+                configuration: configData,
+                modelType: baseConfiguration.modelType
+            )
+        }
+        async let tokenizerTask = MLXGGUFEmbeddedAssets.tokenizer(
+            directoryURL: directoryURL,
+            weightURL: weightURL
+        )
+
+        var weights = try MLXGGUFLoader.loadWeights(
+            from: weightURL,
+            targetGroupSize: quantizationGroupSize,
+            quantizationProfile: quantizationProfile,
+            convertQwen35StateSpaceParameters: isQwen35Architecture(
+                baseConfiguration.modelType
+            )
+        )
+        if isQwen35Architecture(baseConfiguration.modelType),
+           let linearAttentionLayout = linearAttentionLayout(from: configData) {
+            weights = reorderQwen35LinearAttentionWeights(
+                weights,
+                layout: linearAttentionLayout,
+                groupSize: quantizationGroupSize
+            )
+            weights = undoQwen35ConverterNormOffset(weights)
+        }
+        weights = try MLXGGUFWeightNameNormalizer.normalize(
+            weights,
+            maximumLayerIndex: mainLayerCount(from: configData)
+        )
+        if let mmprojURL {
+            guard model is any VLMModel else {
+                throw MLXGGUFLoaderError.invalidConfiguration(configurationURL)
+            }
+            let projectorWeights = try MLXGGUFLoader.loadWeights(
+                from: mmprojURL,
+                targetGroupSize: quantizationGroupSize,
+                quantizationProfile: quantizationProfile
+            )
+            let mappedProjectorWeights = try MLXGGUFMultimodalWeightMapper.map(projectorWeights)
+            for (name, value) in mappedProjectorWeights {
+                guard weights[name] == nil else {
+                    throw MLXGGUFLoaderError.duplicateWeight(name)
+                }
+                weights[name] = value
+            }
+        }
+        weights = model.sanitize(weights: weights)
+        quantizeGGUFModel(
+            model,
+            weights: weights,
+            groupSize: quantizationGroupSize
+        )
+        let parameters = ModuleParameters.unflattened(weights)
+        try model.update(parameters: parameters, verify: [.all])
+        eval(model)
+
+        let tokenizer = try await tokenizerTask
+        let generationConfigURL = directoryURL.appendingPathComponent("generation_config.json")
+        let generationConfig = try? JSONDecoder.json5().decode(
+            GenerationConfigFile.self,
+            from: Data(contentsOf: generationConfigURL)
+        )
+        var modelConfiguration = ModelConfiguration(
+            directory: directoryURL,
+            stopStrings: generationConfig?.stopStrings,
+            toolCallFormat: ToolCallFormat.infer(
+                from: baseConfiguration.modelType,
+                configData: configData
+            )
+        )
+        var eosTokenIDs = Set(baseConfiguration.eosTokenIds?.values ?? [])
+        if let generationEOS = generationConfig?.eosTokenIds?.values {
+            eosTokenIDs = Set(generationEOS)
+        }
+        modelConfiguration.eosTokenIds = eosTokenIDs
+        let messageGenerator = (model as? LLMModel)?.messageGenerator(tokenizer: tokenizer)
+            ?? DefaultMessageGenerator()
+        let processor: any UserInputProcessor
+        if useVLMProcessor {
+            processor = try await makeVLMProcessor(
+                from: directoryURL,
+                tokenizer: tokenizer,
+                mmprojURL: mmprojURL
+            )
+        } else {
+            processor = MLXGGUFUserInputProcessor(
+                tokenizer: tokenizer,
+                messageGenerator: messageGenerator
+            )
+        }
+        return ModelContainer(
+            context: ModelContext(
+                configuration: modelConfiguration,
+                model: model,
+                processor: processor,
+                tokenizer: tokenizer
+            )
+        )
+    }
+
+    private static func makeVLMProcessor(
+        from directoryURL: URL,
+        tokenizer: any MLXLMCommon.Tokenizer,
+        mmprojURL: URL?
+    ) async throws -> any UserInputProcessor {
+        let preprocessorURL = directoryURL.appendingPathComponent("preprocessor_config.json")
+        let processorURL = directoryURL.appendingPathComponent("processor_config.json")
+        let configurationURL = FileManager.default.fileExists(atPath: preprocessorURL.path)
+            ? preprocessorURL
+            : processorURL
+        let configurationData: Data
+        if FileManager.default.fileExists(atPath: configurationURL.path) {
+            do {
+                configurationData = try Data(contentsOf: configurationURL)
+            } catch {
+                throw MLXGGUFLoaderError.missingConfiguration(configurationURL)
+            }
+        } else if let mmprojURL {
+            configurationData = try MLXGGUFEmbeddedAssets.processorConfigurationData(mmprojURL: mmprojURL)
+        } else {
+            throw MLXGGUFLoaderError.missingConfiguration(configurationURL)
+        }
+        let configuration: BaseProcessorConfiguration
+        do {
+            configuration = try JSONDecoder.json5().decode(
+                BaseProcessorConfiguration.self,
+                from: configurationData
+            )
+        } catch {
+            throw MLXGGUFLoaderError.invalidConfiguration(configurationURL)
+        }
+        return try await VLMProcessorTypeRegistry.shared.createModel(
+            configuration: configurationData,
+            processorType: configuration.processorClass,
+            tokenizer: tokenizer
+        )
+    }
+
+    private static func mainLayerCount(from configurationData: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: configurationData),
+              let root = object as? [String: Any] else { return nil }
+        if let count = root["num_hidden_layers"] as? Int {
+            return count
+        }
+        guard let textConfig = root["text_config"] as? [String: Any] else { return nil }
+        return textConfig["num_hidden_layers"] as? Int
+    }
+
+    private static func isQwen35Architecture(_ modelType: String) -> Bool {
+        modelType == "qwen3_5" || modelType == "qwen3_5_text"
+    }
+
+    private struct LinearAttentionLayout {
+        let numKeyHeads: Int
+        let numValueHeads: Int
+        let keyHeadDimension: Int
+        let valueHeadDimension: Int
+
+        var valuesPerKeyHead: Int {
+            numValueHeads / numKeyHeads
+        }
+
+        var keyRows: Int {
+            numKeyHeads * keyHeadDimension
+        }
+
+        var valueRows: Int {
+            numValueHeads * valueHeadDimension
+        }
+    }
+
+    /// GGUF's Qwen3.5 converter reorders value heads from grouped HF order to
+    /// tiled GGML order.  The mlx-swift model uses the original grouped order,
+    /// so reverse that permutation before sanitizing the weight names.
+    private static func linearAttentionLayout(from configurationData: Data)
+        -> LinearAttentionLayout?
+    {
+        guard let root = try? JSONSerialization.jsonObject(with: configurationData)
+                as? [String: Any] else { return nil }
+        let values = (root["text_config"] as? [String: Any]) ?? root
+        guard let numKeyHeads = values["linear_num_key_heads"] as? Int,
+              let numValueHeads = values["linear_num_value_heads"] as? Int,
+              let keyHeadDimension = values["linear_key_head_dim"] as? Int,
+              let valueHeadDimension = values["linear_value_head_dim"] as? Int,
+              numKeyHeads > 0,
+              numValueHeads > 0,
+              numValueHeads % numKeyHeads == 0,
+              keyHeadDimension > 0,
+              valueHeadDimension > 0 else { return nil }
+        return LinearAttentionLayout(
+            numKeyHeads: numKeyHeads,
+            numValueHeads: numValueHeads,
+            keyHeadDimension: keyHeadDimension,
+            valueHeadDimension: valueHeadDimension
+        )
+    }
+
+    private static func undoQwen35ConverterNormOffset(
+        _ weights: [String: MLXArray]
+    ) -> [String: MLXArray] {
+        var corrected = weights
+        for (name, value) in weights where isQwen35ConverterShiftedNorm(name) {
+            switch value.dtype {
+            case .float16, .float32, .bfloat16:
+                corrected[name] = value - MLXArray(1, dtype: value.dtype)
+            default:
+                break
+            }
+        }
+        return corrected
+    }
+
+    static func isQwen35ConverterShiftedNorm(_ name: String) -> Bool {
+        name.hasSuffix("norm.weight")
+            && !name.hasSuffix("linear_attn.norm.weight")
+            && !name.hasSuffix(".ssm_norm.weight")
+    }
+
+    private static func reorderQwen35LinearAttentionWeights(
+        _ weights: [String: MLXArray],
+        layout: LinearAttentionLayout,
+        groupSize: Int
+    ) -> [String: MLXArray] {
+        var reordered = weights
+        for (name, value) in weights {
+            let baseName: String
+            if name.hasSuffix(".scales") {
+                baseName = String(name.dropLast(".scales".count)) + ".weight"
+            } else if name.hasSuffix(".biases") {
+                baseName = String(name.dropLast(".biases".count)) + ".weight"
+            } else {
+                baseName = name
+            }
+
+            let transformed: MLXArray?
+            if baseName.hasSuffix(".attn_qkv.weight") {
+                transformed = reorderQKV(value, layout: layout)
+            } else if baseName.hasSuffix(".attn_gate.weight") {
+                transformed = reorderValueRows(
+                    value,
+                    layout: layout,
+                    headDimension: layout.valueHeadDimension
+                )
+            } else if baseName.hasSuffix(".ssm_alpha.weight")
+                        || baseName.hasSuffix(".ssm_beta.weight") {
+                transformed = reorderValueRows(
+                    value,
+                    layout: layout,
+                    headDimension: 1
+                )
+            } else if baseName.hasSuffix(".ssm_a")
+                        || baseName.hasSuffix(".ssm_dt.bias") {
+                transformed = reorderValueRows(
+                    value,
+                    layout: layout,
+                    headDimension: 1
+                )
+            } else if baseName.hasSuffix(".ssm_conv1d.weight") {
+                transformed = reorderConv1D(value, layout: layout)
+            } else if baseName.hasSuffix(".ssm_out.weight") {
+                transformed = reorderValueColumns(
+                    value,
+                    layout: layout,
+                    groupSize: groupSize
+                )
+            } else {
+                transformed = nil
+            }
+            if let transformed {
+                reordered[name] = transformed
+            }
+        }
+        return reordered
+    }
+
+    private static func reorderQKV(
+        _ value: MLXArray,
+        layout: LinearAttentionLayout
+    ) -> MLXArray {
+        guard value.ndim >= 2,
+              value.dim(0) == layout.keyRows * 2 + layout.valueRows else { return value }
+        // Qwen3.5's fused projection is [q, k, v].  Both q and k use
+        // keyRows; only the v rows need to be restored from GGUF's tiled
+        // order to the grouped order expected by mlx-swift-lm.
+        let keyRows = layout.keyRows
+        let keyPart = value[0..<(keyRows * 2), .ellipsis]
+        let valuePart = value[(keyRows * 2)..., .ellipsis]
+        let reorderedValue = reorderValueRows(
+            valuePart,
+            layout: layout,
+            headDimension: layout.valueHeadDimension
+        )
+        return concatenated([keyPart, reorderedValue], axis: 0)
+    }
+
+    private static func reorderConv1D(
+        _ value: MLXArray,
+        layout: LinearAttentionLayout
+    ) -> MLXArray {
+        guard value.ndim >= 2,
+              value.dim(0) == layout.keyRows * 2 + layout.valueRows else { return value }
+        let valueStart = layout.keyRows * 2
+        let prefix = value[0..<valueStart, .ellipsis]
+        let valuePart = value[valueStart..., .ellipsis]
+        let reorderedValue = reorderValueRows(
+            valuePart,
+            layout: layout,
+            headDimension: layout.valueHeadDimension
+        )
+        return concatenated([prefix, reorderedValue], axis: 0)
+    }
+
+    private static func reorderValueRows(
+        _ value: MLXArray,
+        layout: LinearAttentionLayout,
+        headDimension: Int
+    ) -> MLXArray {
+        guard value.ndim >= 1,
+              headDimension > 0,
+              value.dim(0) == layout.numValueHeads * headDimension else { return value }
+        return reorderHeadAxis(
+            value,
+            axis: 0,
+            headDimension: headDimension,
+            layout: layout
+        )
+    }
+
+    private static func reorderValueColumns(
+        _ value: MLXArray,
+        layout: LinearAttentionLayout,
+        groupSize: Int
+    ) -> MLXArray {
+        guard value.ndim >= 2, groupSize > 0 else { return value }
+        let dimensionLength = value.dim(-1)
+        let packingFactor: Int
+        if dimensionLength == layout.valueRows {
+            packingFactor = 1
+        } else if dimensionLength == layout.valueRows / 8 {
+            packingFactor = 8
+        } else if dimensionLength == layout.valueRows / 4 {
+            packingFactor = 4
+        } else if dimensionLength == layout.valueRows / groupSize {
+            // Scales and biases have one value per quantization group.
+            packingFactor = groupSize
+        } else {
+            return value
+        }
+        guard layout.valueHeadDimension % packingFactor == 0 else { return value }
+        return reorderHeadAxis(
+            value,
+            axis: value.ndim - 1,
+            headDimension: layout.valueHeadDimension / packingFactor,
+            layout: layout
+        )
+    }
+
+    private static func reorderHeadAxis(
+        _ value: MLXArray,
+        axis: Int,
+        headDimension: Int,
+        layout: LinearAttentionLayout
+    ) -> MLXArray {
+        let axis = axis >= 0 ? axis : value.ndim + axis
+        guard axis >= 0,
+              axis < value.ndim,
+              value.dim(axis) == layout.numValueHeads * headDimension else {
+            return value
+        }
+
+        var reshapedShape = value.shape
+        reshapedShape.replaceSubrange(
+            axis...axis,
+            with: [layout.valuesPerKeyHead, layout.numKeyHeads, headDimension]
+        )
+        let rank = reshapedShape.count
+        var permutation = Array(0..<rank)
+        permutation[axis] = axis + 1
+        permutation[axis + 1] = axis
+        let transposed = value.reshaped(reshapedShape).transposed(axes: permutation)
+        return transposed.reshaped(value.shape)
+    }
+
+    private static func quantizeGGUFModel(
+        _ model: LanguageModel,
+        weights: [String: MLXArray],
+        groupSize: Int
+    ) {
+        quantize(model: model) { path, _ in
+            guard let weight = weights["\(path).weight"],
+                  let scales = weights["\(path).scales"],
+                  scales.dim(-1) > 0 else { return nil }
+            if weights["\(path).biases"] == nil,
+               scales.dtype == .uint8,
+               weight.dim(-1) * 8 == scales.dim(-1) * 32 {
+                return (32, 4, .mxfp4)
+            }
+            let packedWidthPerGroup = groupSize / 32
+            guard packedWidthPerGroup > 0,
+                  weight.dim(-1) % scales.dim(-1) == 0 else { return nil }
+            let bits = weight.dim(-1) / scales.dim(-1) / packedWidthPerGroup
+            guard bits == 4 || bits == 8 else { return nil }
+            return (groupSize, bits, .affine)
+        }
+    }
+}

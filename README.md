@@ -14,7 +14,7 @@
 - 支援 Hugging Face 公開、gated 與 private repository 的 GGUF 單檔或完整 MLX 模型下載。
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 分組顯示，選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名。清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
-- 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄。
+- 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
 - 執行狀態頁依所選 Runtime 提供支援模型下拉清單，不接受任意模型路徑。
 - 執行狀態頁提供預設關閉的 DFlash 開關；不支援的 Target 會禁用開關，勾選時會即時重新掃描並檢查配對 Draft。
 - 系統設定提供服務主機目錄瀏覽器，可由 Home、檔案系統或掛載磁碟選擇 GGUF／MLX 模型目錄，不需要作業系統 Automation 權限或外部工具。
@@ -125,11 +125,14 @@ llama-server \
 
 - 文生文模型：`LLMModelFactory`
 - 多模態模型：`VLMModelFactory`
+- GGUF 模型：內建 GGUF metadata、Tokenizer 與量化權重轉換器
 - HTTP Server：SwiftNIO
 
 整個應用不呼叫 Python、`mlx_lm.server`、pip 或虛擬環境；Go 管理服務與 Swift MLX Runtime 都是原生執行檔。部署主機不需要安裝 Python。
 
-啟動時會檢查模型目錄內的 `config.json`，自動判斷文生文或多模態架構，再從同一目錄載入 safetensors、Tokenizer 與 Processor。模型目錄及所有子目錄都會被掃描；只有同時包含 `config.json` 與 safetensors 權重的目錄會出現在清單。
+啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重。現階段原生支援 Qwen3.5、Qwen3、Qwen2 與 Llama 架構；多模態 Qwen3.5 可另外選擇配對的 `mmproj`。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。
+
+GGUF 可透過 `--gguf-group-size 32|64` 與 `--gguf-profile quality|speed` 調整載入策略，預設為 `64` 與 `quality`。GGUF Target 使用一般 MLX 生成；既有 DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft，以維持精確回退語意。
 
 API 提供 OpenAI／llama-server 常用相容端點：
 
@@ -318,7 +321,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 | `POST` | `/api/netpass/start` | 明確確認公共網路風險後啟動反向代理 |
 | `POST` | `/api/netpass/stop` | 停止反向代理並清除執行期憑證檔 |
 | `POST` | `/api/system/directories` | 瀏覽服務主機的可用目錄 |
-| `GET` | `/api/models?runtime=...` | 依 Runtime 掃描 GGUF 或 MLX Target 模型；MLX 可加 `role=draft` 取得支援的 DFlash Draft |
+| `GET` | `/api/models?runtime=...` | 依 Runtime 掃描 GGUF 或 MLX Target；mlx-server 會合併支援的 GGUF，並可加 `role=draft` 取得 MLX DFlash Draft |
 | `GET/POST` | `/api/startup-commands` | 查詢或建立啟動參數 Profile |
 | `PUT/DELETE` | `/api/startup-commands/{id}` | 修改或刪除啟動參數 Profile |
 | `GET/POST` | `/api/downloads` | 查詢或建立下載工作 |

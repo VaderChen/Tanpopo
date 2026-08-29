@@ -6,9 +6,9 @@
   <title>模型下載 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-30">
-  <script src="/assets/common.js?v=20260829-44" defer></script>
-  <script src="/assets/download.js?v=20260829-7" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-32">
+  <script src="/assets/common.js?v=20260829-46" defer></script>
+  <script src="/assets/download.js?v=20260829-8" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -42,11 +42,11 @@
       <div class="download-grid">
         <form id="downloadForm" class="panel form-panel">
           <div class="field">
-            <label for="downloadRuntime">模型格式／Runtime</label>
+            <label for="downloadRuntime">模型格式</label>
             <div id="quickModelPicker" class="download-runtime-picker">
               <select id="downloadRuntime">
-                <option value="llama-server">GGUF（llama-server）</option>
-                <option value="mlx-server">MLX 模型目錄（Apple Silicon）</option>
+                <option value="llama-server">GGUF 模型</option>
+                <option value="mlx-server">MLX 模型（Apple Silicon）</option>
               </select>
               <button id="quickModelButton" class="quick-model-button" type="button" aria-label="快速選擇常用模型" title="快速選擇常用模型" aria-haspopup="dialog" aria-controls="quickModelPopover" aria-expanded="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -71,16 +71,19 @@
           <div class="two-columns">
             <label class="field">
               <span>Repository</span>
-              <input id="repository" placeholder="bartowski/Qwen2.5-7B-Instruct-GGUF" required>
+              <input id="repository" type="text" placeholder="bartowski/Qwen2.5-7B-Instruct-GGUF"
+                autocomplete="off" autocapitalize="none" spellcheck="false" required>
             </label>
             <label class="field">
               <span>Revision</span>
-              <input id="revision" placeholder="main">
+              <input id="revision" type="text" placeholder="main"
+                autocomplete="off" autocapitalize="none" spellcheck="false">
             </label>
           </div>
           <label id="filenameField" class="field">
             <span>GGUF 檔名</span>
-            <input id="filename" placeholder="Qwen2.5-7B-Instruct-Q4_K_M.gguf" required>
+            <input id="filename" type="text" placeholder="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+              autocomplete="off" autocapitalize="none" spellcheck="false" required>
             <small class="helper">每個主 GGUF 會建立獨立目錄；下載前會依 Hugging Face metadata 尋找同一或外部 repository 的配對 mmproj 與 DFlash Draft。</small>
           </label>
           <p id="mlxDownloadHint" class="helper" hidden>會檢查 repository 內的 config.json 與 safetensors，並把 Tokenizer、Processor、Chat Template 及所有權重下載到獨立的 MLX 模型目錄。</p>

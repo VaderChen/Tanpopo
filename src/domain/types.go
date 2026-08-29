@@ -55,6 +55,7 @@ type PublicSettings struct {
 
 type ModelFile struct {
 	Path            string    `json:"path"`
+	Format          string    `json:"format,omitempty"`
 	Size            int64     `json:"size"`
 	ModifiedAt      time.Time `json:"modified_at"`
 	Architecture    string    `json:"architecture,omitempty"`
@@ -97,6 +98,7 @@ type StartupCommand struct {
 
 type LlamaStatus struct {
 	Running            bool      `json:"running"`
+	Ready              bool      `json:"ready"`
 	DesiredRunning     bool      `json:"desired_running"`
 	Runtime            string    `json:"runtime"`
 	PID                int       `json:"pid,omitempty"`

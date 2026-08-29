@@ -7,9 +7,10 @@ enum ModelKind: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.3.3-mlxswiftlm-3.31.4-dflash2"
+    static let version = "1.4.1-mlxswiftlm-3.31.4-gguf-dflash2"
 
     var modelPath = ""
+    var mmprojPath: String?
     var host = "0.0.0.0"
     var port = 8080
     var modelKind = ModelKind.auto
@@ -30,6 +31,8 @@ struct ServerConfiguration: Sendable {
     var accessControlPath: String?
     var dflashDraftPath: String?
     var dflashBlockSize = 5
+    var ggufGroupSize = 64
+    var ggufProfile = GGUFQuantizationProfile.quality
 
     static func parse(_ arguments: [String]) throws -> Self {
         var result = Self()
@@ -48,6 +51,12 @@ struct ServerConfiguration: Sendable {
             switch option {
             case "--model", "-m":
                 result.modelPath = try nextValue(for: option)
+            case "--mmproj":
+                let value = try nextValue(for: option).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.mmprojPath = value
             case "--host":
                 result.host = try nextValue(for: option)
             case "--port":
@@ -107,6 +116,18 @@ struct ServerConfiguration: Sendable {
             case "--dflash-block-size":
                 result.dflashBlockSize = try parseInteger(
                     nextValue(for: option), option: option, range: 2...256)
+            case "--gguf-group-size":
+                let value = try parseInteger(nextValue(for: option), option: option, range: 32...64)
+                guard value == 32 || value == 64 else {
+                    throw ConfigurationError.invalidValue(option, String(value))
+                }
+                result.ggufGroupSize = value
+            case "--gguf-profile":
+                let value = try nextValue(for: option).lowercased()
+                guard let profile = GGUFQuantizationProfile(rawValue: value) else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.ggufProfile = profile
             case "--version", "-v":
                 print(Self.version)
                 Foundation.exit(EXIT_SUCCESS)
@@ -120,6 +141,9 @@ struct ServerConfiguration: Sendable {
         }
 
         result.modelPath = NSString(string: result.modelPath).expandingTildeInPath
+        if let mmprojPath = result.mmprojPath {
+            result.mmprojPath = NSString(string: mmprojPath).expandingTildeInPath
+        }
         if let accessControlPath = result.accessControlPath {
             result.accessControlPath = NSString(string: accessControlPath).expandingTildeInPath
         }
@@ -130,9 +154,22 @@ struct ServerConfiguration: Sendable {
             throw ConfigurationError.missingModel
         }
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: result.modelPath, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            throw ConfigurationError.invalidModelDirectory(result.modelPath)
+        guard FileManager.default.fileExists(atPath: result.modelPath, isDirectory: &isDirectory) else {
+            throw ConfigurationError.invalidModelPath(result.modelPath)
+        }
+        let isGGUF = !isDirectory.boolValue
+            && URL(fileURLWithPath: result.modelPath).pathExtension.lowercased() == "gguf"
+        guard isDirectory.boolValue || isGGUF else {
+            throw ConfigurationError.invalidModelPath(result.modelPath)
+        }
+        if let mmprojPath = result.mmprojPath {
+            var isMMProjDirectory: ObjCBool = false
+            guard isGGUF,
+                  FileManager.default.fileExists(atPath: mmprojPath, isDirectory: &isMMProjDirectory),
+                  !isMMProjDirectory.boolValue,
+                  URL(fileURLWithPath: mmprojPath).pathExtension.lowercased() == "gguf" else {
+                throw ConfigurationError.invalidMMProjFile(mmprojPath)
+            }
         }
         if let dflashDraftPath = result.dflashDraftPath {
             var isDraftDirectory: ObjCBool = false
@@ -168,11 +205,15 @@ struct ServerConfiguration: Sendable {
     }
 
     static let usage = """
-    用法：mlx-server --model <模型目錄> [選項]
+    用法：mlx-server --model <MLX 模型目錄或 GGUF 檔案> [選項]
 
       --host <IP>                 監聽位址，預設 0.0.0.0
       --port <Port>               監聽連接埠，預設 8080
       --model-type <類型>          auto、text 或 vision，預設 auto
+      --mmproj <GGUF 檔案>         GGUF 多模態視覺投影檔
+      --gguf-group-size <32|64>    GGUF 權重量化群組大小，預設 64
+      --gguf-profile <quality|speed>
+                                   GGUF 轉換策略，預設 quality
       --max-tokens <數量>          預設最大輸出 Token，預設 4096
       --max-kv-size <數量>         KV Cache 最大 Token 數
       --kv-bits <4|8>             KV Cache 量化位元
@@ -195,7 +236,8 @@ struct ServerConfiguration: Sendable {
 
 enum ConfigurationError: LocalizedError {
     case missingModel
-    case invalidModelDirectory(String)
+    case invalidModelPath(String)
+    case invalidMMProjFile(String)
     case invalidDraftDirectory(String)
     case missingValue(String)
     case invalidValue(String, String)
@@ -204,9 +246,11 @@ enum ConfigurationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingModel:
-            "必須使用 --model 指定本機 MLX 模型目錄。"
-        case .invalidModelDirectory(let path):
-            "MLX 模型目錄不存在：\(path)"
+            "必須使用 --model 指定本機 MLX 模型目錄或 GGUF 檔案。"
+        case .invalidModelPath(let path):
+            "MLX 模型目錄或 GGUF 檔案不存在：\(path)"
+        case .invalidMMProjFile(let path):
+            "mmproj 必須是可讀取的 GGUF 檔案，且只能搭配 GGUF 主模型：\(path)"
         case .invalidDraftDirectory(let path):
             "DFlash draft 模型目錄不存在：\(path)"
         case .missingValue(let option):

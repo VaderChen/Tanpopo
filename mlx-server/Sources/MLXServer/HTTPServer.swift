@@ -135,11 +135,19 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
         _ state: RequestState,
         remoteAddress: String?
     ) async -> HTTPResponse {
+        let path = String(
+            state.head.uri.split(separator: "?", maxSplits: 1).first
+                ?? Substring(state.head.uri)
+        )
+        let isHealthRequest = state.head.method == .GET
+            && (path == "/health" || path == "/v1/health")
         let response: HTTPResponse
         let accessDecision = accessControl.authorize(
             remoteAddress: remoteAddress,
             apiKey: requestAPIKey(from: state.head.headers),
-            validateAPIKey: state.head.method != .OPTIONS
+            // 健康端點只公開最小化的存活狀態，不揭露模型或設定內容；
+            // 仍保留來源 IP 白名單驗證。
+            validateAPIKey: state.head.method != .OPTIONS && !isHealthRequest
         )
         if accessDecision != .allowed {
             response = accessDeniedResponse(accessDecision)
@@ -152,10 +160,6 @@ private final class HTTPRequestHandler: ChannelInboundHandler, @unchecked Sendab
                 at: state.body.readerIndex,
                 length: state.body.readableBytes
             ) ?? []
-            let path = String(
-                state.head.uri.split(separator: "?", maxSplits: 1).first
-                    ?? Substring(state.head.uri)
-            )
             response = await router.handle(
                 method: state.head.method.rawValue,
                 path: path,

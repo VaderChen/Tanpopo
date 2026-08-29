@@ -29,6 +29,7 @@ const (
 	maxRememberedJobs      = 50
 	defaultDownloadChunk   = int64(64 << 20)
 	defaultDownloadWorkers = 4
+	progressReportBatch    = int64(1 << 20)
 )
 
 var (
@@ -84,6 +85,7 @@ type Manager struct {
 	wg            sync.WaitGroup
 	jobs          map[string]domain.DownloadJob
 	activeTargets map[string]string
+	cancellations map[string]context.CancelFunc
 	client        *http.Client
 	slots         chan struct{}
 	rangeSlots    chan struct{}
@@ -99,7 +101,9 @@ func NewManager(maxConcurrent int) *Manager {
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          10,
+		MaxIdleConns:          16,
+		MaxIdleConnsPerHost:   defaultDownloadWorkers,
+		MaxConnsPerHost:       defaultDownloadWorkers,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -107,6 +111,7 @@ func NewManager(maxConcurrent int) *Manager {
 	return &Manager{
 		jobs:          make(map[string]domain.DownloadJob),
 		activeTargets: make(map[string]string),
+		cancellations: make(map[string]context.CancelFunc),
 		client:        &http.Client{Transport: transport},
 		slots:         make(chan struct{}, maxConcurrent),
 		rangeSlots:    make(chan struct{}, defaultDownloadWorkers),
@@ -383,21 +388,52 @@ func (m *Manager) startValidated(ctx context.Context, request Request, destinati
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	jobContext, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
 	if _, exists := m.activeTargets[destination]; exists {
 		m.mu.Unlock()
+		cancel()
 		return domain.DownloadJob{}, errors.New("相同目的檔案已有下載工作進行中")
 	}
 	m.pruneLocked()
 	m.jobs[id] = job
 	m.activeTargets[destination] = id
+	m.cancellations[id] = cancel
 	m.mu.Unlock()
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		m.run(ctx, id, request, destination)
+		defer func() {
+			cancel()
+			m.mu.Lock()
+			delete(m.cancellations, id)
+			m.mu.Unlock()
+		}()
+		m.run(jobContext, id, request, destination)
 	}()
 	return job, nil
+}
+
+// Cancel 只取消指定工作。該工作建立的所有 Range request 共用同一個
+// context，因此按一次即可停止所有分段，其他下載不受影響。
+func (m *Manager) Cancel(id string) error {
+	m.mu.Lock()
+	job, exists := m.jobs[id]
+	cancel := m.cancellations[id]
+	if !exists {
+		m.mu.Unlock()
+		return errors.New("找不到下載工作")
+	}
+	if (job.State != "queued" && job.State != "downloading") || cancel == nil {
+		m.mu.Unlock()
+		return errors.New("下載工作目前無法取消")
+	}
+	job.State = "cancelling"
+	job.UpdatedAt = time.Now()
+	m.jobs[id] = job
+	m.mu.Unlock()
+	cancel()
+	return nil
 }
 
 func (m *Manager) discoverCompanions(ctx context.Context, request Request) ([]string, repositoryInfo, error) {
@@ -973,7 +1009,7 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 	case m.slots <- struct{}{}:
 		defer func() { <-m.slots }()
 	case <-ctx.Done():
-		m.fail(id, "服務已停止")
+		m.cancelled(id, destination)
 		return
 	}
 
@@ -1008,7 +1044,15 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 		err = m.downloadSequential(ctx, id, downloadURL, request.Token, file)
 	}
 	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			m.cancelled(id, destination)
+			return
+		}
 		m.fail(id, err.Error())
+		return
+	}
+	if ctx.Err() != nil {
+		m.cancelled(id, destination)
 		return
 	}
 	if err := file.Sync(); err != nil {
@@ -1017,6 +1061,10 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 	}
 	if err := file.Close(); err != nil {
 		m.fail(id, err.Error())
+		return
+	}
+	if ctx.Err() != nil {
+		m.cancelled(id, destination)
 		return
 	}
 	if err := replaceFile(partPath, destination, request.Overwrite, id); err != nil {
@@ -1100,9 +1148,11 @@ func (m *Manager) downloadSequential(
 		job.BytesDone = 0
 		job.BytesTotal = response.ContentLength
 	})
-	_, err = io.Copy(file, &progressReader{reader: response.Body, report: func(delta int64) {
+	progress := &progressReader{reader: response.Body, report: func(delta int64) {
 		m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
-	}})
+	}}
+	_, err = io.Copy(file, progress)
+	progress.Flush()
 	return err
 }
 
@@ -1204,13 +1254,15 @@ func (m *Manager) downloadRange(
 		return fmt.Errorf("遠端伺服器回傳無效的 Content-Range: %q", response.Header.Get("Content-Range"))
 	}
 	expected := item.End - item.Start + 1
+	progress := &progressReader{reader: response.Body, report: func(delta int64) {
+		m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
+	}}
 	written, err := io.CopyN(
 		io.NewOffsetWriter(file, item.Start),
-		&progressReader{reader: response.Body, report: func(delta int64) {
-			m.update(id, func(job *domain.DownloadJob) { job.BytesDone += delta })
-		}},
+		progress,
 		expected,
 	)
+	progress.Flush()
 	if err != nil {
 		return err
 	}
@@ -1270,6 +1322,15 @@ func downloadResponseError(response *http.Response) error {
 // complete 會在檔案安全落地後立即清除已完成工作，避免下載佇列持續累積。
 // 失敗工作仍會保留，讓使用者可以查看錯誤原因。
 func (m *Manager) complete(id, destination string) {
+	m.mu.Lock()
+	delete(m.jobs, id)
+	if m.activeTargets[destination] == id {
+		delete(m.activeTargets, destination)
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) cancelled(id, destination string) {
 	m.mu.Lock()
 	delete(m.jobs, id)
 	if m.activeTargets[destination] == id {
@@ -1461,14 +1522,26 @@ func randomID() (string, error) {
 }
 
 type progressReader struct {
-	reader io.Reader
-	report func(int64)
+	reader  io.Reader
+	report  func(int64)
+	pending int64
 }
 
 func (r *progressReader) Read(buffer []byte) (int, error) {
 	count, err := r.reader.Read(buffer)
 	if count > 0 {
-		r.report(int64(count))
+		r.pending += int64(count)
+	}
+	if r.pending >= progressReportBatch || err != nil {
+		r.Flush()
 	}
 	return count, err
+}
+
+func (r *progressReader) Flush() {
+	if r.pending <= 0 {
+		return
+	}
+	r.report(r.pending)
+	r.pending = 0
 }

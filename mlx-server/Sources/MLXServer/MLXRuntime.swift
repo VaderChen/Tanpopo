@@ -11,35 +11,76 @@ actor MLXRuntime {
     let kind: ModelKind
 
     private let configuration: ServerConfiguration
+    private let ggufWeightURL: URL?
+    private let ggufMMProjURL: URL?
     private var container: ModelContainer?
     private var dflashDrafter: (any DFlashDrafterModel)?
 
     init(configuration: ServerConfiguration) throws {
         self.configuration = configuration
-        modelDirectory = URL(fileURLWithPath: configuration.modelPath, isDirectory: true)
-        modelID = modelDirectory.lastPathComponent
+        let modelURL = URL(fileURLWithPath: configuration.modelPath)
+        let isGGUF = modelURL.pathExtension.lowercased() == "gguf"
+        ggufWeightURL = isGGUF ? modelURL : nil
+        ggufMMProjURL = configuration.mmprojPath.map(URL.init(fileURLWithPath:))
+        modelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
+        modelID = isGGUF
+            ? modelURL.deletingPathExtension().lastPathComponent
+            : modelDirectory.lastPathComponent
         kind = try Self.resolveModelKind(
             requested: configuration.modelKind,
-            directory: modelDirectory
+            directory: modelDirectory,
+            isGGUF: isGGUF,
+            hasMMProj: ggufMMProjURL != nil
         )
     }
 
     func prepare() async throws {
         guard container == nil else { return }
-        switch kind {
-        case .text, .auto:
-            container = try await LLMModelFactory.shared.loadContainer(
-                from: modelDirectory,
-                using: #huggingFaceTokenizerLoader()
+        if let ggufWeightURL {
+            switch kind {
+            case .text, .auto:
+                container = try await MLXGGUFModelLoader.loadContainer(
+                    from: modelDirectory,
+                    weightURL: ggufWeightURL,
+                    quantizationGroupSize: configuration.ggufGroupSize,
+                    quantizationProfile: configuration.ggufProfile
+                )
+            case .vision:
+                guard let ggufMMProjURL else {
+                    throw MLXGGUFLoaderError.missingMultimodalProjector(modelDirectory)
+                }
+                container = try await MLXGGUFModelLoader.loadVLMContainer(
+                    from: modelDirectory,
+                    weightURL: ggufWeightURL,
+                    mmprojURL: ggufMMProjURL,
+                    quantizationGroupSize: configuration.ggufGroupSize,
+                    quantizationProfile: configuration.ggufProfile
+                )
+            }
+            fputs(
+                "GGUF loaded model=\(ggufWeightURL.lastPathComponent) profile=\(configuration.ggufProfile.rawValue) group_size=\(configuration.ggufGroupSize)\n",
+                stderr
             )
-        case .vision:
-            container = try await VLMModelFactory.shared.loadContainer(
-                from: modelDirectory,
-                using: #huggingFaceTokenizerLoader()
-            )
+        } else {
+            switch kind {
+            case .text, .auto:
+                container = try await LLMModelFactory.shared.loadContainer(
+                    from: modelDirectory,
+                    using: #huggingFaceTokenizerLoader()
+                )
+            case .vision:
+                container = try await VLMModelFactory.shared.loadContainer(
+                    from: modelDirectory,
+                    using: #huggingFaceTokenizerLoader()
+                )
+            }
         }
 
         if let draftPath = configuration.dflashDraftPath {
+            guard ggufWeightURL == nil else {
+                throw DFlashError.unsupportedGeneration(
+                    "GGUF Target 目前使用一般 MLX 生成；DFlash 請搭配 MLX safetensors Target。")
+            }
             guard kind != .vision else {
                 throw DFlashError.unsupportedGeneration(
                     "DFlash 目前只支援 language target model。")
@@ -358,9 +399,14 @@ actor MLXRuntime {
 
     private static func resolveModelKind(
         requested: ModelKind,
-        directory: URL
+        directory: URL,
+        isGGUF: Bool,
+        hasMMProj: Bool
     ) throws -> ModelKind {
         guard requested == .auto else { return requested }
+        if isGGUF {
+            return hasMMProj ? .vision : .text
+        }
         let configURL = directory.appendingPathComponent("config.json")
         guard let data = try? Data(contentsOf: configURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
