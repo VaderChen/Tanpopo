@@ -76,11 +76,12 @@
       </div>
       <div class="callout">
         <div>
-          <h3>目前 fastGGUF 只能視為效能 POC</h3>
+          <h3>目前 fastGGUF 已推薦使用，但不能視為唯一手段，仍需驗證相容性</h3>
           <p>
-            開啟後，4B、9B、27B 的中位生成速度都接近或超過純 MLX；但固定題庫中，4B 只有 40%，
-            9B 與 27B 更出現大量無效輸出。關閉 fastGGUF 的 Auto／INT8 路徑同樣沒有恢復品質，
-            因此開關不能被描述成「速度／品質」二選一，正式啟用前仍需要通用的數值保真策略與架構能力門控。
+            本表保留整合 recurrent controls、tensor 契約驗證與新版快取前的基線數據；主系統完成這些修正後，
+            fastGGUF 已成為多數可解析 GGUF 的建議預設。模型架構、量化方式、Tokenizer 與自訂 checkpoint
+            仍可能影響結果，因此不能把 fastGGUF 視為唯一執行手段；正式使用前應逐模型驗證速度與精確度，
+            並保留原生 MLX 或 llama+GGUF 作為相容路徑。
           </p>
         </div>
       </div>
