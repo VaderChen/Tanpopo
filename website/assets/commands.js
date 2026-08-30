@@ -1,5 +1,5 @@
 (() => {
-  const { api, byId, showMessage, formatTime } = window.LlamaLoader;
+  const { api, byId, showMessage, formatTime, t } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
   const state = { commands: [], modelsByRuntime: {}, selectedID: "" };
@@ -14,6 +14,8 @@
       context_size: Number(byId("commandContextSize").value),
       gpu_layers: Number(byId("commandGPULayers").value),
       threads: Number(byId("commandThreads").value),
+      mmap_reserve_gb: Number(byId("commandMMapReserve").value),
+      kv_cache_quantization: byId("commandKVCacheQuantization").value,
       extra_args: byId("commandExtraArgs").value
         .split(/\r?\n/)
         .map((argument) => argument.trim())
@@ -31,6 +33,8 @@
     byId("commandContextSize").value = command?.context_size ?? 262144;
     byId("commandGPULayers").value = command?.gpu_layers ?? -1;
     byId("commandThreads").value = command?.threads ?? 0;
+    byId("commandMMapReserve").value = command?.mmap_reserve_gb ?? 0;
+    byId("commandKVCacheQuantization").value = command?.kv_cache_quantization || "q4";
     byId("commandExtraArgs").value = (command?.extra_args || []).join("\n");
     byId("commandEditorTitle").textContent = command ? "編輯啟動參數" : "新增啟動參數";
     byId("commandUpdatedAt").textContent = command ? `更新於 ${formatTime(command.updated_at)}` : "尚未保存";
@@ -54,7 +58,11 @@
       name.textContent = command.name;
       const summary = document.createElement("span");
       const runtimeLabel = command.runtime === MLX_RUNTIME ? "MLX" : "llama";
-      summary.textContent = `${runtimeLabel} · ${command.server_host}:${command.server_port} · Context ${command.context_size}${command.draft_model ? " · Draft" : ""}`;
+      const mmapReserve = command.mmap_reserve_gb > 0 ? ` · ${t("MMap 保留")} ${command.mmap_reserve_gb} GB` : "";
+      const kvCache = command.kv_cache_quantization
+        ? ` · KV Cache ${command.kv_cache_quantization.toUpperCase()}`
+        : "";
+      summary.textContent = `${runtimeLabel} · ${command.server_host}:${command.server_port} · Context ${command.context_size}${command.draft_model ? " · Draft" : ""}${mmapReserve}${kvCache}`;
       button.append(name, summary);
       button.addEventListener("click", () => fillForm(command));
       container.append(button);
@@ -65,7 +73,7 @@
     const command = commandPayload();
     const isMLX = command.runtime === MLX_RUNTIME;
     const args = [
-      ...command.extra_args,
+      ...withoutManagedKVCacheArguments(command.extra_args),
       "--model", isMLX ? "<選擇的 MLX 模型目錄或 GGUF>" : "<選擇的 GGUF>"
     ];
     if (command.draft_model) {
@@ -74,12 +82,30 @@
     }
     args.push("--host", command.server_host || "<Host>", "--port", String(command.server_port || "<Port>"));
     if (isMLX) {
-      if (!command.draft_model) args.push("--max-kv-size", String(command.context_size || "<Context>"));
+      if (command.kv_cache_quantization) {
+        args.push(
+          "--kv-bits", command.kv_cache_quantization === "q4" ? "4" : "8",
+          "--kv-group-size", "64",
+          "--quantized-kv-start", "2048"
+        );
+        if (!command.draft_model) {
+          args.push("--max-kv-size", String(command.context_size || "<Context>"));
+        }
+      }
     } else {
-      args.push(
-        "--ctx-size", String(command.context_size || "<Context>"),
-        "--n-gpu-layers", String(Number.isFinite(command.gpu_layers) ? command.gpu_layers : "<GPU Layers>")
-      );
+      args.push("--ctx-size", String(command.context_size || "<Context>"));
+      if (command.kv_cache_quantization) {
+        const cacheType = command.kv_cache_quantization === "q4" ? "q4_0" : "q8_0";
+        args.push("--cache-type-k", cacheType, "--cache-type-v", cacheType, "--flash-attn", "on");
+      }
+      if (command.mmap_reserve_gb > 0) {
+        args.push(
+          "--fit", "on",
+          "--fit-target", String(command.mmap_reserve_gb * 1024)
+        );
+      } else {
+        args.push("--n-gpu-layers", String(Number.isFinite(command.gpu_layers) ? command.gpu_layers : "<GPU Layers>"));
+      }
       if (command.threads > 0) args.push("--threads", String(command.threads));
     }
     byId("commandPreview").textContent = [isMLX ? "mlx-server" : "llama-server", ...args].join(" ");
@@ -99,6 +125,24 @@
       ? "例如 z-lab/Qwen3.8-27B-DFlash2"
       : "例如 Qwen3-4B-DFlash.gguf";
     renderDraftOptions();
+  }
+
+  function withoutManagedKVCacheArguments(arguments) {
+    const managed = new Set([
+      "--cache-type-k", "-ctk", "--cache-type-v", "-ctv",
+      "--kv-bits", "--kv-group-size", "--kv-scheme", "--quantized-kv-start"
+    ]);
+    const filtered = [];
+    for (let index = 0; index < arguments.length; index += 1) {
+      const argument = String(arguments[index] || "").trim();
+      const name = argument.split("=", 1)[0];
+      if (!managed.has(name)) {
+        filtered.push(arguments[index]);
+        continue;
+      }
+      if (!argument.includes("=") && index + 1 < arguments.length) index += 1;
+    }
+    return filtered;
   }
 
   function renderDraftOptions() {

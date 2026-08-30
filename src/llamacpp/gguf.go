@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 const (
@@ -86,6 +87,104 @@ func readGGUFStringMetadata(path, expectedKey string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("GGUF 缺少 metadata：%s", expectedKey)
+}
+
+// ggufModelProfile 是判斷「這個 GGUF 是不是語言模型」需要的最小欄位集合。
+type ggufModelProfile struct {
+	Architecture   string
+	HasBlockCount  bool
+	HasTokenizer   bool
+	HasPoolingType bool
+}
+
+// encoderOnlyGGUFArchitectures 是只能產生向量、不能生成文字的架構。
+// 它們有 transformer 層數也有 tokenizer，必須另外排除。
+var encoderOnlyGGUFArchitectures = map[string]bool{
+	"t5encoder": true,
+	"clip":      true,
+}
+
+// isLanguageModel 判斷 GGUF 是不是 LLM／VLM。
+//
+// 影像放大、影片與音樂生成模型也用 GGUF 打包，但沒有 transformer 層數
+// （`<arch>.block_count`）也沒有 tokenizer 詞表，用這兩個欄位就能把它們排除在
+// 模型列表之外。多模態模型的語言塔一樣有這兩個欄位，不會被誤刪。
+// 嵌入模型會帶 `<arch>.pooling_type`，以此排除 BERT 家族等只做向量輸出的模型。
+func (profile ggufModelProfile) isLanguageModel() bool {
+	if profile.Architecture == "" || !profile.HasBlockCount || !profile.HasTokenizer {
+		return false
+	}
+	if profile.HasPoolingType {
+		return false
+	}
+	return !encoderOnlyGGUFArchitectures[strings.ToLower(strings.TrimSpace(profile.Architecture))]
+}
+
+// readGGUFModelProfile 一次掃過 metadata 取得判斷所需的欄位。
+// 與 readGGUFStringMetadata 一樣只讀 metadata 區，成本與模型大小無關。
+func readGGUFModelProfile(path string) (ggufModelProfile, error) {
+	var profile ggufModelProfile
+	file, err := os.Open(path)
+	if err != nil {
+		return profile, err
+	}
+	defer file.Close()
+
+	reader := bufio.NewReaderSize(file, 64*1024)
+	var magic [4]byte
+	if _, err := io.ReadFull(reader, magic[:]); err != nil {
+		return profile, err
+	}
+	if string(magic[:]) != "GGUF" {
+		return profile, errors.New("不是 GGUF 檔案")
+	}
+	version, err := readGGUFUint32(reader)
+	if err != nil {
+		return profile, err
+	}
+	if version < 2 || version > 3 {
+		return profile, fmt.Errorf("不支援的 GGUF 版本：%d", version)
+	}
+	if _, err := readGGUFUint64(reader); err != nil { // tensor count
+		return profile, err
+	}
+	metadataCount, err := readGGUFUint64(reader)
+	if err != nil {
+		return profile, err
+	}
+	if metadataCount > maxGGUFMetadataEntries {
+		return profile, errors.New("GGUF metadata 數量異常")
+	}
+
+	for index := uint64(0); index < metadataCount; index++ {
+		key, err := readGGUFString(reader, maxGGUFStringBytes)
+		if err != nil {
+			return profile, err
+		}
+		valueType, err := readGGUFUint32(reader)
+		if err != nil {
+			return profile, err
+		}
+		switch {
+		case key == "general.architecture" && valueType == ggufTypeString:
+			value, err := readGGUFString(reader, maxGGUFStringBytes)
+			if err != nil {
+				return profile, err
+			}
+			profile.Architecture = value
+			continue
+		case strings.HasSuffix(key, ".block_count"):
+			profile.HasBlockCount = true
+		case key == "tokenizer.ggml.tokens":
+			profile.HasTokenizer = true
+		case strings.HasSuffix(key, ".pooling_type"):
+			profile.HasPoolingType = true
+		}
+		if err := skipGGUFValue(reader, valueType, 0); err != nil {
+			return profile, err
+		}
+	}
+	return profile, nil
 }
 
 func skipGGUFValue(reader io.Reader, valueType uint32, depth int) error {

@@ -7,7 +7,7 @@ enum ModelKind: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.4.1-mlxswiftlm-3.31.4-gguf-dflash2"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -20,6 +20,7 @@ struct ServerConfiguration: Sendable {
     var maxKVSize: Int?
     var kvBits: Int?
     var kvGroupSize = 64
+    var quantizedKVStart = 0
     var kvScheme: String?
     var prefillStepSize = 512
     var temperature: Float = 0.6
@@ -33,6 +34,9 @@ struct ServerConfiguration: Sendable {
     var dflashBlockSize = 5
     var ggufGroupSize = 64
     var ggufProfile = GGUFQuantizationProfile.quality
+    // Tanpopo 進階設定控制是否啟用，Profile 則提供記憶體保留目標。
+    var memoryMappingEnabled = false
+    var mmapReserveGB = 0
 
     static func parse(_ arguments: [String]) throws -> Self {
         var result = Self()
@@ -79,8 +83,15 @@ struct ServerConfiguration: Sendable {
                 result.kvBits = value
             case "--kv-group-size":
                 result.kvGroupSize = try parseInteger(nextValue(for: option), option: option, range: 16...256)
+            case "--quantized-kv-start":
+                result.quantizedKVStart = try parseInteger(
+                    nextValue(for: option), option: option, range: 0...1_048_576)
             case "--kv-scheme":
-                result.kvScheme = try nextValue(for: option)
+                let value = try nextValue(for: option).lowercased()
+                guard Self.supportedKVSchemes.contains(value) else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.kvScheme = value
             case "--prefill-step-size":
                 result.prefillStepSize = try parseInteger(nextValue(for: option), option: option, range: 1...65_536)
             case "--temperature":
@@ -128,6 +139,17 @@ struct ServerConfiguration: Sendable {
                     throw ConfigurationError.invalidValue(option, value)
                 }
                 result.ggufProfile = profile
+            case "--mmap":
+                result.memoryMappingEnabled = true
+            case "--no-mmap":
+                result.memoryMappingEnabled = false
+            case "--mmap-reserve-gb":
+                let value = try parseInteger(
+                    nextValue(for: option), option: option, range: 0...128)
+                guard Self.supportedMMapReserveGB.contains(value) else {
+                    throw ConfigurationError.invalidValue(option, String(value))
+                }
+                result.mmapReserveGB = value
             case "--version", "-v":
                 print(Self.version)
                 Foundation.exit(EXIT_SUCCESS)
@@ -179,8 +201,19 @@ struct ServerConfiguration: Sendable {
                 throw ConfigurationError.invalidDraftDirectory(dflashDraftPath)
             }
         }
+        if result.mmapReserveGB > 0, !result.memoryMappingEnabled {
+            throw ConfigurationError.mmapReserveRequiresMMap
+        }
         return result
     }
+
+    /// 只有 affine4／affine8 會被 `resolveAffineScheme` 認得；其他字串會靜默地
+    /// 不做任何量化，因此在啟動時就擋下來。
+    private static let supportedKVSchemes: Set<String> = ["affine4", "affine8"]
+
+    private static let supportedMMapReserveGB: Set<Int> = [
+        0, 4, 8, 16, 24, 32, 48, 64, 96, 128
+    ]
 
     private static func parseInteger(
         _ value: String,
@@ -214,11 +247,16 @@ struct ServerConfiguration: Sendable {
       --gguf-group-size <32|64>    GGUF 權重量化群組大小，預設 64
       --gguf-profile <quality|speed>
                                    GGUF 轉換策略，預設 quality
+      --mmap                        以檔案映射載入支援的模型權重
+      --no-mmap                     關閉模型權重檔案映射（預設）
+      --mmap-reserve-gb <數值>      記憶體保留目標：0、4、8、16、24、32、48、64、96 或 128 GB
       --max-tokens <數量>          預設最大輸出 Token，預設 4096
       --max-kv-size <數量>         KV Cache 最大 Token 數
       --kv-bits <4|8>             KV Cache 量化位元
       --kv-group-size <數量>       KV Cache 量化群組大小，預設 64
-      --kv-scheme <名稱>           KV Cache 壓縮格式，例如 affine4
+      --kv-scheme <affine4|affine8>
+                                   KV Cache 壓縮格式，會覆蓋 --kv-bits 與 --kv-group-size
+      --quantized-kv-start <數量>  KV Cache 累積超過此 Token 數才開始量化，預設 0
       --prefill-step-size <數量>   Prompt 預填批次，預設 512
       --temperature <數值>         預設 0.6
       --top-p <數值>               預設 1.0
@@ -241,6 +279,7 @@ enum ConfigurationError: LocalizedError {
     case invalidDraftDirectory(String)
     case missingValue(String)
     case invalidValue(String, String)
+    case mmapReserveRequiresMMap
     case unknownOption(String)
 
     var errorDescription: String? {
@@ -257,6 +296,8 @@ enum ConfigurationError: LocalizedError {
             "啟動參數 \(option) 缺少數值。"
         case .invalidValue(let option, let value):
             "啟動參數 \(option) 的數值無效：\(value)"
+        case .mmapReserveRequiresMMap:
+            "--mmap-reserve-gb 必須搭配 --mmap。"
         case .unknownOption(let option):
             "不支援的啟動參數：\(option)"
         }

@@ -5,13 +5,12 @@ import MLXLMCommon
 import Tokenizers
 
 enum MLXGGUFEmbeddedAssets {
-    static func supportsConfiguration(for architecture: String) -> Bool {
-        switch normalizedArchitecture(architecture) {
-        case "qwen35", "qwen3", "qwen2", "llama":
-            return true
-        default:
-            return false
-        }
+    /// 專屬處理的架構；與 `configurationData` 的 switch 保持一致。
+    private static let dedicatedArchitectures = ["qwen35", "qwen3", "qwen2", "llama"]
+
+    /// 這個 Runtime 能從 GGUF metadata 直接組出設定的架構（正規化後的名稱）。
+    static var supportedGGUFArchitectures: [String] {
+        (dedicatedArchitectures + genericArchitectures.keys).sorted()
     }
 
     static func configurationData(
@@ -62,7 +61,11 @@ enum MLXGGUFEmbeddedAssets {
                 modelType: "llama"
             )
         default:
-            throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
+            configuration = try genericTextConfiguration(
+                metadata: metadata,
+                architecture: architecture,
+                weightURL: weightURL
+            )
         }
 
         guard JSONSerialization.isValidJSONObject(configuration) else {
@@ -395,6 +398,66 @@ enum MLXGGUFEmbeddedAssets {
                 ? "gelu_pytorch_tanh" : "gelu",
             "deepstack_visual_indexes": []
         ]
+    }
+
+    /// GGUF `general.architecture` → Hugging Face `model_type`。
+    ///
+    /// 只收錄同時滿足兩個條件的架構：`LLMTypeRegistry.shared` 有對應實作，且該
+    /// 實作的 `@ModuleInfo` 參數名稱就是標準的 llama 命名（`self_attn.{q,k,v,o}_proj`、
+    /// `mlp.{gate,up,down}_proj`、`input_layernorm`、`post_attention_layernorm`）。
+    ///
+    /// 每一筆都逐一比對過模型實作。命名不同的一律不列入，例如 InternLM2 用
+    /// `wqkv`／`w1`、Phi3 與 GLM4 用融合的 `qkv_proj`／`gate_up_proj`、Olmo2 與
+    /// Exaone4 是 norm-after 結構、Apertus 用 `attention_layernorm` 且 xIELU 參數
+    /// 存在 metadata 而非權重裡——這些都需要各自的對應處理。
+    ///
+    /// 每一筆都以最小合成 GGUF 實測過：設定能被對應的 `Configuration` 解碼，
+    /// 權重也能通過 `verify: [.all]`。設定需要額外欄位的架構不列入——例如 Cohere
+    /// 的 `logit_scale`、Granite 的各種 multiplier、Ernie 4.5 的專屬欄位，標準欄位
+    /// 不足以組出可解碼的設定。
+    ///
+    /// `ModelTypeRegistry` 是 actor，無法在同步的設定產生路徑上查詢，所以這裡以
+    /// 明確表列取代動態查詢；新增架構時要同時確認註冊表裡有對應的實作。
+    private static let genericArchitectures: [String: String] = [
+        "gemma": "gemma",
+        "mimo": "mimo",
+        "minicpm": "minicpm",
+        "mistral": "mistral",
+        "smollm3": "smollm3"
+    ]
+
+    /// 為沒有專屬處理的架構產生標準稠密 Transformer 設定。
+    ///
+    /// 四道門檻缺一不可：目錄裡沒有使用者自備的 `config.json`（有的話一律以它為
+    /// 準）、架構在 `genericArchitectures` 表內、設定欄位都是純量（Gemma 4 的逐層
+    /// `feed_forward_length` 陣列就是在這裡被擋下），以及所有 GGUF 權重都能對應
+    /// 到標準的 Hugging Face 參數名稱。
+    ///
+    /// 就算前四關都過，權重名稱若與模型實際期待的不同，載入時的
+    /// `model.update(parameters:verify:)` 仍會直接報錯，不會靜默載出錯誤的模型。
+    private static func genericTextConfiguration(
+        metadata: [String: MLXGGUFMetadataValue],
+        architecture: String,
+        weightURL: URL
+    ) throws -> [String: Any] {
+        let directoryURL = weightURL.deletingLastPathComponent()
+        let configurationURL = directoryURL.appendingPathComponent("config.json")
+        guard !FileManager.default.fileExists(atPath: configurationURL.path),
+              let modelType = genericArchitectures[normalizedArchitecture(architecture)],
+              metadata["\(architecture).feed_forward_length"]?.integerValue != nil else {
+            throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
+        }
+        let tensorNames = try MLXGGUFLoader.inspect(from: weightURL).tensors.map(\.name)
+        guard MLXGGUFWeightNameNormalizer.unmappedNames(tensorNames).isEmpty else {
+            throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
+        }
+        var configuration = try standardTextConfiguration(
+            metadata: metadata,
+            prefix: architecture,
+            modelType: modelType
+        )
+        configuration["tie_word_embeddings"] = !tensorNames.contains("output.weight")
+        return configuration
     }
 
     private static func standardTextConfiguration(

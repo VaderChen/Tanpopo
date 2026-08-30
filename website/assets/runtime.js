@@ -13,7 +13,8 @@
     commands: [],
     runtime: null,
     selectionTouched: false,
-    testing: false
+    testing: false,
+    modelLoadingDismissed: false
   };
 
   function selectedCommand() {
@@ -28,11 +29,9 @@
     return model?.format === "gguf" || String(model?.path || "").startsWith("gguf:");
   }
 
-  function updateRuntimeSpecificFields(status = state.runtime) {
+  function updateRuntimeSpecificFields() {
     const isMLX = selectedRuntime() === MLX_RUNTIME;
-    const supportsMMProj = !isMLX
-      || isMLXGGUFModel(selectedModel())
-      || (Boolean(status?.running) && String(status?.model || "").startsWith("gguf:"));
+    const supportsMMProj = !isMLX;
     byId("mmprojField").hidden = !supportsMMProj;
     byId("mmprojMeta").hidden = !supportsMMProj;
     byId("runningMMProjRow").hidden = !supportsMMProj;
@@ -47,7 +46,17 @@
   }
 
   function selectedModel() {
-    return state.mainModels.find((model) => model.path === byId("modelSelect").value) || null;
+    return state.mainModels.find(
+      (model) => model.path === byId("modelSelect").value
+    ) || null;
+  }
+
+  function registeredMainModels() {
+    return state.mainModels.filter((model) => !model.runtime_untested);
+  }
+
+  function untestedMainModels() {
+    return state.mainModels.filter((model) => model.runtime_untested);
   }
 
   function matchedMMProjModel(target = selectedModel()) {
@@ -155,6 +164,7 @@
   function promptDraftDownload() {
     byId("dflashToggle").checked = false;
     renderDFlashControl(state.runtime);
+    renderKVCacheQuantizationControl(state.runtime);
     showMessage("找不到配對的 DFlash Draft，請先下載後再啟用。", "error");
     if (window.confirm("找不到配對的 DFlash Draft 模型。是否前往「模型下載」？")) {
       window.location.assign("/download.html");
@@ -167,6 +177,8 @@
 
   async function loadModels(preserveSelection = true) {
     const runtimeName = selectedRuntime();
+    // Runtime 一確定就先更新專用欄位，避免等待模型掃描期間短暫顯示錯誤控制項。
+    updateRuntimeSpecificFields();
     const modelSelect = byId("modelSelect");
     const previousModel = preserveSelection ? modelSelect.value : "";
     const previousMMProj = preserveSelection ? byId("mmprojSelect").value : "";
@@ -184,6 +196,8 @@
     state.mainModels = state.models.filter(
       (model) => !isMMProjModel(model) && !isDFlashDraftModel(model)
     );
+    const registeredModels = registeredMainModels();
+    const untestedModels = untestedMainModels();
 
     if (!preserveSelection) byId("dflashToggle").checked = false;
 
@@ -192,8 +206,8 @@
       const emptyOption = document.createElement("option");
       emptyOption.value = "";
       emptyOption.textContent = runtimeName === MLX_RUNTIME
-        ? "尚無支援的 MLX 或 GGUF 模型"
-        : "尚無支援的 GGUF 模型";
+        ? "尚無可載入的 MLX 或 GGUF 模型"
+        : "尚無可載入的 GGUF 模型";
       modelSelect.append(emptyOption);
     }
     if (runtimeName === MLX_RUNTIME) {
@@ -201,7 +215,7 @@
         { format: "gguf", label: "GGUF" },
         { format: "mlx", label: "MLX" }
       ].forEach(({ format, label }) => {
-        const models = state.mainModels.filter((model) => model.format === format);
+        const models = registeredModels.filter((model) => model.format === format);
         if (!models.length) return;
         const group = document.createElement("optgroup");
         group.label = label;
@@ -213,8 +227,19 @@
         });
         modelSelect.append(group);
       });
+      if (untestedModels.length) {
+        const group = document.createElement("optgroup");
+        group.label = `尚未測試（${untestedModels.length}）`;
+        untestedModels.forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.path;
+          option.textContent = `${String(model.format || "").toUpperCase()} · ${displayModelName(model.path)}`;
+          group.append(option);
+        });
+        modelSelect.append(group);
+      }
     } else {
-      state.mainModels.forEach((model) => {
+      registeredModels.forEach((model) => {
         const option = document.createElement("option");
         option.value = model.path;
         option.textContent = displayModelName(model.path);
@@ -245,7 +270,7 @@
 
     const isMLX = runtimeName === MLX_RUNTIME;
     byId("modelFieldLabel").textContent = isMLX
-      ? "選擇 mlx-server 支援的 MLX 或 GGUF 模型"
+      ? "選擇 mlx-server 的 MLX 或 GGUF 模型"
       : "選擇 llama-server 支援的 GGUF 模型";
     updateRuntimeSpecificFields();
     renderModelMeta();
@@ -286,14 +311,23 @@
   }
 
   function renderModelMeta() {
-    const value = byId("modelSelect").value;
-    const model = state.mainModels.find((item) => item.path === value);
+    const model = selectedModel();
+    const registeredCount = registeredMainModels().length;
+    const untestedCount = untestedMainModels().length;
+    const testSummary = `Runtime 已登錄 ${registeredCount} 個 · 尚未測試 ${untestedCount} 個`;
     if (model) {
-      byId("modelMeta").textContent = `${formatBytes(model.size)} · 修改於 ${formatTime(model.modified_at)}`;
+      const untestedHelp = model.runtime_untested
+        ? "；此模型尚未測試，啟動時會由 mlx-server 實際驗證。"
+        : "";
+      byId("modelMeta").textContent = selectedRuntime() === MLX_RUNTIME
+        ? `${formatBytes(model.size)} · 修改於 ${formatTime(model.modified_at)} · ${testSummary}${untestedHelp}`
+        : `${formatBytes(model.size)} · 修改於 ${formatTime(model.modified_at)}`;
       return;
     }
     if (selectedRuntime() === MLX_RUNTIME) {
-      byId("modelMeta").textContent = "尚無可用的 MLX 或 GGUF 模型。";
+      byId("modelMeta").textContent = untestedCount
+        ? `${testSummary}；尚未測試的模型仍可載入，並由 mlx-server 實際驗證。`
+        : "尚無可用的 MLX 或 GGUF 模型。";
       return;
     }
     byId("modelMeta").textContent = "尚無可用的 GGUF 模型。";
@@ -309,13 +343,22 @@
   function renderDFlashControl(status) {
     const toggle = byId("dflashToggle");
     const meta = byId("dflashMeta");
+    const description = t("使用配對的 Draft 模型預測多個 Token，提升生成速度。");
+    const describe = (statusText) => `${description} ${t(statusText)}`;
     const running = Boolean(status?.running);
     if (running) {
       toggle.checked = Boolean(status.draft_model);
       toggle.disabled = true;
-      meta.textContent = status.draft_model
+      meta.textContent = describe(status.draft_model
         ? `已啟用，Draft：${displayModelName(status.draft_model)}`
-        : "本次啟動未使用 DFlash。";
+        : "本次啟動未使用 DFlash。");
+      return;
+    }
+
+    if (byId("kvCacheQuantizationToggle").checked) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("KV Cache 量化已啟用；兩者不可同時使用。");
       return;
     }
 
@@ -323,32 +366,111 @@
     if (!target) {
       toggle.checked = false;
       toggle.disabled = true;
-      meta.textContent = "請先選擇 Target 模型。";
+      meta.textContent = describe("請先選擇 Target 模型。");
       return;
     }
     if (!target.dflash_supported) {
       toggle.checked = false;
       toggle.disabled = true;
-      meta.textContent = target.architecture
+      meta.textContent = describe(target.architecture
         ? `模型架構 ${target.architecture} 不支援 DFlash。`
-        : "無法確認模型架構，DFlash 不可用。";
+        : "無法確認模型架構，DFlash 不可用。");
       return;
     }
 
     toggle.disabled = false;
     const draft = matchedDraftModel();
     if (toggle.checked && draft) {
-      meta.textContent = `已啟用，Draft：${displayModelName(draft.path)}`;
+      meta.textContent = describe(`已啟用，Draft：${displayModelName(draft.path)}`);
       return;
     }
     const configuredDraft = String(selectedCommand()?.draft_model || "").trim();
     if (configuredDraft && !draft) {
-      meta.textContent = `啟動參數指定的 Draft 不存在：${displayModelName(configuredDraft)}`;
+      meta.textContent = describe(`啟動參數指定的 Draft 不存在：${displayModelName(configuredDraft)}`);
       return;
     }
-    meta.textContent = draft
+    meta.textContent = describe(draft
       ? `可用 Draft：${displayModelName(draft.path)}（預設關閉）`
-      : "模型支援 DFlash，但尚未找到配對的 Draft。";
+      : "模型支援 DFlash，但尚未找到配對的 Draft。");
+  }
+
+  function renderMMapControl(status) {
+    const toggle = byId("mmapToggle");
+    const meta = byId("mmapMeta");
+    const description = t("將模型權重映射為可回收的檔案頁面，降低載入時的記憶體壓力；執行中用量不一定下降。");
+    const describe = (statusText) => `${description} ${t(statusText)}`;
+    const reserveGB = Number(status?.running
+      ? status.mmap_reserve_gb
+      : selectedCommand()?.mmap_reserve_gb) || 0;
+    const reserveText = reserveGB > 0 ? ` ${t("記憶體保留目標")}：${reserveGB} GB。` : "";
+    const running = Boolean(status?.running);
+    if (running) {
+      toggle.checked = Boolean(status.mmap_enabled);
+      toggle.disabled = true;
+      meta.textContent = describe(status.mmap_enabled
+        ? "本次啟動已使用 MMap。"
+        : "本次啟動未使用 MMap。") + (status.mmap_enabled ? reserveText : "");
+      return;
+    }
+
+    if (!selectedModel()) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("請先選擇 Target 模型。");
+      return;
+    }
+
+    toggle.disabled = false;
+    meta.textContent = describe(toggle.checked
+      ? "已開啟；速度會受儲存裝置及分頁壓力影響。"
+      : "預設關閉。") + (toggle.checked ? reserveText : "");
+  }
+
+  function renderKVCacheQuantizationControl(status) {
+    const toggle = byId("kvCacheQuantizationToggle");
+    const meta = byId("kvCacheQuantizationMeta");
+    const description = t("降低長 Context 的 KV Cache 記憶體用量；量化格式由啟動參數決定。");
+    const describe = (statusText) => `${description} ${t(statusText)}`;
+    const running = Boolean(status?.running);
+    const quantization = String(running
+      ? (status?.kv_cache_quantization || "")
+      : (selectedCommand()?.kv_cache_quantization || "q4")).toLowerCase();
+    const quantizationLabel = quantization ? quantization.toUpperCase() : "";
+    if (running) {
+      toggle.checked = Boolean(quantization);
+      toggle.disabled = true;
+      meta.textContent = describe(quantization
+        ? `本次啟動已使用 KV Cache ${quantizationLabel}。`
+        : "本次啟動未使用 KV Cache 量化。");
+      return;
+    }
+
+    if (byId("dflashToggle").checked) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("DFlash 已啟用；兩者不可同時使用。");
+      return;
+    }
+
+    if (!selectedModel()) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("請先選擇 Target 模型。");
+      return;
+    }
+
+    toggle.disabled = false;
+    meta.textContent = describe(toggle.checked
+      ? `已開啟；本次將使用 ${quantizationLabel}。`
+      : `可用格式：${quantizationLabel}（預設關閉）。`);
+  }
+
+  function setAdvancedSettingsOpen(open, restoreFocus = false) {
+    const popover = byId("runtimeAdvancedPopover");
+    const button = byId("advancedSettingsButton");
+    popover.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (!open && restoreFocus) button.focus();
   }
 
   async function loadRuntime() {
@@ -366,10 +488,25 @@
     }
     const runtimeName = selectedRuntime();
     const runtimeLabel = runtimeName === MLX_RUNTIME ? "mlx-server" : "llama-server";
-    byId("statusDot").classList.toggle("online", ready);
-    byId("statusLabel").textContent = ready
+    const loading = running && !ready;
+    const failed = !running && Boolean(status.last_error);
+    if (loading) {
+      showModelLoadingDialog();
+    } else {
+      closeModelLoadingDialog();
+    }
+    const statusDot = byId("statusDot");
+    statusDot.classList.toggle("online", ready);
+    statusDot.classList.toggle("loading", loading);
+    statusDot.classList.toggle("failed", failed);
+    const statusLabel = byId("statusLabel");
+    statusLabel.classList.toggle("loading", loading);
+    const loadingLabel = t("載入模型中…").replace(/\s*(?:…|\.\.\.)$/, "");
+    statusLabel.textContent = ready
       ? `${runtimeLabel} 執行中`
-      : running ? `${runtimeLabel} · ${t("載入模型中…")}` : `${runtimeLabel} 已停止`;
+      : loading
+        ? `${runtimeLabel} · ${loadingLabel}`
+        : failed ? `${runtimeLabel} 啟動失敗` : `${runtimeLabel} 已停止`;
     byId("statusDetail").textContent = running
       ? (ready
         ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}`
@@ -408,10 +545,12 @@
         byId("mmprojSelect").value = status.mmproj;
       }
       byId("dflashToggle").checked = Boolean(status.dflash_enabled);
+      byId("mmapToggle").checked = Boolean(status.mmap_enabled);
+      byId("kvCacheQuantizationToggle").checked = Boolean(status.kv_cache_quantization);
       renderModelMeta();
       renderMMProjMeta();
     }
-    const modelReady = byId("modelSelect").value !== "";
+    const modelReady = selectedModel() !== null;
     const commandReady = byId("commandSelect").options.length > 0;
     byId("runtimeSelect").disabled = running;
     byId("commandSelect").disabled = running || !commandReady;
@@ -426,6 +565,8 @@
     byId("testRuntimeButton").disabled = !running || state.testing;
     byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
     renderDFlashControl(status);
+    renderMMapControl(status);
+    renderKVCacheQuantizationControl(status);
   }
 
   function showRuntimeTestResult(result = {}) {
@@ -465,13 +606,52 @@
     return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
   }
 
-  function isRuntimeLoadingError(error) {
-    return String(error?.message || "").includes("模型服務仍在載入中");
+  function openRefreshDialog() {
+    const dialog = byId("refreshDialog");
+    if (!dialog.open) dialog.showModal();
+    return wait(1200);
   }
 
-  async function requestRuntimeTest() {
+  function showModelLoadingDialog() {
+    if (state.modelLoadingDismissed) return;
+    const dialog = byId("modelLoadingDialog");
+    const otherDialog = document.querySelector("dialog[open]");
+    if (otherDialog && otherDialog !== dialog) return;
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeModelLoadingDialog(dismiss = false) {
+    if (dismiss) state.modelLoadingDismissed = true;
+    const dialog = byId("modelLoadingDialog");
+    if (dialog.open) dialog.close();
+  }
+
+  async function closeRefreshDialog(minimumVisibleTime) {
+    await minimumVisibleTime;
+    const dialog = byId("refreshDialog");
+    if (dialog.open) dialog.close();
+  }
+
+  function isRuntimeLoadingError(error) {
+    const message = String(error?.message || "").trim().toLowerCase();
+    return [
+      "模型服務仍在載入中",
+      "模型載入中",
+      "loading model",
+      "loading the model",
+      "model is loading",
+      "model loading",
+      "model is still loading",
+      "model is being loaded"
+    ].some((fragment) => message.includes(fragment));
+  }
+
+  async function requestRuntimeTest(timeoutMilliseconds = RUNTIME_TEST_TIMEOUT_MS) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), RUNTIME_TEST_TIMEOUT_MS);
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      Math.max(1, timeoutMilliseconds)
+    );
     try {
       return await api("/api/chat/completions", {
         method: "POST",
@@ -490,14 +670,24 @@
   }
 
   async function waitAndRunRuntimeTest(startedAt) {
+    let waitingForModel = false;
     while (true) {
+      const remainingMilliseconds = RUNTIME_TEST_TIMEOUT_MS - (performance.now() - startedAt);
+      if (remainingMilliseconds <= 0) {
+        throw new Error(t(waitingForModel
+          ? "模型載入逾時，請查看日誌後重新啟動服務"
+          : "模型效能測試逾時，請稍後再試"));
+      }
       try {
-        return await requestRuntimeTest();
+        return await requestRuntimeTest(remainingMilliseconds);
       } catch (error) {
         if (error?.name === "AbortError") {
-          throw new Error(t("模型效能測試逾時，請稍後再試"));
+          throw new Error(t(waitingForModel
+            ? "模型載入逾時，請查看日誌後重新啟動服務"
+            : "模型效能測試逾時，請稍後再試"));
         }
         if (!isRuntimeLoadingError(error)) throw error;
+        waitingForModel = true;
         if (performance.now() - startedAt >= RUNTIME_TEST_TIMEOUT_MS) {
           throw new Error(t("模型載入逾時，請查看日誌後重新啟動服務"));
         }
@@ -544,22 +734,26 @@
     const button = byId("startButton");
     const runtimeName = selectedRuntime();
     const dflashEnabled = byId("dflashToggle").checked;
+    const mmapEnabled = byId("mmapToggle").checked;
+    const kvCacheQuantizationEnabled = byId("kvCacheQuantizationToggle").checked;
     const draftModel = dflashEnabled ? matchedDraftModel() : null;
     if (dflashEnabled && !draftModel) {
       promptDraftDownload();
       return;
     }
+    state.modelLoadingDismissed = false;
+    showModelLoadingDialog();
     button.disabled = true;
     try {
       await api("/api/runtime/start", {
         method: "POST",
         body: JSON.stringify({
           model: byId("modelSelect").value,
-          mmproj: runtimeName === MLX_RUNTIME && !isMLXGGUFModel(selectedModel())
-            ? ""
-            : byId("mmprojSelect").value,
+          mmproj: runtimeName === MLX_RUNTIME ? "" : byId("mmprojSelect").value,
           draft_model: draftModel?.path || "",
           dflash_enabled: dflashEnabled,
+          mmap_enabled: mmapEnabled,
+          kv_cache_quantization_enabled: kvCacheQuantizationEnabled,
           startup_command_id: byId("commandSelect").value
         })
       });
@@ -609,6 +803,14 @@
   byId("closeRuntimeTestButton").addEventListener("click", closeRuntimeTestDialog);
   byId("closeRuntimeTestIcon").addEventListener("click", closeRuntimeTestDialog);
 
+  byId("closeModelLoadingDialog").addEventListener("click", () => {
+    closeModelLoadingDialog(true);
+  });
+  byId("modelLoadingDialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeModelLoadingDialog(true);
+  });
+
   byId("clearLogsButton").addEventListener("click", async () => {
     const button = byId("clearLogsButton");
     button.disabled = true;
@@ -639,16 +841,27 @@
     }
   });
 
+  byId("refreshDialog").addEventListener("cancel", (event) => event.preventDefault());
+
   byId("refreshButton").addEventListener("click", async () => {
+    const button = byId("refreshButton");
+    const minimumVisibleTime = openRefreshDialog();
+    let resultMessage = "資料已更新";
+    let resultType = "success";
+    button.disabled = true;
     try {
       await loadSettings();
       await loadRuntime();
       await loadCommands(true);
       await Promise.all([loadModels(true), loadLogs()]);
-      showMessage("資料已更新");
     } catch (error) {
-      showMessage(error.message, "error");
+      resultMessage = error.message;
+      resultType = "error";
+    } finally {
+      await closeRefreshDialog(minimumVisibleTime);
+      button.disabled = false;
     }
+    showMessage(resultMessage, resultType);
   });
   byId("commandSelect").addEventListener("change", () => {
     state.selectionTouched = true;
@@ -663,6 +876,7 @@
   byId("modelSelect").addEventListener("change", () => {
     state.selectionTouched = true;
     byId("dflashToggle").checked = false;
+    byId("kvCacheQuantizationToggle").checked = false;
     selectMatchedMMProj(true);
     renderModelMeta();
     renderMMProjMeta();
@@ -678,8 +892,10 @@
     const toggle = byId("dflashToggle");
     if (!toggle.checked) {
       renderDFlashControl(state.runtime);
+      renderKVCacheQuantizationControl(state.runtime);
       return;
     }
+    byId("kvCacheQuantizationToggle").checked = false;
     toggle.disabled = true;
     try {
       // 勾選當下重新掃描目錄，避免使用已刪除的 Draft 清單快取。
@@ -689,14 +905,47 @@
         return;
       }
       renderDFlashControl(state.runtime);
+      renderKVCacheQuantizationControl(state.runtime);
     } catch (error) {
       toggle.checked = false;
       showMessage(error.message, "error");
       renderDFlashControl(state.runtime);
+      renderKVCacheQuantizationControl(state.runtime);
+    }
+  });
+  byId("mmapToggle").addEventListener("change", () => {
+    state.selectionTouched = true;
+    renderMMapControl(state.runtime);
+  });
+  byId("kvCacheQuantizationToggle").addEventListener("change", () => {
+    state.selectionTouched = true;
+    if (byId("kvCacheQuantizationToggle").checked) {
+      byId("dflashToggle").checked = false;
+    }
+    renderDFlashControl(state.runtime);
+    renderKVCacheQuantizationControl(state.runtime);
+  });
+  byId("advancedSettingsButton").addEventListener("click", () => {
+    const open = byId("runtimeAdvancedPopover").hidden;
+    setAdvancedSettingsOpen(open);
+  });
+  byId("closeAdvancedSettingsButton").addEventListener("click", () => {
+    setAdvancedSettingsOpen(false, true);
+  });
+  document.addEventListener("click", (event) => {
+    if (!byId("runtimeAdvancedSettings").contains(event.target)) {
+      setAdvancedSettingsOpen(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !byId("runtimeAdvancedPopover").hidden) {
+      setAdvancedSettingsOpen(false, true);
     }
   });
 
   async function initialize() {
+    const minimumVisibleTime = openRefreshDialog();
+    let initializeError = null;
     try {
       await loadSettings();
       await loadRuntime();
@@ -704,8 +953,11 @@
       await Promise.all([loadModels(false), loadLogs()]);
       window.setInterval(refreshRuntime, 2500);
     } catch (error) {
-      showMessage(error.message, "error");
+      initializeError = error;
+    } finally {
+      await closeRefreshDialog(minimumVisibleTime);
     }
+    if (initializeError) showMessage(initializeError.message, "error");
   }
 
   initialize();

@@ -3,6 +3,12 @@
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
   const QUICK_MODEL_URL = "/assets/popular-models.json";
+  const MODEL_SIZE_TIERS = [
+    { id: "8b", label: "8B 級", upperBound: 20 },
+    { id: "30b", label: "30B 級", upperBound: 70 },
+    { id: "70b", label: "70B 以上", upperBound: Number.POSITIVE_INFINITY }
+  ];
+  const MODEL_NAME_COLLATOR = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
   let quickModelCatalog = null;
   let storageDirectories = { gguf: "", mlx: "" };
   const cancellingJobs = new Set();
@@ -49,19 +55,32 @@
     return String(value[language] || value.en || value["zh-Hant"] || "").trim();
   }
 
+  function inferParameterSizeB(name) {
+    const sizes = Array.from(String(name || "").matchAll(/(?:^|[^A-Za-z0-9])(?:A|E)?(\d+(?:\.\d+)?)B\b/gi))
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return sizes.length ? Math.max(...sizes) : 0;
+  }
+
   function validateCatalogEntry(entry, format) {
     if (!entry || typeof entry !== "object") return null;
     const name = String(entry.name || "").trim();
     const repository = String(entry.repository || "").trim();
     const revision = String(entry.revision || "main").trim() || "main";
     const filename = String(entry.filename || "").trim();
+    const configuredSize = Number(entry.parameter_size_b);
+    const parameterSizeB = Number.isFinite(configuredSize) && configuredSize > 0
+      ? configuredSize
+      : inferParameterSizeB(name);
     if (!name || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return null;
+    if (!parameterSizeB) return null;
     if (format === "gguf" && (!filename || !filename.toLowerCase().endsWith(".gguf") || filename.includes("/"))) return null;
     return {
       name,
       repository,
       revision,
       filename: format === "gguf" ? filename : "",
+      parameterSizeB,
       description: localizedCatalogText(entry.description)
     };
   }
@@ -84,19 +103,7 @@
     showMessage("已填入快速下載資訊");
   }
 
-  function quickModelGroup(format, title, models) {
-    const section = document.createElement("section");
-    section.className = "quick-model-group";
-    const heading = document.createElement("h4");
-    heading.textContent = title;
-    section.append(heading);
-    if (!models.length) {
-      const empty = document.createElement("p");
-      empty.className = "quick-model-empty";
-      empty.textContent = t("目前沒有可用的常用模型。");
-      section.append(empty);
-      return section;
-    }
+  function quickModelList(format, models) {
     const list = document.createElement("div");
     list.className = "quick-model-list";
     models.forEach((model) => {
@@ -116,7 +123,39 @@
       button.addEventListener("click", () => applyQuickModel(format, model));
       list.append(button);
     });
-    section.append(list);
+    return list;
+  }
+
+  function modelSizeTier(parameterSizeB) {
+    return MODEL_SIZE_TIERS.find((tier) => parameterSizeB < tier.upperBound)
+      || MODEL_SIZE_TIERS[MODEL_SIZE_TIERS.length - 1];
+  }
+
+  function quickModelGroup(format, title, models) {
+    const section = document.createElement("section");
+    section.className = "quick-model-group";
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    section.append(heading);
+    if (!models.length) {
+      const empty = document.createElement("p");
+      empty.className = "quick-model-empty";
+      empty.textContent = t("目前沒有可用的常用模型。");
+      section.append(empty);
+      return section;
+    }
+    MODEL_SIZE_TIERS.forEach((tier) => {
+      const tierModels = models
+        .filter((model) => modelSizeTier(model.parameterSizeB).id === tier.id)
+        .sort((left, right) => MODEL_NAME_COLLATOR.compare(left.name, right.name));
+      if (!tierModels.length) return;
+      const tierSection = document.createElement("section");
+      tierSection.className = "quick-model-tier";
+      const tierHeading = document.createElement("h5");
+      tierHeading.textContent = t(tier.label);
+      tierSection.append(tierHeading, quickModelList(format, tierModels));
+      section.append(tierSection);
+    });
     return section;
   }
 

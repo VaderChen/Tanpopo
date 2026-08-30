@@ -7,10 +7,14 @@ enum MLXServerMain {
         fputs("mlx-server 僅支援 macOS Apple Silicon。\n", stderr)
         Foundation.exit(EXIT_FAILURE)
         #else
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        // 型別註冊表是 actor，必須在 async 內容裡讀，因此不走 ServerConfiguration.parse。
+        if arguments.contains("--supported-model-types") {
+            await SupportedModelTypes.emit()
+            Foundation.exit(EXIT_SUCCESS)
+        }
         do {
-            let configuration = try ServerConfiguration.parse(
-                Array(CommandLine.arguments.dropFirst())
-            )
+            let configuration = try ServerConfiguration.parse(arguments)
             let runtime = try MLXRuntime(configuration: configuration)
             let kind = runtime.kind.rawValue
             print("mlx-server \(ServerConfiguration.version)")

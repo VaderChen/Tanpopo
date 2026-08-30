@@ -21,7 +21,7 @@ type fileData struct {
 }
 
 const (
-	currentFileVersion = 8
+	currentFileVersion = 10
 	defaultContextSize = 256 * 1024
 )
 
@@ -60,6 +60,9 @@ func NewStore(path string, fallback domain.StartupCommand) (*Store, error) {
 	seenIDs := make(map[string]bool, len(data.Commands))
 	seenNames := make(map[string]bool, len(data.Commands))
 	for index := range data.Commands {
+		if data.Version < 9 {
+			migrateLegacyKVCacheQuantization(&data.Commands[index])
+		}
 		data.Commands[index] = normalize(data.Commands[index])
 		command := data.Commands[index]
 		if err := Validate(command); err != nil {
@@ -149,15 +152,11 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 	presets := []domain.StartupCommand{
 		base,
 		newPreset(base, "kv-cache-q8", "KV Cache Q8（256K）", []string{
-			"--cache-type-k", "q8_0",
-			"--cache-type-v", "q8_0",
 			"--flash-attn", "on",
-		}),
+		}, domain.KVCacheQuantizationQ8),
 		newPreset(base, "kv-cache-q4", "KV Cache Q4（256K）", []string{
-			"--cache-type-k", "q4_0",
-			"--cache-type-v", "q4_0",
 			"--flash-attn", "on",
-		}),
+		}, domain.KVCacheQuantizationQ4),
 		newPreset(base, "no-reasoning", "強制關閉思考（256K）", []string{
 			"--reasoning", "off",
 			"--reasoning-budget", "0",
@@ -191,17 +190,32 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 			UpdatedAt: now,
 		},
 		{
-			ID:          "mlx-kv-q4",
-			Name:        "MLX KV Cache Q4（256K）",
-			Runtime:     domain.RuntimeMLXServer,
-			ServerHost:  "0.0.0.0",
-			ServerPort:  8080,
-			ContextSize: defaultContextSize,
-			GPULayers:   -1,
-			Threads:     0,
+			ID:                  "mlx-kv-q4",
+			Name:                "MLX KV Cache Q4（256K）",
+			Runtime:             domain.RuntimeMLXServer,
+			ServerHost:          "0.0.0.0",
+			ServerPort:          8080,
+			ContextSize:         defaultContextSize,
+			GPULayers:           -1,
+			Threads:             0,
+			KVCacheQuantization: domain.KVCacheQuantizationQ4,
 			ExtraArgs: []string{
-				"--kv-bits", "4",
-				"--kv-group-size", "64",
+				"--prefill-step-size", "2048",
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:                  "mlx-kv-q8",
+			Name:                "MLX KV Cache Q8（256K）",
+			Runtime:             domain.RuntimeMLXServer,
+			ServerHost:          "0.0.0.0",
+			ServerPort:          8080,
+			ContextSize:         defaultContextSize,
+			GPULayers:           -1,
+			Threads:             0,
+			KVCacheQuantization: domain.KVCacheQuantizationQ8,
+			ExtraArgs: []string{
 				"--prefill-step-size", "2048",
 			},
 			CreatedAt: now,
@@ -263,11 +277,19 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 	return presets
 }
 
-func newPreset(base domain.StartupCommand, id, name string, extraArgs []string) domain.StartupCommand {
+func newPreset(
+	base domain.StartupCommand,
+	id, name string,
+	extraArgs []string,
+	kvCacheQuantization ...string,
+) domain.StartupCommand {
 	preset := base
 	preset.ID = id
 	preset.Name = name
 	preset.ExtraArgs = append([]string(nil), extraArgs...)
+	if len(kvCacheQuantization) > 0 {
+		preset.KVCacheQuantization = kvCacheQuantization[0]
+	}
 	return preset
 }
 
@@ -423,6 +445,12 @@ func Validate(command domain.StartupCommand) error {
 	if command.Threads < 0 {
 		return errors.New("Threads 不可小於 0")
 	}
+	if !isSupportedMMapReserveGB(command.MMapReserveGB) {
+		return errors.New("MMap 記憶體保留目標只支援自動、4、8、16、24、32、48、64、96 或 128 GB")
+	}
+	if !isSupportedKVCacheQuantization(command.KVCacheQuantization) {
+		return errors.New("KV Cache 量化格式只支援 Q8 或 Q4")
+	}
 	for _, arg := range command.ExtraArgs {
 		if strings.ContainsAny(arg, "\r\n\x00") {
 			return errors.New("額外參數不可包含換行或 NUL 字元")
@@ -438,6 +466,10 @@ func normalize(command domain.StartupCommand) domain.StartupCommand {
 	if command.Runtime == "" {
 		command.Runtime = domain.RuntimeLlamaServer
 	}
+	command.KVCacheQuantization = strings.ToLower(strings.TrimSpace(command.KVCacheQuantization))
+	if command.KVCacheQuantization == domain.KVCacheQuantizationNone {
+		command.KVCacheQuantization = domain.KVCacheQuantizationQ4
+	}
 	command.DraftModel = filepath.ToSlash(strings.TrimSpace(command.DraftModel))
 	command.ServerHost = strings.TrimSpace(command.ServerHost)
 	if command.ServerHost == "" {
@@ -452,8 +484,89 @@ func normalize(command domain.StartupCommand) domain.StartupCommand {
 			args = append(args, trimmed)
 		}
 	}
-	command.ExtraArgs = args
+	command.ExtraArgs = withoutManagedKVCacheArguments(args)
 	return command
+}
+
+func migrateLegacyKVCacheQuantization(command *domain.StartupCommand) {
+	if strings.TrimSpace(command.KVCacheQuantization) == "" {
+		command.KVCacheQuantization = inferLegacyKVCacheQuantization(command.ExtraArgs)
+	}
+}
+
+func inferLegacyKVCacheQuantization(arguments []string) string {
+	foundQ8 := false
+	foundQ4 := false
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		name, value, hasInlineValue := strings.Cut(argument, "=")
+		if !hasInlineValue && isManagedKVCacheArgument(name) && index+1 < len(arguments) {
+			value = strings.TrimSpace(arguments[index+1])
+			index++
+		}
+		if !isManagedKVCacheArgument(name) {
+			continue
+		}
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "4" || strings.Contains(value, "q4") || strings.Contains(value, "affine4") {
+			foundQ4 = true
+		}
+		if value == "8" || strings.Contains(value, "q8") || strings.Contains(value, "affine8") {
+			foundQ8 = true
+		}
+	}
+	if foundQ4 {
+		return domain.KVCacheQuantizationQ4
+	}
+	if foundQ8 {
+		return domain.KVCacheQuantizationQ8
+	}
+	return domain.KVCacheQuantizationNone
+}
+
+func withoutManagedKVCacheArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		name, _, hasInlineValue := strings.Cut(argument, "=")
+		if !isManagedKVCacheArgument(name) {
+			filtered = append(filtered, arguments[index])
+			continue
+		}
+		if !hasInlineValue && index+1 < len(arguments) {
+			index++
+		}
+	}
+	return filtered
+}
+
+func isManagedKVCacheArgument(argument string) bool {
+	switch strings.TrimSpace(argument) {
+	case "--cache-type-k", "-ctk", "--cache-type-v", "-ctv",
+		"--kv-bits", "--kv-group-size", "--kv-scheme", "--quantized-kv-start":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedMMapReserveGB(value int) bool {
+	switch value {
+	case 0, 4, 8, 16, 24, 32, 48, 64, 96, 128:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedKVCacheQuantization(value string) bool {
+	switch value {
+	case domain.KVCacheQuantizationQ8,
+		domain.KVCacheQuantizationQ4:
+		return true
+	default:
+		return false
+	}
 }
 
 func ensureUniqueName(commands []domain.StartupCommand, name, exceptID string) error {

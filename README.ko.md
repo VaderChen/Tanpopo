@@ -8,13 +8,16 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 
 - 하나의 관리 화면에서 모델 Runtime 시작, 중지, 상태 복원 및 로그 확인.
 - 하위 폴더를 포함한 GGUF 파일과 완전한 MLX 모델 폴더 자동 탐색. Apple Silicon의 `mlx-server`는 safetensors로 미리 변환하지 않고 지원되는 GGUF를 직접 불러올 수 있습니다.
+- mlx-server 모델을 GGUF와 MLX로 구분합니다. Runtime이 아직 호환성을 명시하지 않은 언어 모델도 선택 가능한 **미테스트(N)** 그룹에 남기고, 시작 시 실제 로드로 호환성을 확인합니다.
 - Hugging Face의 공개, gated, private repository에서 GGUF 또는 MLX 모델 다운로드.
-- 별도 JSON 목록에서 자주 사용하는 GGUF 및 MLX 모델을 빠르게 선택하고 Runtime, repository, revision, GGUF 파일 이름을 자동 입력. 모델 항목은 JavaScript에 하드코딩하지 않습니다.
+- 별도 JSON 목록에서 자주 사용하는 GGUF 및 MLX 모델을 빠르게 선택합니다. 각 형식은 8B급, 30B급, 70B 이상으로 분류하고 그룹 안에서는 모델 이름을 알파벳순으로 표시합니다. Runtime, repository, revision, GGUF 파일 이름을 자동 입력하며 모델 항목은 JavaScript에 하드코딩하지 않습니다.
 - 서버가 Range를 지원하면 큰 파일을 64 MiB 단위, 최대 4개 Worker로 병렬 다운로드하고, 지원하지 않으면 단일 Stream으로 자동 전환합니다. 완료 항목은 자동으로 지워집니다. 저장 위치 열기는 Desktop App에서만 활성화되고 Browser에서는 비활성화됩니다.
 - Context Size, GPU Layers, Threads, KV Cache, MTP, DFlash 시작 프로필 저장.
-- DFlash 지원 여부를 감지하고 활성화 전에 호환되는 Draft 모델 존재 여부 확인.
+- 서로 독립적인 DFlash와 MMap 스위치를 간결한 ‘고급 설정’ 팝오버에 모아, 항목이 늘어도 페이지가 계속 길어지지 않도록 구성.
+- DFlash 지원 여부를 감지하고 활성화 전에 호환되는 Draft 모델 존재 여부 확인. 별도의 MMap 스위치는 llama-server와 Apple Silicon mlx-server를 모두 지원하며 파일 기반 페이지로 모델 로딩 시 메모리 부담을 줄입니다.
 - 고정된 모델 목록 대신 Hugging Face metadata와 모델 설정을 검증하여 같은 repository 또는 별도 repository의 DFlash Draft를 자동 검색 및 다운로드.
 - Markdown, 수식, reasoning 분리 표시, 대기 애니메이션, Token 수 및 초당 출력 Token 수를 지원하는 임시 로컬 대화.
+- 모델 시작 시 대형 모델은 변환이 필요할 수 있음을 알리는 로딩 대화 상자를 즉시 표시합니다. 실행 중인 모델 테스트에는 애니메이션 대화 상자를 사용하고, 완료 후 입력/출력 Token, 생성 속도, 경과 시간 또는 로딩/연결 오류를 보여 줍니다. 메인 화면 새로 고침에는 별도의 작은 진행 대화 상자를 사용합니다.
 - MLX가 생성하는 Token을 즉시 전달하는 OpenAI 호환 SSE. 클라이언트 연결 종료 또는 Cancel 시 해당 생성 Task를 바로 취소.
 - 모델 API에 접근 키, IP 허용 목록, 둘 다 또는 제한 없음을 선택 가능.
 - Tanpopo 재시작 시 관리자 로그인 전에도 Runtime 및 실행 상태 복원.
@@ -33,6 +36,8 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 cd /path/to/Tanpopo
 ./run.command
 ```
+
+`run.command`는 먼저 `build.command --runtime`을 호출합니다. 고정 버전이 일치하고 Runtime 소스가 prebuilt 실행 파일보다 새롭지 않을 때만 기존 Runtime을 재사용하며, 그 외에는 자동으로 다시 빌드합니다.
 
 최초 실행 시 `agent.sample.properties`에서 `agent.properties`를 만듭니다. 관리 서비스는 기본적으로 `0.0.0.0:10082`에서 수신하며 로컬 주소는 다음과 같습니다.
 
@@ -59,11 +64,17 @@ TANPOPO_UI=gui ./run.command    # 지원 환경에서 네이티브 UI 강제
 
 DFlash는 기본적으로 꺼져 있습니다. Tanpopo가 아키텍처와 페어링 정보를 확인하며, 필요한 Draft GGUF가 없으면 스위치를 다시 끄고 다운로드를 안내합니다.
 
+MMap은 실행 상태 페이지의 ‘고급 설정’ 팝오버에 있는 독립 스위치이며 기본값은 꺼짐입니다. `llama-server`와 Apple Silicon `mlx-server`를 모두 지원합니다. llama-server는 `--load-mode mmap`을 사용하고, mlx-server는 지원되는 safetensors 및 직접 사용할 수 있는 GGUF 가중치를 파일 기반 페이지로 매핑합니다. 시작 프로필에서 자동 또는 4, 8, 16, 24, 32, 48, 64, 96, 128 GB의 메모리 예약 목표를 선택할 수 있습니다. llama-server는 `--fit-target`으로 GPU Layers를 구성하고, mlx-server는 물리 메모리에서 예약 목표를 뺀 값을 MLX 할당 목표로 사용합니다. 이 값은 Runtime의 엄격한 메모리 사용 한도가 아닙니다. 첫 Token 지연 시간과 생성 속도는 저장 장치 성능 및 페이지 부하에 따라 달라집니다.
+
+시작 프로필에서 KV Cache Q8 또는 Q4를 선택하고 ‘고급 설정’의 별도 스위치로 이번 실행에 적용할지 결정합니다. 스위치를 끄면 양자화하지 않습니다. Q4는 메모리를 더 절약하고 Q8은 더 높은 정밀도를 유지합니다. KV Cache 양자화와 DFlash는 UI와 백엔드에서 상호 배타적입니다.
+
 ### mlx-server
 
-`mlx-server`는 Swift, SwiftNIO, MLX Swift로 만든 Apple Silicon 전용 Runtime입니다. Python, pip, `mlx_lm.server`를 호출하지 않습니다. `~/services/mlx-models`의 완전한 MLX 모델과 일반 GGUF 폴더의 지원되는 GGUF를 직접 불러올 수 있습니다. GGUF에 포함된 모델 설정과 Tokenizer metadata를 읽고 MLX 로딩 중 지원되는 양자화 가중치를 변환합니다. Qwen 3.5, Qwen 3, Qwen 2, Llama를 지원하며 멀티모달 Qwen 3.5는 대응하는 `mmproj`를 선택할 수 있습니다.
+`mlx-server`는 Swift, SwiftNIO, MLX Swift로 만든 Apple Silicon 전용 Runtime입니다. Python, pip, `mlx_lm.server`를 호출하지 않습니다. `~/services/mlx-models`의 완전한 MLX 모델과 일반 GGUF 폴더의 지원되는 GGUF를 직접 불러올 수 있습니다. 네이티브 MLX 지원 형식은 번들된 `mlx-swift-lm 3.31.4` Registry에서 동적으로 가져오며 멀티모달 Gemma 4를 포함합니다. Runtime이 현재 보고하는 GGUF 직접 로딩 대상은 Gemma, Llama, Mimo, MiniCPM, Mistral, Qwen 2, Qwen 3, Qwen 3.5, SmolLM3이며, 탐지된 미지원 언어 모델은 비활성 상태로 표시합니다. 멀티모달 Qwen 3.5 GGUF는 대응하는 `mmproj`를 선택할 수 있습니다.
 
 GGUF 기본값은 group size 64와 quality profile이며 `--gguf-group-size 32|64`, `--gguf-profile quality|speed`로 변경할 수 있습니다. GGUF Target은 일반 MLX 생성을 사용하고, DFlash는 기존처럼 MLX safetensors Target과 호환 Draft 조합에서만 사용합니다.
+
+mlx-server에서 KV Cache 양자화를 켜면 프로필의 Q8 또는 Q4, group size 64, 2,048 Token 이후의 지연 양자화를 사용합니다. 프로필 Context Size가 양자화 KV Cache 한도가 됩니다.
 
 주요 호환 엔드포인트:
 

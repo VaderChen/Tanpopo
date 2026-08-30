@@ -6,9 +6,9 @@
   <title>Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-34">
-  <script src="/assets/common.js?v=20260829-50" defer></script>
-  <script src="/assets/runtime.js?v=20260829-16" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260830-41">
+  <script src="/assets/common.js?v=20260830-59" defer></script>
+  <script src="/assets/runtime.js?v=20260830-34" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -65,7 +65,7 @@
           <dl class="status-list">
             <div><dt>Runtime</dt><dd id="runningRuntime">—</dd></div>
             <div><dt>模型</dt><dd id="runningModel">—</dd></div>
-            <div id="runningMMProjRow"><dt>mmproj</dt><dd id="runningMMProj">—</dd></div>
+            <div id="runningMMProjRow" hidden><dt>mmproj</dt><dd id="runningMMProj">—</dd></div>
             <div id="runningDraftRow"><dt>Draft</dt><dd id="runningDraft">—</dd></div>
             <div><dt>PID</dt><dd id="runningPID">—</dd></div>
             <div class="api-url-row">
@@ -91,21 +91,71 @@
             <select id="modelSelect"></select>
           </label>
           <p id="modelMeta" class="helper">模型清單讀取中…</p>
-          <label id="mmprojField" class="field">
+          <label id="mmprojField" class="field" hidden>
             <span>選擇 mmproj（選用）</span>
             <select id="mmprojSelect"></select>
           </label>
-          <p id="mmprojMeta" class="helper mmproj-helper">mmproj 清單讀取中…</p>
-          <div id="dflashControl" class="dflash-control">
-            <div class="dflash-copy">
-              <strong>DFlash</strong>
-              <p id="dflashMeta" class="helper">選擇模型後會自動檢查是否支援。</p>
+          <p id="mmprojMeta" class="helper mmproj-helper" hidden>mmproj 清單讀取中…</p>
+          <div id="runtimeAdvancedSettings" class="runtime-advanced-settings">
+            <div class="runtime-advanced-summary">
+              <div class="runtime-advanced-copy">
+                <strong>進階設定</strong>
+                <p class="helper">設定 KV Cache 量化、MMap 與 DFlash。</p>
+              </div>
+              <button id="advancedSettingsButton" class="advanced-settings-button" type="button"
+                aria-label="進階設定" title="進階設定" aria-haspopup="dialog"
+                aria-controls="runtimeAdvancedPopover" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M7 14v6" />
+                </svg>
+              </button>
             </div>
-            <label class="dflash-switch" for="dflashToggle">
-              <input id="dflashToggle" type="checkbox" role="switch" aria-label="啟用 DFlash" disabled>
-              <span class="dflash-switch-track" aria-hidden="true"></span>
-              <span class="dflash-switch-label">啟用</span>
-            </label>
+            <div id="runtimeAdvancedPopover" class="runtime-advanced-popover" role="dialog"
+              aria-labelledby="runtimeAdvancedTitle" hidden>
+              <div class="runtime-advanced-heading">
+                <div>
+                  <strong id="runtimeAdvancedTitle">進階設定</strong>
+                  <p>設定 KV Cache 量化、MMap 與 DFlash。</p>
+                </div>
+                <button id="closeAdvancedSettingsButton" class="runtime-advanced-close" type="button"
+                  aria-label="關閉">×</button>
+              </div>
+              <div class="runtime-advanced-options">
+                <div id="kvCacheQuantizationControl" class="runtime-feature-control">
+                  <div class="runtime-feature-copy">
+                    <strong>KV Cache 量化</strong>
+                    <p id="kvCacheQuantizationMeta" class="helper">降低長 Context 的 KV Cache 記憶體用量；量化格式由啟動參數決定。</p>
+                  </div>
+                  <label class="runtime-switch" for="kvCacheQuantizationToggle">
+                    <input id="kvCacheQuantizationToggle" type="checkbox" role="switch" aria-label="啟用 KV Cache 量化" disabled>
+                    <span class="runtime-switch-track" aria-hidden="true"></span>
+                    <span class="runtime-switch-label">啟用</span>
+                  </label>
+                </div>
+                <div id="mmapControl" class="runtime-feature-control">
+                  <div class="runtime-feature-copy">
+                    <strong>MMap</strong>
+                    <p id="mmapMeta" class="helper">將模型權重映射為可回收的檔案頁面，降低載入時的記憶體壓力；執行中用量不一定下降。</p>
+                  </div>
+                  <label class="runtime-switch" for="mmapToggle">
+                    <input id="mmapToggle" type="checkbox" role="switch" aria-label="啟用 MMap" disabled>
+                    <span class="runtime-switch-track" aria-hidden="true"></span>
+                    <span class="runtime-switch-label">啟用</span>
+                  </label>
+                </div>
+                <div id="dflashControl" class="runtime-feature-control">
+                  <div class="runtime-feature-copy">
+                    <strong>DFlash</strong>
+                    <p id="dflashMeta" class="helper">使用配對的 Draft 模型預測多個 Token，提升生成速度。</p>
+                  </div>
+                  <label class="runtime-switch" for="dflashToggle">
+                    <input id="dflashToggle" type="checkbox" role="switch" aria-label="啟用 DFlash" disabled>
+                    <span class="runtime-switch-track" aria-hidden="true"></span>
+                    <span class="runtime-switch-label">啟用</span>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="button-row">
             <button id="startButton" class="button primary" type="button">載入並啟動</button>
@@ -132,6 +182,32 @@
       </article>
     </section>
   </main>
+
+  <dialog id="modelLoadingDialog" class="refresh-dialog model-loading-dialog"
+    aria-labelledby="modelLoadingDialogTitle" aria-describedby="modelLoadingDialogDescription">
+    <article class="refresh-dialog-card model-loading-card">
+      <span class="refresh-dialog-spinner" aria-hidden="true"></span>
+      <div class="refresh-dialog-copy">
+        <p class="section-kicker">MODEL LOADING</p>
+        <h3 id="modelLoadingDialogTitle">正在載入模型</h3>
+        <p id="modelLoadingDialogDescription">部分模型過大且可能需要轉換，請耐心等候。</p>
+      </div>
+      <button id="closeModelLoadingDialog" class="model-loading-close" type="button"
+        aria-label="收合提示" title="收合提示">×</button>
+    </article>
+  </dialog>
+
+  <dialog id="refreshDialog" class="refresh-dialog" aria-labelledby="refreshDialogTitle"
+    aria-describedby="refreshDialogDescription">
+    <article class="refresh-dialog-card">
+      <span class="refresh-dialog-spinner" aria-hidden="true"></span>
+      <div class="refresh-dialog-copy">
+        <p class="section-kicker">REFRESH</p>
+        <h3 id="refreshDialogTitle">正在重新整理</h3>
+        <p id="refreshDialogDescription">正在更新 Runtime、模型與日誌資料…</p>
+      </div>
+    </article>
+  </dialog>
 
   <dialog id="runtimeTestDialog" class="runtime-test-dialog" aria-labelledby="runtimeTestTitle">
     <article class="runtime-test-card">

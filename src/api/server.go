@@ -601,28 +601,32 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type startupCommandRequest struct {
-	Name        string   `json:"name"`
-	Runtime     string   `json:"runtime"`
-	DraftModel  string   `json:"draft_model"`
-	ServerHost  string   `json:"server_host"`
-	ServerPort  int      `json:"server_port"`
-	ContextSize int      `json:"context_size"`
-	GPULayers   int      `json:"gpu_layers"`
-	Threads     int      `json:"threads"`
-	ExtraArgs   []string `json:"extra_args"`
+	Name                string   `json:"name"`
+	Runtime             string   `json:"runtime"`
+	DraftModel          string   `json:"draft_model"`
+	ServerHost          string   `json:"server_host"`
+	ServerPort          int      `json:"server_port"`
+	ContextSize         int      `json:"context_size"`
+	GPULayers           int      `json:"gpu_layers"`
+	Threads             int      `json:"threads"`
+	MMapReserveGB       int      `json:"mmap_reserve_gb"`
+	KVCacheQuantization string   `json:"kv_cache_quantization"`
+	ExtraArgs           []string `json:"extra_args"`
 }
 
 func (r startupCommandRequest) command() domain.StartupCommand {
 	return domain.StartupCommand{
-		Name:        r.Name,
-		Runtime:     r.Runtime,
-		DraftModel:  r.DraftModel,
-		ServerHost:  r.ServerHost,
-		ServerPort:  r.ServerPort,
-		ContextSize: r.ContextSize,
-		GPULayers:   r.GPULayers,
-		Threads:     r.Threads,
-		ExtraArgs:   r.ExtraArgs,
+		Name:                r.Name,
+		Runtime:             r.Runtime,
+		DraftModel:          r.DraftModel,
+		ServerHost:          r.ServerHost,
+		ServerPort:          r.ServerPort,
+		ContextSize:         r.ContextSize,
+		GPULayers:           r.GPULayers,
+		Threads:             r.Threads,
+		MMapReserveGB:       r.MMapReserveGB,
+		KVCacheQuantization: r.KVCacheQuantization,
+		ExtraArgs:           r.ExtraArgs,
 	}
 }
 
@@ -741,11 +745,13 @@ func (s *Server) handleLlamaLogsClear(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Model            string `json:"model"`
-		MMProj           string `json:"mmproj"`
-		DraftModel       string `json:"draft_model"`
-		DFlashEnabled    bool   `json:"dflash_enabled"`
-		StartupCommandID string `json:"startup_command_id"`
+		Model                      string `json:"model"`
+		MMProj                     string `json:"mmproj"`
+		DraftModel                 string `json:"draft_model"`
+		DFlashEnabled              bool   `json:"dflash_enabled"`
+		MMapEnabled                bool   `json:"mmap_enabled"`
+		KVCacheQuantizationEnabled bool   `json:"kv_cache_quantization_enabled"`
+		StartupCommandID           string `json:"startup_command_id"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -761,6 +767,8 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		request.MMProj,
 		request.DraftModel,
 		request.DFlashEnabled,
+		request.MMapEnabled,
+		request.KVCacheQuantizationEnabled,
 		startupCommand,
 	)
 	if err != nil {

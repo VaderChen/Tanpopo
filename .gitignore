@@ -53,6 +53,7 @@ mlx-server/.swiftpm/
 .idea/
 .vscode/
 .svn/
+/misc/
 
 # 私密金鑰、憑證與簽章
 *.pem

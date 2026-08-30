@@ -61,7 +61,7 @@ if [[ "${TERMINAL_WINDOW_ID}" =~ ^[0-9]+$ ]]; then
 fi
 
 if [[ -x "${PROJECT_DIR}/scripts/ensure-local-runtimes.sh" ]]; then
-  "${PROJECT_DIR}/scripts/ensure-local-runtimes.sh"
+  "${PROJECT_DIR}/build.command" --runtime
   mkdir -p "${PROJECT_DIR}/bin" "${PROJECT_DIR}/data"
   go build -buildvcs=false -trimpath -ldflags "${APP_LDFLAGS}" -o "${PROJECT_DIR}/bin/Tanpopo" ./src/cmd/llamaloader
   TANPOPO_BINARY="${PROJECT_DIR}/bin/Tanpopo"

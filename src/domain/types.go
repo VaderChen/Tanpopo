@@ -5,6 +5,10 @@ import "time"
 const (
 	RuntimeLlamaServer = "llama-server"
 	RuntimeMLXServer   = "mlx-server"
+
+	KVCacheQuantizationNone = ""
+	KVCacheQuantizationQ8   = "q8"
+	KVCacheQuantizationQ4   = "q4"
 )
 
 // AgentConfig 是服務啟動階段使用的設定；變更後需重新啟動服務。
@@ -59,6 +63,7 @@ type ModelFile struct {
 	Size            int64     `json:"size"`
 	ModifiedAt      time.Time `json:"modified_at"`
 	Architecture    string    `json:"architecture,omitempty"`
+	RuntimeUntested bool      `json:"runtime_untested,omitempty"`
 	DFlashSupported bool      `json:"dflash_supported"`
 	DFlashDraft     bool      `json:"dflash_draft"`
 	DFlashVariant   string    `json:"dflash_variant,omitempty"`
@@ -82,35 +87,40 @@ type DownloadJob struct {
 // StartupCommand 是可重複使用的模型 Runtime 啟動參數組合。
 // 實際啟動時才會由後端與選定的 GGUF 或 MLX 模型動態組合命令列。
 type StartupCommand struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Runtime     string    `json:"runtime"`
-	DraftModel  string    `json:"draft_model,omitempty"`
-	ServerHost  string    `json:"server_host"`
-	ServerPort  int       `json:"server_port"`
-	ContextSize int       `json:"context_size"`
-	GPULayers   int       `json:"gpu_layers"`
-	Threads     int       `json:"threads"`
-	ExtraArgs   []string  `json:"extra_args"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID                  string    `json:"id"`
+	Name                string    `json:"name"`
+	Runtime             string    `json:"runtime"`
+	DraftModel          string    `json:"draft_model,omitempty"`
+	ServerHost          string    `json:"server_host"`
+	ServerPort          int       `json:"server_port"`
+	ContextSize         int       `json:"context_size"`
+	GPULayers           int       `json:"gpu_layers"`
+	Threads             int       `json:"threads"`
+	MMapReserveGB       int       `json:"mmap_reserve_gb"`
+	KVCacheQuantization string    `json:"kv_cache_quantization"`
+	ExtraArgs           []string  `json:"extra_args"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type LlamaStatus struct {
-	Running            bool      `json:"running"`
-	Ready              bool      `json:"ready"`
-	DesiredRunning     bool      `json:"desired_running"`
-	Runtime            string    `json:"runtime"`
-	PID                int       `json:"pid,omitempty"`
-	Model              string    `json:"model,omitempty"`
-	MMProj             string    `json:"mmproj,omitempty"`
-	DraftModel         string    `json:"draft_model,omitempty"`
-	DFlashEnabled      bool      `json:"dflash_enabled"`
-	Binary             string    `json:"binary,omitempty"`
-	StartupCommandID   string    `json:"startup_command_id,omitempty"`
-	StartupCommandName string    `json:"startup_command_name,omitempty"`
-	URL                string    `json:"url"`
-	StartedAt          time.Time `json:"started_at,omitempty"`
-	StoppedAt          time.Time `json:"stopped_at,omitempty"`
-	LastError          string    `json:"last_error,omitempty"`
+	Running             bool      `json:"running"`
+	Ready               bool      `json:"ready"`
+	DesiredRunning      bool      `json:"desired_running"`
+	Runtime             string    `json:"runtime"`
+	PID                 int       `json:"pid,omitempty"`
+	Model               string    `json:"model,omitempty"`
+	MMProj              string    `json:"mmproj,omitempty"`
+	DraftModel          string    `json:"draft_model,omitempty"`
+	DFlashEnabled       bool      `json:"dflash_enabled"`
+	MMapEnabled         bool      `json:"mmap_enabled"`
+	MMapReserveGB       int       `json:"mmap_reserve_gb"`
+	KVCacheQuantization string    `json:"kv_cache_quantization,omitempty"`
+	Binary              string    `json:"binary,omitempty"`
+	StartupCommandID    string    `json:"startup_command_id,omitempty"`
+	StartupCommandName  string    `json:"startup_command_name,omitempty"`
+	URL                 string    `json:"url"`
+	StartedAt           time.Time `json:"started_at,omitempty"`
+	StoppedAt           time.Time `json:"stopped_at,omitempty"`
+	LastError           string    `json:"last_error,omitempty"`
 }

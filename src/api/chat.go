@@ -66,6 +66,28 @@ var (
 	)
 )
 
+func isRuntimeLoadingMessage(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return false
+	}
+	for _, fragment := range []string{
+		"模型服務仍在載入中",
+		"模型載入中",
+		"loading model",
+		"loading the model",
+		"model is loading",
+		"model loading",
+		"model is still loading",
+		"model is being loaded",
+	} {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	var request chatCompletionRequest
 	if err := decodeJSON(r, &request); err != nil {
@@ -179,6 +201,10 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		if message == "" {
 			message = fmt.Sprintf("模型 Runtime 拒絕請求（HTTP %d）", response.StatusCode)
 		}
+		if isRuntimeLoadingMessage(message) {
+			writeError(w, http.StatusConflict, errors.New("模型服務仍在載入中，請稍候"))
+			return
+		}
 		writeError(w, http.StatusBadGateway, errors.New(message))
 		return
 	}
@@ -251,6 +277,10 @@ func writeRuntimeChatError(w http.ResponseWriter, response *http.Response) {
 	message := strings.TrimSpace(completion.Error.Message)
 	if message == "" {
 		message = fmt.Sprintf("模型 Runtime 拒絕請求（HTTP %d）", response.StatusCode)
+	}
+	if isRuntimeLoadingMessage(message) {
+		writeError(w, http.StatusConflict, errors.New("模型服務仍在載入中，請稍候"))
+		return
 	}
 	writeError(w, http.StatusBadGateway, errors.New(message))
 }

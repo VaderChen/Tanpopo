@@ -13,21 +13,23 @@ import (
 	"LlamaLoader/src/domain"
 )
 
-const runtimeStateVersion = 1
+const runtimeStateVersion = 3
 
 // persistedRuntimeState 只保存重建模型服務所需的相對模型名稱與參數 ID，
 // 不保存 Runtime 二進位檔或模型根目錄等本機絕對路徑。
 type persistedRuntimeState struct {
-	Version            int       `json:"version"`
-	DesiredRunning     bool      `json:"desired_running"`
-	Runtime            string    `json:"runtime"`
-	Model              string    `json:"model,omitempty"`
-	MMProj             string    `json:"mmproj,omitempty"`
-	DraftModel         string    `json:"draft_model,omitempty"`
-	DFlashEnabled      bool      `json:"dflash_enabled"`
-	StartupCommandID   string    `json:"startup_command_id,omitempty"`
-	StartupCommandName string    `json:"startup_command_name,omitempty"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	Version             int       `json:"version"`
+	DesiredRunning      bool      `json:"desired_running"`
+	Runtime             string    `json:"runtime"`
+	Model               string    `json:"model,omitempty"`
+	MMProj              string    `json:"mmproj,omitempty"`
+	DraftModel          string    `json:"draft_model,omitempty"`
+	DFlashEnabled       bool      `json:"dflash_enabled"`
+	MMapEnabled         bool      `json:"mmap_enabled"`
+	KVCacheQuantization string    `json:"kv_cache_quantization,omitempty"`
+	StartupCommandID    string    `json:"startup_command_id,omitempty"`
+	StartupCommandName  string    `json:"startup_command_name,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type runtimeStateStore struct {
@@ -134,11 +136,14 @@ func normalizeRuntimeState(state persistedRuntimeState) persistedRuntimeState {
 	state.DraftModel = filepath.ToSlash(strings.TrimSpace(state.DraftModel))
 	state.StartupCommandID = strings.TrimSpace(state.StartupCommandID)
 	state.StartupCommandName = strings.TrimSpace(state.StartupCommandName)
+	state.KVCacheQuantization = strings.ToLower(strings.TrimSpace(state.KVCacheQuantization))
 	if state.Runtime == domain.RuntimeMLXServer {
 		state.MMProj = ""
 	}
 	if !state.DFlashEnabled {
 		state.DraftModel = ""
+	} else {
+		state.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
 	return state
 }
@@ -163,6 +168,14 @@ func validateRuntimeState(state persistedRuntimeState) error {
 	}
 	if state.DFlashEnabled && state.DraftModel == "" {
 		return errors.New("DFlash 狀態缺少 Draft 模型")
+	}
+	if state.KVCacheQuantization != domain.KVCacheQuantizationNone &&
+		state.KVCacheQuantization != domain.KVCacheQuantizationQ8 &&
+		state.KVCacheQuantization != domain.KVCacheQuantizationQ4 {
+		return errors.New("KV Cache 量化狀態只支援 Q8 或 Q4")
+	}
+	if state.DFlashEnabled && state.KVCacheQuantization != domain.KVCacheQuantizationNone {
+		return errors.New("DFlash 與 KV Cache 量化狀態不可同時啟用")
 	}
 	return nil
 }

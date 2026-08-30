@@ -4,6 +4,7 @@
   "gguf": [
     {
       "name": "Qwen 3.5 4B · Q4_K_M",
+      "parameter_size_b": 4,
       "repository": "unsloth/Qwen3.5-4B-GGUF",
       "revision": "main",
       "filename": "Qwen3.5-4B-Q4_K_M.gguf",
@@ -16,6 +17,7 @@
     },
     {
       "name": "Qwen 3.5 9B · Q4_K_M",
+      "parameter_size_b": 9,
       "repository": "unsloth/Qwen3.5-9B-GGUF",
       "revision": "main",
       "filename": "Qwen3.5-9B-Q4_K_M.gguf",
@@ -27,7 +29,21 @@
       }
     },
     {
+      "name": "NVIDIA Nemotron 3.5 Lightning 30B-A3B · UD-Q4_K_M",
+      "parameter_size_b": 30,
+      "repository": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+      "revision": "main",
+      "filename": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 8 月推出的 30B-A3B MoE 模型，著重高速推理與代理工作。",
+        "en": "An August 2026 30B-A3B MoE model focused on fast reasoning and agentic workloads.",
+        "ja": "高速推論とエージェント処理を重視した、2026 年 8 月公開の 30B-A3B MoE モデル。",
+        "ko": "빠른 추론과 에이전트 작업에 중점을 둔 2026년 8월 공개 30B-A3B MoE 모델입니다."
+      }
+    },
+    {
       "name": "Ornith 1.5 9B · Q4_K_M",
+      "parameter_size_b": 9,
       "repository": "ornith-ai/Ornith-1.5-9B-GGUF",
       "revision": "main",
       "filename": "Ornith-1.5-9B-Q4_K_M.gguf",
@@ -39,7 +55,21 @@
       }
     },
     {
+      "name": "Muse Glimmer 30B · UD-Q4_K_XL",
+      "parameter_size_b": 30,
+      "repository": "unsloth/Muse-Glimmer-30B-GGUF",
+      "revision": "main",
+      "filename": "Muse-Glimmer-30B-UD-Q4_K_XL.gguf",
+      "description": {
+        "zh-Hant": "2026 年 8 月推出的 30B 多模態模型，適合文字與影像理解工作。",
+        "en": "An August 2026 30B multimodal model for text and image understanding.",
+        "ja": "テキストと画像理解向けの、2026 年 8 月公開 30B マルチモーダルモデル。",
+        "ko": "텍스트와 이미지 이해를 위한 2026년 8월 공개 30B 멀티모달 모델입니다."
+      }
+    },
+    {
       "name": "Qwen 3.8 27B · UD-Q4_K_M",
+      "parameter_size_b": 27,
       "repository": "unsloth/Qwen3.8-27B-GGUF",
       "revision": "main",
       "filename": "Qwen3.8-27B-UD-Q4_K_M.gguf",
@@ -51,7 +81,47 @@
       }
     },
     {
+      "name": "Qwen AgentWorld 35B-A3B · UD-Q4_K_M",
+      "parameter_size_b": 35,
+      "repository": "unsloth/Qwen-AgentWorld-35B-A3B-GGUF",
+      "revision": "main",
+      "filename": "Qwen-AgentWorld-35B-A3B-UD-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 6 月推出的 35B-A3B Agentic 模型，適合工具使用與環境互動。",
+        "en": "A June 2026 35B-A3B agentic model for tool use and environment interaction.",
+        "ja": "ツール利用と環境操作向けの、2026 年 6 月公開 35B-A3B Agentic モデル。",
+        "ko": "도구 사용과 환경 상호 작용을 위한 2026년 6월 공개 35B-A3B 에이전틱 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.6 35B-A3B MTP · UD-Q4_K_M",
+      "parameter_size_b": 35,
+      "repository": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 5 月推出、內含 MTP 預測層的 35B-A3B MoE 模型。",
+        "en": "A May 2026 35B-A3B MoE model with MTP prediction layers.",
+        "ja": "MTP 予測レイヤーを備えた、2026 年 5 月公開 35B-A3B MoE モデル。",
+        "ko": "MTP 예측 계층을 포함한 2026년 5월 공개 35B-A3B MoE 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.6 27B MTP · Q4_K_M",
+      "parameter_size_b": 27,
+      "repository": "unsloth/Qwen3.6-27B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.6-27B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 5 月推出、內含 MTP 預測層的 27B 高品質模型。",
+        "en": "A May 2026 high-quality 27B model with MTP prediction layers.",
+        "ja": "MTP 予測レイヤーを備えた、2026 年 5 月公開の高品質 27B モデル。",
+        "ko": "MTP 예측 계층을 포함한 2026년 5월 공개 고품질 27B 모델입니다."
+      }
+    },
+    {
       "name": "Gemma 4 E2B IT · Q4_K_M",
+      "parameter_size_b": 2,
       "repository": "unsloth/gemma-4-E2B-it-GGUF",
       "revision": "main",
       "filename": "gemma-4-E2B-it-Q4_K_M.gguf",
@@ -64,6 +134,7 @@
     },
     {
       "name": "Gemma 4 E4B IT · Q4_K_M",
+      "parameter_size_b": 4,
       "repository": "unsloth/gemma-4-E4B-it-GGUF",
       "revision": "main",
       "filename": "gemma-4-E4B-it-Q4_K_M.gguf",
@@ -76,6 +147,7 @@
     },
     {
       "name": "Gemma 4 12B IT · Q4_K_M",
+      "parameter_size_b": 12,
       "repository": "unsloth/gemma-4-12b-it-GGUF",
       "revision": "main",
       "filename": "gemma-4-12b-it-Q4_K_M.gguf",
@@ -85,11 +157,38 @@
         "ja": "Gemma 4 の高品質 12B 指示調整モデル。",
         "ko": "Gemma 4의 고품질 12B 명령 튜닝 모델입니다."
       }
+    },
+    {
+      "name": "Granite 4.1 30B · Q4_K_M",
+      "parameter_size_b": 30,
+      "repository": "unsloth/granite-4.1-30b-GGUF",
+      "revision": "main",
+      "filename": "granite-4.1-30b-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 4 月推出的 30B Granite 模型，適合企業文字與代理工作。",
+        "en": "An April 2026 30B Granite model for enterprise text and agentic workloads.",
+        "ja": "企業向けテキスト処理とエージェント作業に適した、2026 年 4 月公開の 30B Granite モデル。",
+        "ko": "기업용 텍스트와 에이전트 작업에 적합한 2026년 4월 공개 30B Granite 모델입니다."
+      }
+    },
+    {
+      "name": "Apertus 1.5 70B · Q4_K_M",
+      "parameter_size_b": 70,
+      "repository": "katya228/Apertus-v1.5-70B-text-GGUF",
+      "revision": "main",
+      "filename": "apertus-70b-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "2026 年 7 月推出的 70B 開放多語言模型，適合高品質文字推理與對話。",
+        "en": "A July 2026 open multilingual 70B model for high-quality text reasoning and chat.",
+        "ja": "高品質なテキスト推論と対話向けの、2026 年 7 月公開オープン多言語 70B モデル。",
+        "ko": "고품질 텍스트 추론과 대화를 위한 2026년 7월 공개 다국어 70B 모델입니다."
+      }
     }
   ],
   "mlx": [
     {
       "name": "Qwen 3.5 4B · 4-bit MLX",
+      "parameter_size_b": 4,
       "repository": "mlx-community/Qwen3.5-4B-MLX-4bit",
       "revision": "main",
       "description": {
@@ -101,6 +200,7 @@
     },
     {
       "name": "Qwen 3.5 9B · 4-bit MLX",
+      "parameter_size_b": 9,
       "repository": "mlx-community/Qwen3.5-9B-MLX-4bit",
       "revision": "main",
       "description": {
@@ -111,7 +211,20 @@
       }
     },
     {
+      "name": "NVIDIA Nemotron 3.5 Lightning 30B-A3B · 4-bit MLX",
+      "parameter_size_b": 30,
+      "repository": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 8 月 Nemotron 3.5 Lightning 量化版本。",
+        "en": "An August 2026 quantized Nemotron 3.5 Lightning build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 8 月版 Nemotron 3.5 Lightning 量子化モデル。",
+        "ko": "Apple Silicon용 2026년 8월 Nemotron 3.5 Lightning 양자화 모델입니다."
+      }
+    },
+    {
       "name": "Ornith 1.5 9B · 4-bit MLX",
+      "parameter_size_b": 9,
       "repository": "ornith-ai/Ornith-1.5-9B-MLX-4bit",
       "revision": "main",
       "description": {
@@ -122,7 +235,20 @@
       }
     },
     {
+      "name": "Muse Glimmer 30B · 4-bit MLX",
+      "parameter_size_b": 30,
+      "repository": "mlx-community/Muse-Glimmer-30B-4bit",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 8 月 Muse Glimmer 30B 多模態量化版本。",
+        "en": "An August 2026 quantized Muse Glimmer 30B multimodal build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 8 月版 Muse Glimmer 30B マルチモーダル量子化モデル。",
+        "ko": "Apple Silicon용 2026년 8월 Muse Glimmer 30B 멀티모달 양자화 모델입니다."
+      }
+    },
+    {
       "name": "Qwen 3.8 27B · 4-bit MLX",
+      "parameter_size_b": 27,
       "repository": "mlx-community/Qwen3.8-27B-4bit",
       "revision": "main",
       "description": {
@@ -133,7 +259,44 @@
       }
     },
     {
+      "name": "Qwen AgentWorld 35B-A3B · oQ4 MLX",
+      "parameter_size_b": 35,
+      "repository": "mlx-community/Qwen-AgentWorld-35B-A3B-oQ4",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 6 月 Qwen AgentWorld 35B-A3B 量化版本。",
+        "en": "A June 2026 quantized Qwen AgentWorld 35B-A3B build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 6 月版 Qwen AgentWorld 35B-A3B 量子化モデル。",
+        "ko": "Apple Silicon용 2026년 6월 Qwen AgentWorld 35B-A3B 양자화 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.6 35B-A3B MTP · 4-bit MLX",
+      "parameter_size_b": 35,
+      "repository": "mlx-community/Qwen3.6-35B-A3B-MTP-4bit",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 5 月 Qwen 3.6 35B-A3B MTP 量化版本。",
+        "en": "A May 2026 quantized Qwen 3.6 35B-A3B MTP build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 5 月版 Qwen 3.6 35B-A3B MTP 量子化モデル。",
+        "ko": "Apple Silicon용 2026년 5월 Qwen 3.6 35B-A3B MTP 양자화 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.6 27B MTP · 4-bit MLX",
+      "parameter_size_b": 27,
+      "repository": "mlx-community/Qwen3.6-27B-MTP-4bit",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 5 月 Qwen 3.6 27B MTP 量化版本。",
+        "en": "A May 2026 quantized Qwen 3.6 27B MTP build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 5 月版 Qwen 3.6 27B MTP 量子化モデル。",
+        "ko": "Apple Silicon용 2026년 5월 Qwen 3.6 27B MTP 양자화 모델입니다."
+      }
+    },
+    {
       "name": "Gemma 4 E2B IT · 4-bit MLX",
+      "parameter_size_b": 2,
       "repository": "mlx-community/gemma-4-e2b-it-4bit",
       "revision": "main",
       "description": {
@@ -145,6 +308,7 @@
     },
     {
       "name": "Gemma 4 E4B IT · 4-bit MLX",
+      "parameter_size_b": 4,
       "repository": "mlx-community/gemma-4-e4b-it-4bit",
       "revision": "main",
       "description": {
@@ -156,6 +320,7 @@
     },
     {
       "name": "Gemma 4 12B IT · 4-bit MLX",
+      "parameter_size_b": 12,
       "repository": "mlx-community/gemma-4-12B-it-4bit",
       "revision": "main",
       "description": {
@@ -163,6 +328,18 @@
         "en": "A quantized Gemma 4 12B build for Apple Silicon.",
         "ja": "Apple Silicon 向け Gemma 4 12B 量子化モデル。",
         "ko": "Apple Silicon용 Gemma 4 12B 양자화 모델입니다."
+      }
+    },
+    {
+      "name": "Granite 4.1 30B · 4-bit MLX",
+      "parameter_size_b": 30,
+      "repository": "mlx-community/granite-4.1-30b-4bit",
+      "revision": "main",
+      "description": {
+        "zh-Hant": "Apple Silicon 適用的 2026 年 4 月 Granite 4.1 30B 量化版本。",
+        "en": "An April 2026 quantized Granite 4.1 30B build for Apple Silicon.",
+        "ja": "Apple Silicon 向けの 2026 年 4 月版 Granite 4.1 30B 量子化モデル。",
+        "ko": "Apple Silicon용 2026년 4월 Granite 4.1 30B 양자화 모델입니다."
       }
     }
   ]

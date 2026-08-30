@@ -23,7 +23,13 @@ public func loadWeights(
         at: modelDirectory, includingPropertiesForKeys: nil)!
     for case let url as URL in enumerator {
         if url.pathExtension == "safetensors" {
-            let (w, m) = try loadArraysAndMetadata(url: url)
+            let (w, m): ([String: MLXArray], [String: String])
+            switch ModelWeightLoadingContext.mode {
+            case .eager:
+                (w, m) = try loadArraysAndMetadata(url: url)
+            case .memoryMapped:
+                (w, m) = try MemoryMappedSafetensors.loadArraysAndMetadata(from: url)
+            }
             for (key, value) in w {
                 weights[key] = value
             }

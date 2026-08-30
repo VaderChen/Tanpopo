@@ -6,9 +6,9 @@
   <title>啟動參數 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-30">
-  <script src="/assets/common.js?v=20260829-46" defer></script>
-  <script src="/assets/commands.js?v=20260828-3" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260829-31">
+  <script src="/assets/common.js?v=20260829-58" defer></script>
+  <script src="/assets/commands.js?v=20260829-6" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -108,6 +108,30 @@
               <label id="threadsField" class="field">
                 <span>Threads（0 = 自動）</span>
                 <input id="commandThreads" type="number" min="0" required>
+              </label>
+              <label id="mmapReserveField" class="field">
+                <span>MMap 記憶體保留目標</span>
+                <select id="commandMMapReserve" required>
+                  <option value="0">自動</option>
+                  <option value="4">4 GB</option>
+                  <option value="8">8 GB</option>
+                  <option value="16">16 GB</option>
+                  <option value="24">24 GB</option>
+                  <option value="32">32 GB</option>
+                  <option value="48">48 GB</option>
+                  <option value="64">64 GB</option>
+                  <option value="96">96 GB</option>
+                  <option value="128">128 GB</option>
+                </select>
+                <small class="helper">會嘗試為每個運算裝置保留的記憶體目標，但不是硬性的使用上限。</small>
+              </label>
+              <label id="kvCacheQuantizationField" class="field">
+                <span>KV Cache 量化</span>
+                <select id="commandKVCacheQuantization" required>
+                  <option value="q8">Q8</option>
+                  <option value="q4">Q4</option>
+                </select>
+                <small class="helper">降低長 Context 的 KV Cache 記憶體用量；Q4 較省記憶體，Q8 保留較高精度。</small>
               </label>
             </div>
             <label class="field">

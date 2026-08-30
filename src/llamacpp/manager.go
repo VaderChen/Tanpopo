@@ -55,25 +55,40 @@ func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath s
 		stateStore:        stateStore,
 		logs:              newLogBuffer(128 * 1024),
 		status: domain.LlamaStatus{
-			DesiredRunning:     saved.DesiredRunning,
-			Runtime:            saved.Runtime,
-			Model:              saved.Model,
-			MMProj:             saved.MMProj,
-			DraftModel:         saved.DraftModel,
-			DFlashEnabled:      saved.DFlashEnabled,
-			StartupCommandID:   saved.StartupCommandID,
-			StartupCommandName: saved.StartupCommandName,
+			DesiredRunning:      saved.DesiredRunning,
+			Runtime:             saved.Runtime,
+			Model:               saved.Model,
+			MMProj:              saved.MMProj,
+			DraftModel:          saved.DraftModel,
+			DFlashEnabled:       saved.DFlashEnabled,
+			MMapEnabled:         saved.MMapEnabled,
+			KVCacheQuantization: saved.KVCacheQuantization,
+			StartupCommandID:    saved.StartupCommandID,
+			StartupCommandName:  saved.StartupCommandName,
 		},
 	}
 	manager.refreshURL()
 	return manager, nil
 }
 
-func (m *Manager) Start(model, mmproj, draftModel string, dflashEnabled bool, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) Start(
+	model, mmproj, draftModel string,
+	dflashEnabled, mmapEnabled, kvCacheQuantizationEnabled bool,
+	startupCommand domain.StartupCommand,
+) (domain.LlamaStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.status.Running {
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
+	}
+	if dflashEnabled && kvCacheQuantizationEnabled {
+		return m.status, errors.New("DFlash 與 KV Cache 量化不可同時啟用")
+	}
+	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
+		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
+	}
+	if !kvCacheQuantizationEnabled {
+		startupCommand.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
 	if dflashEnabled && startupCommand.Runtime == domain.RuntimeMLXServer {
 		startupCommand.ExtraArgs = withoutDraftModelArguments(startupCommand.ExtraArgs)
@@ -95,15 +110,21 @@ func (m *Manager) Start(model, mmproj, draftModel string, dflashEnabled bool, st
 	var status domain.LlamaStatus
 	var err error
 	if startupCommand.Runtime == domain.RuntimeMLXServer {
-		status, err = m.startMLXLocked(settings, model, mmproj, startupCommand)
+		status, err = m.startMLXLocked(settings, model, mmproj, mmapEnabled, startupCommand)
 	} else {
-		status, err = m.startLlamaLocked(settings, model, mmproj, startupCommand)
+		status, err = m.startLlamaLocked(settings, model, mmproj, mmapEnabled, startupCommand)
 	}
 	if err != nil {
 		return status, err
 	}
 	m.status.DesiredRunning = true
 	m.status.DFlashEnabled = dflashEnabled
+	m.status.MMapEnabled = mmapEnabled
+	m.status.KVCacheQuantization = startupCommand.KVCacheQuantization
+	m.status.MMapReserveGB = 0
+	if mmapEnabled {
+		m.status.MMapReserveGB = startupCommand.MMapReserveGB
+	}
 	if err := m.persistStatusLocked(true); err != nil {
 		m.status.DesiredRunning = false
 		m.stopping = true
@@ -115,7 +136,7 @@ func (m *Manager) Start(model, mmproj, draftModel string, dflashEnabled bool, st
 	return m.status, nil
 }
 
-func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj string, mmapEnabled bool, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
 	binary, err := ResolveServerBinary()
 	if err != nil {
 		return m.status, err
@@ -151,7 +172,25 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		}
 	}
 
-	args := append([]string(nil), startupCommand.ExtraArgs...)
+	args := withManagedKVCacheQuantization(
+		startupCommand.ExtraArgs,
+		domain.RuntimeLlamaServer,
+		startupCommand.KVCacheQuantization,
+	)
+	args = withoutModelLoadModeArguments(args)
+	managedMMapReserve := mmapEnabled && startupCommand.MMapReserveGB > 0
+	if managedMMapReserve {
+		args = withoutMMapMemoryArguments(args)
+		args = append(args,
+			"--fit", "on",
+			"--fit-target", strconv.Itoa(startupCommand.MMapReserveGB*1024),
+		)
+	}
+	loadMode := "none"
+	if mmapEnabled {
+		loadMode = "mmap"
+	}
+	args = append(args, "--load-mode", loadMode)
 	args = append(args, "--model", modelPath)
 	if mmprojPath != "" {
 		args = append(args, "--mmproj", mmprojPath)
@@ -163,9 +202,11 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		"--host", startupCommand.ServerHost,
 		"--port", strconv.Itoa(startupCommand.ServerPort),
 		"--ctx-size", strconv.Itoa(startupCommand.ContextSize),
-		"--n-gpu-layers", strconv.Itoa(startupCommand.GPULayers),
 		"--openloader-access-control", m.accessControlPath,
 	)
+	if !managedMMapReserve {
+		args = append(args, "--n-gpu-layers", strconv.Itoa(startupCommand.GPULayers))
+	}
 	if startupCommand.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(startupCommand.Threads))
 	}
@@ -199,7 +240,12 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	return m.status, nil
 }
 
-func (m *Manager) startMLXLocked(settings domain.Settings, model, mmproj string, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) startMLXLocked(
+	settings domain.Settings,
+	model, mmproj string,
+	mmapEnabled bool,
+	startupCommand domain.StartupCommand,
+) (domain.LlamaStatus, error) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		return m.status, fmt.Errorf("mlx-server 僅支援 macOS Apple Silicon；目前平台為 %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
@@ -217,8 +263,11 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model, mmproj string,
 			return m.status, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
 		}
 		architecture, metadataErr := readGGUFStringMetadata(modelArgument, "general.architecture")
-		if metadataErr != nil || !isSupportedMLXGGUFArchitecture(architecture) {
-			return m.status, fmt.Errorf("mlx-server 尚未支援此 GGUF 架構：%s", strings.TrimSpace(architecture))
+		if metadataErr != nil {
+			return m.status, fmt.Errorf("無法讀取 GGUF 模型架構：%w", metadataErr)
+		}
+		if strings.TrimSpace(architecture) == "" {
+			return m.status, errors.New("GGUF 缺少 general.architecture，無法交由 mlx-server 載入")
 		}
 		ggufArchitecture = canonicalMLXGGUFArchitecture(architecture)
 	}
@@ -261,7 +310,26 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model, mmproj string,
 		}
 	}
 
-	args := append([]string(nil), startupCommand.ExtraArgs...)
+	args := withManagedKVCacheQuantization(
+		startupCommand.ExtraArgs,
+		domain.RuntimeMLXServer,
+		startupCommand.KVCacheQuantization,
+	)
+	if draftModelArgument != "" {
+		// mlx-server 只要看到 rotating 或量化的 target KV Cache 就會整個退回標準
+		// 生成，而且只在 stderr 留一行訊息。受管 KV 量化已由 Start 的互斥檢查擋掉，
+		// 這裡再清掉啟動參數裡手動加的 rotating KV 旗標，避免 DFlash 靜默失效。
+		args = withoutMLXRotatingKVArguments(args)
+	}
+	args = withoutMLXMMapArguments(args)
+	if mmapEnabled {
+		args = append(args, "--mmap")
+		if startupCommand.MMapReserveGB > 0 {
+			args = append(args, "--mmap-reserve-gb", strconv.Itoa(startupCommand.MMapReserveGB))
+		}
+	} else {
+		args = append(args, "--no-mmap")
+	}
 	args = append(args, "--model", modelArgument)
 	if mmprojArgument != "" {
 		args = append(args, "--mmproj", mmprojArgument)
@@ -282,7 +350,7 @@ func (m *Manager) startMLXLocked(settings domain.Settings, model, mmproj string,
 	// 未量化的 256K rotating KV Cache 對大型模型會一次占用過多記憶體；
 	// 一般 MLX 與 DFlash 使用可逐步成長的 Cache。只有參數明確啟用 KV
 	// 量化時，才把啟動參數的 Context Size 套用為 rotating Cache 上限。
-	if draftModelArgument == "" && hasAnyArgument(startupCommand.ExtraArgs, "--kv-bits", "--kv-scheme") {
+	if draftModelArgument == "" && startupCommand.KVCacheQuantization != domain.KVCacheQuantizationNone {
 		args = append(args, "--max-kv-size", strconv.Itoa(startupCommand.ContextSize))
 	}
 
@@ -443,7 +511,15 @@ func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, er
 		err = fmt.Errorf("啟動參數 Runtime 已由 %s 變更為 %s", saved.Runtime, command.Runtime)
 	}
 	if err == nil {
-		_, err = m.Start(saved.Model, saved.MMProj, saved.DraftModel, saved.DFlashEnabled, command)
+		_, err = m.Start(
+			saved.Model,
+			saved.MMProj,
+			saved.DraftModel,
+			saved.DFlashEnabled,
+			saved.MMapEnabled,
+			saved.KVCacheQuantization != domain.KVCacheQuantizationNone,
+			command,
+		)
 	}
 	if err == nil {
 		return true, nil
@@ -465,15 +541,17 @@ func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, er
 
 func (m *Manager) persistStatusLocked(desiredRunning bool) error {
 	return m.stateStore.Save(persistedRuntimeState{
-		Version:            runtimeStateVersion,
-		DesiredRunning:     desiredRunning,
-		Runtime:            m.status.Runtime,
-		Model:              m.status.Model,
-		MMProj:             m.status.MMProj,
-		DraftModel:         m.status.DraftModel,
-		DFlashEnabled:      m.status.DFlashEnabled,
-		StartupCommandID:   m.status.StartupCommandID,
-		StartupCommandName: m.status.StartupCommandName,
+		Version:             runtimeStateVersion,
+		DesiredRunning:      desiredRunning,
+		Runtime:             m.status.Runtime,
+		Model:               m.status.Model,
+		MMProj:              m.status.MMProj,
+		DraftModel:          m.status.DraftModel,
+		DFlashEnabled:       m.status.DFlashEnabled,
+		MMapEnabled:         m.status.MMapEnabled,
+		KVCacheQuantization: m.status.KVCacheQuantization,
+		StartupCommandID:    m.status.StartupCommandID,
+		StartupCommandName:  m.status.StartupCommandName,
 	})
 }
 
@@ -708,8 +786,13 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 		if err != nil {
 			return err
 		}
-		architecture, _ := readGGUFStringMetadata(path, "general.architecture")
-		architecture = normalizeModelArchitecture(architecture)
+		profile, profileErr := readGGUFModelProfile(path)
+		// mmproj 是視覺投影檔，本身沒有語言模型欄位，但 UI 需要它出現在同一份
+		// 清單裡才能挑選，因此不套用語言模型判斷。
+		if profileErr != nil || (!profile.isLanguageModel() && !isMMProjGGUF(entry.Name())) {
+			return nil
+		}
+		architecture := normalizeModelArchitecture(profile.Architecture)
 		isDraft := architecture == "dflash"
 		result = append(result, domain.ModelFile{
 			Path:            filepath.ToSlash(relative),
@@ -737,8 +820,9 @@ func ListMLXModels(directory string) ([]domain.ModelFile, error) {
 	return listMLXModels(directory, false)
 }
 
-// ListMLXRuntimeModels 合併原生 MLX safetensors 目錄與 mlx-server 可載入的
-// GGUF。GGUF 使用明確前綴，避免兩個模型根目錄出現同名項目時解析錯誤。
+// ListMLXRuntimeModels 合併原生 MLX safetensors 與語言模型 GGUF；Runtime
+// 尚未明確回報支援的主模型也會回傳並標記為未測試，讓使用者仍可嘗試載入。
+// GGUF 使用明確前綴，避免兩個模型根目錄出現同名項目時解析錯誤。
 func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFile, error) {
 	if strings.TrimSpace(mlxDirectory) == "" && strings.TrimSpace(ggufDirectory) == "" {
 		return nil, errors.New("請先設定 MLX 或 GGUF 模型目錄")
@@ -760,9 +844,8 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 			if model.DFlashDraft {
 				continue
 			}
-			if !isMMProjGGUF(model.Path) && !isSupportedMLXGGUFArchitecture(model.Architecture) {
-				continue
-			}
+			model.RuntimeUntested = !isMMProjGGUF(model.Path) &&
+				!isSupportedMLXGGUFArchitecture(model.Architecture)
 			model.Path = mlxGGUFPathPrefix + model.Path
 			model.Format = "gguf"
 			// GGUF Target 目前不接 DFlash Draft；保留原生 MLX Target 的既有支援。
@@ -781,12 +864,144 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 
 func isSupportedMLXGGUFArchitecture(architecture string) bool {
 	canonical := canonicalMLXGGUFArchitecture(architecture)
+	if support := mlxRuntimeSupport(); support.available {
+		return support.ggufArchitectures[canonical]
+	}
+	// 問不到 Runtime（例如尚未建置）時退回原本的保守清單，寧可少列也不誤列。
 	switch canonical {
 	case "qwen35", "qwen3", "qwen2", "llama":
 		return true
 	default:
 		return false
 	}
+}
+
+// mlxRuntimeSupportInfo 是 mlx-server 回報的可載入模型型別。
+type mlxRuntimeSupportInfo struct {
+	available         bool
+	modelTypes        map[string]bool
+	ggufArchitectures map[string]bool
+}
+
+var (
+	mlxRuntimeSupportOnce  sync.Once
+	mlxRuntimeSupportValue mlxRuntimeSupportInfo
+)
+
+// mlxRuntimeSupport 向 mlx-server 查詢它實際註冊了哪些模型型別。
+//
+// 讓 Runtime 自己回報，模型列表就不需要另外維護一份會與 MLXLLM／MLXVLM 註冊表
+// 脫節的靜態清單。查詢只做一次並快取。
+func mlxRuntimeSupport() mlxRuntimeSupportInfo {
+	mlxRuntimeSupportOnce.Do(func() {
+		binary, err := ResolveMLXServer()
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		output, err := exec.CommandContext(ctx, binary, "--supported-model-types").Output()
+		if err != nil {
+			return
+		}
+		var payload struct {
+			LLM  []string `json:"llm"`
+			VLM  []string `json:"vlm"`
+			GGUF []string `json:"gguf"`
+		}
+		if err := json.Unmarshal(output, &payload); err != nil {
+			return
+		}
+		modelTypes := make(map[string]bool, len(payload.LLM)+len(payload.VLM))
+		for _, value := range append(payload.LLM, payload.VLM...) {
+			modelTypes[normalizeModelArchitecture(value)] = true
+		}
+		ggufArchitectures := make(map[string]bool, len(payload.GGUF))
+		for _, value := range payload.GGUF {
+			ggufArchitectures[canonicalMLXGGUFArchitecture(value)] = true
+		}
+		if len(modelTypes) == 0 || len(ggufArchitectures) == 0 {
+			return
+		}
+		mlxRuntimeSupportValue = mlxRuntimeSupportInfo{
+			available:         true,
+			modelTypes:        modelTypes,
+			ggufArchitectures: ggufArchitectures,
+		}
+	})
+	return mlxRuntimeSupportValue
+}
+
+// isRunnableMLXModelType 判斷 MLX safetensors 目錄是不是 mlx-server 能載入的
+// LLM／VLM。音樂、影片等生成模型同樣是 safetensors 加 config.json，但 model_type
+// 不在註冊表裡，用這個判斷把它們排除在模型列表之外。
+// isCompositeModelComponent 判斷這個目錄是不是影像／音樂等組合式模型的零件。
+//
+// 這類模型會把 text_encoder、vae、transformer 拆成子目錄，各自帶 config.json；
+// 其中的文字塔雖然是合法的語言模型，卻不該當成可獨立啟動的模型出現在列表。
+// 判斷方式是往上找到掃描根目錄為止，只要有任何一層本身就是模型或 pipeline 目錄，
+// 就視為零件。
+func isCompositeModelComponent(base, modelDirectory string) bool {
+	for parent := filepath.Dir(modelDirectory); ; parent = filepath.Dir(parent) {
+		if parent == base || !strings.HasPrefix(parent, base) {
+			return false
+		}
+		for _, marker := range []string{"model_index.json", "config.json"} {
+			if info, err := os.Stat(filepath.Join(parent, marker)); err == nil &&
+				info.Mode().IsRegular() {
+				return true
+			}
+		}
+		if next := filepath.Dir(parent); next == parent {
+			return false
+		}
+	}
+}
+
+// hasGenerativeHead 判斷設定裡的 architectures 是不是帶語言模型輸出頭。
+//
+// 嵌入與基礎模型會標成 `Qwen3Model` 這類沒有輸出頭的名稱，沒辦法拿來生成文字。
+// architectures 缺席時不做判斷，維持原本行為。
+func hasGenerativeHead(architectures []string) bool {
+	if len(architectures) == 0 {
+		return true
+	}
+	for _, architecture := range architectures {
+		name := strings.TrimSpace(architecture)
+		if strings.HasSuffix(name, "ForCausalLM") ||
+			strings.HasSuffix(name, "ForConditionalGeneration") ||
+			strings.HasSuffix(name, "LMHeadModel") {
+			return true
+		}
+	}
+	return false
+}
+
+// isLikelyConversationalMLXModel 限制「尚未測試」群組只收錄語言生成模型。
+//
+// 未知 Runtime 型別不能再依賴註冊表判斷，因此以 Hugging Face 的生成架構命名
+// 與多模態模型的 text_config 結構辨識。這可保留未來的新 LLM／VLM，同時排除
+// 音樂、影像 pipeline、Embedding 與沒有語言輸出頭的基礎模型。
+func isLikelyConversationalMLXModel(configuration mlxModelConfiguration) bool {
+	for _, architecture := range configuration.Architectures {
+		name := strings.TrimSpace(architecture)
+		if strings.HasSuffix(name, "ForCausalLM") || strings.HasSuffix(name, "LMHeadModel") {
+			return true
+		}
+		if strings.HasSuffix(name, "ForConditionalGeneration") && len(configuration.TextConfig) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func isRunnableMLXModelType(modelType string) bool {
+	support := mlxRuntimeSupport()
+	if !support.available {
+		// 問不到 Runtime 時不過濾，維持原本行為，避免整份清單變空。
+		return true
+	}
+	return support.modelTypes[normalizeModelArchitecture(modelType)]
 }
 
 func canonicalMLXGGUFArchitecture(architecture string) string {
@@ -898,13 +1113,20 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 		if configurationErr != nil {
 			return nil
 		}
+		if isCompositeModelComponent(base, modelDirectory) {
+			return nil
+		}
 		architecture := normalizeModelArchitecture(configuration.ModelType)
 		isDraft := isMLXDFlashDraftConfiguration(configuration)
+		runtimeUntested := !isRunnableMLXModelType(configuration.ModelType)
 		if draftsOnly {
 			if !isSupportedMLXDFlashDraftConfiguration(configuration) {
 				return filepath.SkipDir
 			}
 		} else if isDraft {
+			return filepath.SkipDir
+		} else if !hasGenerativeHead(configuration.Architectures) ||
+			(runtimeUntested && !isLikelyConversationalMLXModel(configuration)) {
 			return filepath.SkipDir
 		}
 		relative, err := filepath.Rel(base, modelDirectory)
@@ -936,7 +1158,8 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 			Size:            size,
 			ModifiedAt:      modified,
 			Architecture:    architecture,
-			DFlashSupported: !isDraft && isSupportedDFlashTargetArchitecture(architecture),
+			RuntimeUntested: runtimeUntested,
+			DFlashSupported: !runtimeUntested && !isDraft && isSupportedDFlashTargetArchitecture(architecture),
 			DFlashDraft:     isDraft,
 			DFlashVariant:   mlxDFlashVariant(configuration),
 		})
@@ -953,11 +1176,12 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 }
 
 type mlxModelConfiguration struct {
-	Architectures []string `json:"architectures"`
-	ModelType     string   `json:"model_type"`
-	HiddenSize    int      `json:"hidden_size"`
-	LayerTypes    []string `json:"layer_types"`
-	SlidingWindow int      `json:"sliding_window"`
+	Architectures []string        `json:"architectures"`
+	ModelType     string          `json:"model_type"`
+	TextConfig    json.RawMessage `json:"text_config"`
+	HiddenSize    int             `json:"hidden_size"`
+	LayerTypes    []string        `json:"layer_types"`
+	SlidingWindow int             `json:"sliding_window"`
 	DFlash        struct {
 		ConvolutionKernelSize int `json:"conv_kernel_size"`
 		ConvolutionGroupSize  int `json:"conv_group_size"`
@@ -1051,6 +1275,147 @@ func mlxDFlashVariant(configuration mlxModelConfiguration) string {
 	return ""
 }
 
+// withoutModelLoadModeArguments 讓執行狀態頁的 MMap Switch 成為唯一來源。
+// llama.cpp 已以 --load-mode 取代舊的 mmap、mlock 與 direct-io 旗標；若
+// Profile 仍保存舊參數，啟動時一律移除，避免最後出現順序相依的衝突。
+func withoutModelLoadModeArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		switch argument {
+		case "--load-mode", "-lm":
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		case "--mmap", "--no-mmap", "--mlock",
+			"--direct-io", "--no-direct-io", "-dio", "-ndio":
+			continue
+		}
+		if strings.HasPrefix(argument, "--load-mode=") || strings.HasPrefix(argument, "-lm=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+// withoutMMapMemoryArguments 讓啟動參數中的 MMap 記憶體保留選單成為
+// --fit、--fit-target 與 GPU Layers 的唯一來源。啟用保留目標時，GPU Layers
+// 必須維持自動，llama-server 才能依記憶體餘裕調整權重配置。
+func withoutMMapMemoryArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		switch argument {
+		case "--fit", "-fit":
+			if index+1 < len(arguments) {
+				next := strings.ToLower(strings.TrimSpace(arguments[index+1]))
+				if next == "on" || next == "off" {
+					index++
+				}
+			}
+			continue
+		case "--fit-target", "-fitt", "--gpu-layers", "--n-gpu-layers", "-ngl":
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--fit=") || strings.HasPrefix(argument, "-fit=") ||
+			strings.HasPrefix(argument, "--fit-target=") || strings.HasPrefix(argument, "-fitt=") ||
+			strings.HasPrefix(argument, "--gpu-layers=") || strings.HasPrefix(argument, "--n-gpu-layers=") ||
+			strings.HasPrefix(argument, "-ngl=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+// withoutMLXMMapArguments 讓進階設定中的 MMap Switch 與 Profile 的保留目標
+// 成為 mlx-server MMap 的唯一來源，避免額外參數以順序覆蓋畫面選擇。
+func withoutMLXMMapArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		switch argument {
+		case "--mmap", "--no-mmap":
+			continue
+		case "--mmap-reserve-gb":
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--mmap-reserve-gb=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+// withManagedKVCacheQuantization 依 Runtime 產生對應的 Q8／Q4 參數。
+// 先移除 Profile 額外參數中的舊設定，確保 Switch 與量化選單是唯一來源。
+func withManagedKVCacheQuantization(arguments []string, runtimeName, quantization string) []string {
+	filtered := withoutManagedKVCacheArguments(arguments)
+	if quantization == domain.KVCacheQuantizationNone {
+		return filtered
+	}
+
+	if runtimeName == domain.RuntimeMLXServer {
+		bits := "8"
+		if quantization == domain.KVCacheQuantizationQ4 {
+			bits = "4"
+		}
+		return append(filtered,
+			"--kv-bits", bits,
+			"--kv-group-size", "64",
+			"--quantized-kv-start", "2048",
+		)
+	}
+
+	cacheType := "q8_0"
+	if quantization == domain.KVCacheQuantizationQ4 {
+		cacheType = "q4_0"
+	}
+	return append(filtered,
+		"--cache-type-k", cacheType,
+		"--cache-type-v", cacheType,
+		"--flash-attn", "on",
+	)
+}
+
+func withoutManagedKVCacheArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		name := argument
+		if separator := strings.IndexByte(name, '='); separator >= 0 {
+			name = name[:separator]
+		}
+		if !isManagedKVCacheArgument(name) {
+			filtered = append(filtered, arguments[index])
+			continue
+		}
+		if !strings.Contains(argument, "=") && index+1 < len(arguments) {
+			index++
+		}
+	}
+	return filtered
+}
+
+func isManagedKVCacheArgument(argument string) bool {
+	switch strings.TrimSpace(argument) {
+	case "--cache-type-k", "-ctk", "--cache-type-v", "-ctv",
+		"--kv-bits", "--kv-group-size", "--kv-scheme", "--quantized-kv-start":
+		return true
+	default:
+		return false
+	}
+}
+
 func withoutDFlashArguments(arguments []string) []string {
 	filtered := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
@@ -1097,6 +1462,27 @@ func hasAnyArgument(arguments []string, expected ...string) bool {
 		}
 	}
 	return false
+}
+
+// withoutMLXRotatingKVArguments 移除會讓 mlx-server 建立 rotating target KV
+// Cache 的旗標。DFlash 不支援 rotating cache，留著只會讓推測解碼靜默降級。
+func withoutMLXRotatingKVArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		name := argument
+		if separator := strings.IndexByte(name, '='); separator >= 0 {
+			name = name[:separator]
+		}
+		if name != "--max-kv-size" && name != "--ctx-size" {
+			filtered = append(filtered, arguments[index])
+			continue
+		}
+		if name == argument && index+1 < len(arguments) {
+			index++
+		}
+	}
+	return filtered
 }
 
 func withoutDraftModelArguments(arguments []string) []string {

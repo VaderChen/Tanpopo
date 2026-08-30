@@ -39,4 +39,10 @@ public actor ModelTypeRegistry<T> {
         creators[modelType] != nil
     }
 
+    /// 已註冊的 `modelType` 清單。呼叫端可用它回報這個 Runtime 實際能載入哪些
+    /// 架構，不必另外維護一份會過期的靜態表。
+    public var registeredModelTypes: [String] {
+        creators.keys.sorted()
+    }
+
 }

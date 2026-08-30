@@ -389,7 +389,8 @@ enum MLXGGUFLoader {
         from url: URL,
         targetGroupSize: Int = 32,
         quantizationProfile: GGUFQuantizationProfile = .quality,
-        convertQwen35StateSpaceParameters: Bool = false
+        convertQwen35StateSpaceParameters: Bool = false,
+        memoryMapped: Bool = false
     ) throws -> [String: MLXArray] {
         guard targetGroupSize == 32 || targetGroupSize == 64 else {
             throw MLXGGUFLoaderError.invalidTensor("量化群組設定")
@@ -418,11 +419,15 @@ enum MLXGGUFLoader {
             }
             switch support.materialization {
             case .directFloat32:
-                let value = MLXArray(
-                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                  byteCount: try checkedByteCount(elementCount, elementSize: 4)),
-                    mlxShape,
-                    dtype: .float32
+                let value = try directArray(
+                    from: url,
+                    data: data,
+                    tensor: tensor,
+                    dataOffset: tensorDataOffset,
+                    byteCount: try checkedByteCount(elementCount, elementSize: 4),
+                    shape: mlxShape,
+                    dtype: .float32,
+                    memoryMapped: memoryMapped
                 )
                 try insert(
                     convertQwen35StateSpaceParameters
@@ -435,11 +440,15 @@ enum MLXGGUFLoader {
                     into: &weights
                 )
             case .directFloat16:
-                let value = MLXArray(
-                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                  byteCount: try checkedByteCount(elementCount, elementSize: 2)),
-                    mlxShape,
-                    dtype: .float16
+                let value = try directArray(
+                    from: url,
+                    data: data,
+                    tensor: tensor,
+                    dataOffset: tensorDataOffset,
+                    byteCount: try checkedByteCount(elementCount, elementSize: 2),
+                    shape: mlxShape,
+                    dtype: .float16,
+                    memoryMapped: memoryMapped
                 )
                 try insert(
                     value.asType(.bfloat16),
@@ -447,11 +456,15 @@ enum MLXGGUFLoader {
                     into: &weights
                 )
             case .directBFloat16:
-                let value = MLXArray(
-                    try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                  byteCount: try checkedByteCount(elementCount, elementSize: 2)),
-                    mlxShape,
-                    dtype: .bfloat16
+                let value = try directArray(
+                    from: url,
+                    data: data,
+                    tensor: tensor,
+                    dataOffset: tensorDataOffset,
+                    byteCount: try checkedByteCount(elementCount, elementSize: 2),
+                    shape: mlxShape,
+                    dtype: .bfloat16,
+                    memoryMapped: memoryMapped
                 )
                 try insert(
                     convertQwen35StateSpaceParameters
@@ -517,33 +530,45 @@ enum MLXGGUFLoader {
                 )
             case .directInt8:
                 try insert(
-                    MLXArray(
-                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                      byteCount: elementCount),
-                        mlxShape,
-                        dtype: .int8
+                    try directArray(
+                        from: url,
+                        data: data,
+                        tensor: tensor,
+                        dataOffset: tensorDataOffset,
+                        byteCount: elementCount,
+                        shape: mlxShape,
+                        dtype: .int8,
+                        memoryMapped: memoryMapped
                     ),
                     name: tensor.name,
                     into: &weights
                 )
             case .directInt16:
                 try insert(
-                    MLXArray(
-                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                      byteCount: try checkedByteCount(elementCount, elementSize: 2)),
-                        mlxShape,
-                        dtype: .int16
+                    try directArray(
+                        from: url,
+                        data: data,
+                        tensor: tensor,
+                        dataOffset: tensorDataOffset,
+                        byteCount: try checkedByteCount(elementCount, elementSize: 2),
+                        shape: mlxShape,
+                        dtype: .int16,
+                        memoryMapped: memoryMapped
                     ),
                     name: tensor.name,
                     into: &weights
                 )
             case .directInt32:
                 try insert(
-                    MLXArray(
-                        try dataSlice(data, tensor: tensor, dataOffset: tensorDataOffset,
-                                      byteCount: try checkedByteCount(elementCount, elementSize: 4)),
-                        mlxShape,
-                        dtype: .int32
+                    try directArray(
+                        from: url,
+                        data: data,
+                        tensor: tensor,
+                        dataOffset: tensorDataOffset,
+                        byteCount: try checkedByteCount(elementCount, elementSize: 4),
+                        shape: mlxShape,
+                        dtype: .int32,
+                        memoryMapped: memoryMapped
                     ),
                     name: tensor.name,
                     into: &weights
@@ -1710,6 +1735,44 @@ enum MLXGGUFLoader {
         weights[name] = array
     }
 
+    private static func directArray(
+        from url: URL,
+        data: Data,
+        tensor: MLXGGUFTensorInfo,
+        dataOffset: Int,
+        byteCount: Int,
+        shape: [Int],
+        dtype: DType,
+        memoryMapped: Bool
+    ) throws -> MLXArray {
+        guard tensor.offset <= UInt64(Int.max) else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        if memoryMapped {
+            let (fileOffset, overflow) = dataOffset.addingReportingOverflow(Int(tensor.offset))
+            guard !overflow else {
+                throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+            }
+            return try MemoryMappedTensorArray.load(
+                from: url,
+                fileOffset: fileOffset,
+                byteCount: byteCount,
+                shape: shape,
+                dtype: dtype
+            )
+        }
+        return MLXArray(
+            try dataSlice(
+                data,
+                tensor: tensor,
+                dataOffset: dataOffset,
+                byteCount: byteCount
+            ),
+            shape,
+            dtype: dtype
+        )
+    }
+
     private static func dataSlice(
         _ data: Data,
         tensor: MLXGGUFTensorInfo,
@@ -1787,11 +1850,25 @@ enum MLXGGUFWeightNameNormalizer {
         return normalized
     }
 
+    /// 回傳無法對應到 Hugging Face 參數名稱的 GGUF 權重。
+    ///
+    /// 通用架構路徑用它判斷這份 GGUF 的權重佈局是否落在標準稠密 Transformer 的
+    /// 範圍內；只要有任何一個權重對應不到，就不替它產生內建設定。
+    static func unmappedNames(_ names: [String]) -> [String] {
+        names.filter { name in
+            guard let normalized = normalize(name, maximumLayerIndex: nil) else { return false }
+            return normalized == name
+        }
+    }
+
     private static func normalize(
         _ name: String,
         maximumLayerIndex: Int?
     ) -> String? {
         guard !name.contains(".nextn.") else { return nil }
+        // llama.cpp 會把預先算好的 rope 頻率表寫進 GGUF；MLX 於執行期自行計算，
+        // 留著只會在權重比對時被判為多餘參數。
+        guard !name.hasPrefix("rope_freqs") else { return nil }
         if let maximumLayerIndex,
            let layerIndex = layerIndex(in: name),
            layerIndex >= maximumLayerIndex {
@@ -1845,6 +1922,7 @@ enum MLXGGUFWeightNameNormalizer {
         case "attn_output": mappedTail = "self_attn.o_proj"
         case "attn_q_norm": mappedTail = "self_attn.q_norm"
         case "attn_k_norm": mappedTail = "self_attn.k_norm"
+        case "ffn_norm": mappedTail = "post_attention_layernorm"
         case "post_attention_norm": mappedTail = "post_attention_layernorm"
         case "ffn_gate": mappedTail = "mlp.gate_proj"
         case "ffn_down": mappedTail = "mlp.down_proj"
@@ -1975,7 +2053,8 @@ enum MLXGGUFModelLoader {
         from directoryURL: URL,
         weightURL: URL,
         quantizationGroupSize: Int = 64,
-        quantizationProfile: GGUFQuantizationProfile = .quality
+        quantizationProfile: GGUFQuantizationProfile = .quality,
+        memoryMapped: Bool = false
     ) async throws -> ModelContainer {
         try await loadContainer(
             from: directoryURL,
@@ -1983,7 +2062,8 @@ enum MLXGGUFModelLoader {
             mmprojURL: nil,
             useVLMProcessor: false,
             quantizationGroupSize: quantizationGroupSize,
-            quantizationProfile: quantizationProfile
+            quantizationProfile: quantizationProfile,
+            memoryMapped: memoryMapped
         )
     }
 
@@ -1992,7 +2072,8 @@ enum MLXGGUFModelLoader {
         weightURL: URL,
         mmprojURL: URL,
         quantizationGroupSize: Int = 64,
-        quantizationProfile: GGUFQuantizationProfile = .quality
+        quantizationProfile: GGUFQuantizationProfile = .quality,
+        memoryMapped: Bool = false
     ) async throws -> ModelContainer {
         try await loadContainer(
             from: directoryURL,
@@ -2000,7 +2081,8 @@ enum MLXGGUFModelLoader {
             mmprojURL: mmprojURL,
             useVLMProcessor: true,
             quantizationGroupSize: quantizationGroupSize,
-            quantizationProfile: quantizationProfile
+            quantizationProfile: quantizationProfile,
+            memoryMapped: memoryMapped
         )
     }
 
@@ -2010,7 +2092,8 @@ enum MLXGGUFModelLoader {
         mmprojURL: URL?,
         useVLMProcessor: Bool,
         quantizationGroupSize: Int,
-        quantizationProfile: GGUFQuantizationProfile
+        quantizationProfile: GGUFQuantizationProfile,
+        memoryMapped: Bool
     ) async throws -> ModelContainer {
         guard quantizationGroupSize == 32 || quantizationGroupSize == 64 else {
             throw MLXGGUFLoaderError.invalidTensor("量化群組設定")
@@ -2071,7 +2154,8 @@ enum MLXGGUFModelLoader {
             quantizationProfile: quantizationProfile,
             convertQwen35StateSpaceParameters: isQwen35Architecture(
                 baseConfiguration.modelType
-            )
+            ),
+            memoryMapped: memoryMapped
         )
         if isQwen35Architecture(baseConfiguration.modelType),
            let linearAttentionLayout = linearAttentionLayout(from: configData) {
@@ -2093,7 +2177,8 @@ enum MLXGGUFModelLoader {
             let projectorWeights = try MLXGGUFLoader.loadWeights(
                 from: mmprojURL,
                 targetGroupSize: quantizationGroupSize,
-                quantizationProfile: quantizationProfile
+                quantizationProfile: quantizationProfile,
+                memoryMapped: memoryMapped
             )
             let mappedProjectorWeights = try MLXGGUFMultimodalWeightMapper.map(projectorWeights)
             for (name, value) in mappedProjectorWeights {

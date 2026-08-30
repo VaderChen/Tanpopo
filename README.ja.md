@@ -8,13 +8,16 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 
 - モデル Runtime の起動、停止、状態復元、ログ確認を 1 つの管理画面で実行。
 - サブフォルダーを含む GGUF と完全な MLX モデルフォルダーを自動検出。Apple Silicon の `mlx-server` は、safetensors への事前変換なしで対応 GGUF を直接読み込めます。
+- mlx-server のモデルを GGUF／MLX に分類。Runtime がまだ対応を明示していない言語モデルも選択可能な「未テスト（N）」グループに残し、起動時の実際の読み込みで互換性を確認します。
 - Hugging Face の公開、gated、private repository から GGUF または MLX モデルをダウンロード。
-- 外部 JSON カタログによる常用モデルのクイック選択。GGUF と MLX を分けて表示し、Runtime、repository、revision、GGUF ファイル名を自動入力。モデル情報は JavaScript に固定しません。
+- 外部 JSON カタログによる常用モデルのクイック選択。GGUF と MLX をそれぞれ 8B クラス、30B クラス、70B 以上に分類し、各グループ内ではモデル名のアルファベット順に表示します。Runtime、repository、revision、GGUF ファイル名を自動入力し、モデル情報は JavaScript に固定しません。
 - Server が Range をサポートする場合、大きなファイルを 64 MiB 単位、最大 4 Worker で並行ダウンロードし、非対応時は単一 Stream に自動で戻します。完了項目は自動的に消去されます。保存先を開く操作は Desktop App のみ有効で、Browser では無効です。
 - Context Size、GPU Layers、Threads、KV Cache、MTP、DFlash の起動プロファイルを保存。
-- DFlash の対応状況を検出し、有効化前に互換性のある Draft モデルの存在を確認。
+- 独立した DFlash と MMap スイッチをコンパクトな「詳細設定」ポップオーバーにまとめ、項目が増えてもページが縦に伸び続けない構成。
+- DFlash の対応状況を検出し、有効化前に互換性のある Draft モデルの存在を確認。独立した MMap スイッチは llama-server と Apple Silicon mlx-server の両方に対応し、ファイルバックページでモデル読み込み時のメモリ負荷を抑えます。
 - Hugging Face metadata とモデル設定を検証し、同一または別 repository の対応 DFlash Draft をモデル名の固定リストなしで自動検索・ダウンロード。
 - Markdown、数式、reasoning 分離表示、待機アニメーション、Token 数、毎秒出力 Token 数に対応した一時的なローカルチャット。
+- モデル起動時には、大規模モデルで変換が必要な場合があることを知らせる読み込みダイアログを直ちに表示します。実行中モデルのテストではアニメーションダイアログを表示し、完了後に入出力 Token、生成速度、所要時間、または読み込み／接続エラーを表示。メイン画面の再読み込みには別の小型進捗ダイアログを使用します。
 - MLX から Token 単位で送信する OpenAI 互換 SSE。クライアントの切断または Cancel は対応する生成 Task を直ちに停止。
 - モデル API にアクセスキー、IP 許可リスト、両方、または制限なしを設定可能。
 - Tanpopo 再起動時、管理画面へログインする前に Runtime と稼働状態を復元。
@@ -33,6 +36,8 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 cd /path/to/Tanpopo
 ./run.command
 ```
+
+`run.command` は最初に `build.command --runtime` を呼び出します。固定バージョンが一致し、Runtime のソースが prebuilt 実行ファイルより新しくない場合だけ既存 Runtime を再利用し、それ以外は自動的に再ビルドします。
 
 初回起動時に `agent.sample.properties` から `agent.properties` を作成します。管理サービスの既定値は `0.0.0.0:10082` です。
 
@@ -59,11 +64,17 @@ TANPOPO_UI=gui ./run.command    # 対応環境でネイティブ UI を強制
 
 DFlash は既定でオフです。アーキテクチャとペア情報を検証し、必要な Draft GGUF が存在しない場合は有効化を取り消してダウンロードを案内します。
 
+MMap は実行状態ページの「詳細設定」ポップオーバーにある独立したスイッチで、既定ではオフです。`llama-server` と Apple Silicon の `mlx-server` の両方に対応します。llama-server は `--load-mode mmap` を使用し、mlx-server は対応する safetensors と直接利用可能な GGUF ウェイトをファイルバックページとしてマッピングします。起動プロファイルでは、自動または 4、8、16、24、32、48、64、96、128 GB のメモリ予約目標を選択できます。llama-server は `--fit-target` で GPU Layers を構成し、mlx-server は物理メモリから予約目標を引いた値を MLX の割り当て目標にします。この値は Runtime の厳密なメモリ上限ではありません。最初の Token の待ち時間と生成速度はストレージ性能とページ負荷に左右されます。
+
+起動プロファイルでは KV Cache の Q8 または Q4 を選択でき、「詳細設定」の独立したスイッチで今回の起動に適用するかを決めます。スイッチをオフにすると量子化しません。Q4 はより省メモリで、Q8 はより高い精度を維持します。KV Cache 量子化と DFlash は UI とバックエンドの両方で排他的です。
+
 ### mlx-server
 
-`mlx-server` は Swift、SwiftNIO、MLX Swift で構築された Apple Silicon 専用 Runtime です。Python、pip、`mlx_lm.server` は使用しません。`~/services/mlx-models` の完全な MLX モデルに加え、通常の GGUF フォルダーにある対応 GGUF を直接読み込めます。GGUF 内のモデル設定と Tokenizer metadata を使用し、MLX 読み込み時に対応する量子化ウェイトを変換します。Qwen 3.5、Qwen 3、Qwen 2、Llama に対応し、マルチモーダル Qwen 3.5 では対応する `mmproj` を選択できます。
+`mlx-server` は Swift、SwiftNIO、MLX Swift で構築された Apple Silicon 専用 Runtime です。Python、pip、`mlx_lm.server` は使用しません。`~/services/mlx-models` の完全な MLX モデルに加え、通常の GGUF フォルダーにある対応 GGUF を直接読み込めます。ネイティブ MLX の対応型は内蔵 `mlx-swift-lm 3.31.4` の Registry から動的に取得し、マルチモーダル Gemma 4 を含みます。Runtime が現在報告する GGUF 直接読み込み対象は Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen 2、Qwen 3、Qwen 3.5、SmolLM3 で、未対応の検出済み言語モデルは無効状態で表示します。マルチモーダル Qwen 3.5 GGUF では対応する `mmproj` を選択できます。
 
 GGUF の既定値は group size 64 と quality profile です。`--gguf-group-size 32|64` と `--gguf-profile quality|speed` で変更できます。GGUF Target は通常の MLX 生成を使用し、DFlash は従来どおり MLX safetensors Target と互換 Draft の組み合わせに限定されます。
+
+mlx-server で KV Cache 量子化を有効にすると、プロファイルの Q8 または Q4、group size 64、2,048 Token 後からの遅延量子化を使用します。プロファイルの Context Size が量子化 KV Cache の上限になります。
 
 主な互換エンドポイント：
 

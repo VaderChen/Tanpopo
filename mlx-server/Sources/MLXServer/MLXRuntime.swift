@@ -13,7 +13,9 @@ actor MLXRuntime {
     private let configuration: ServerConfiguration
     private let ggufWeightURL: URL?
     private let ggufMMProjURL: URL?
+    private let memoryMapPlan: MLXMemoryMapPlan?
     private var container: ModelContainer?
+    private var memoryGuard: Task<Void, Never>?
     private var dflashDrafter: (any DFlashDrafterModel)?
 
     init(configuration: ServerConfiguration) throws {
@@ -22,6 +24,9 @@ actor MLXRuntime {
         let isGGUF = modelURL.pathExtension.lowercased() == "gguf"
         ggufWeightURL = isGGUF ? modelURL : nil
         ggufMMProjURL = configuration.mmprojPath.map(URL.init(fileURLWithPath:))
+        memoryMapPlan = configuration.memoryMappingEnabled
+            ? try MLXMemoryMapPlan(reserveGB: configuration.mmapReserveGB)
+            : nil
         modelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
         modelID = isGGUF
             ? modelURL.deletingPathExtension().lastPathComponent
@@ -36,6 +41,20 @@ actor MLXRuntime {
 
     func prepare() async throws {
         guard container == nil else { return }
+        if let memoryMapPlan {
+            memoryMapPlan.applyBeforeLoading()
+            try await ModelWeightLoadingContext.$mode.withValue(.memoryMapped) {
+                try await prepareModels()
+            }
+            memoryMapPlan.finishLoading()
+            memoryGuard?.cancel()
+            memoryGuard = memoryMapPlan.startMemoryGuard()
+        } else {
+            try await prepareModels()
+        }
+    }
+
+    private func prepareModels() async throws {
         if let ggufWeightURL {
             switch kind {
             case .text, .auto:
@@ -43,7 +62,8 @@ actor MLXRuntime {
                     from: modelDirectory,
                     weightURL: ggufWeightURL,
                     quantizationGroupSize: configuration.ggufGroupSize,
-                    quantizationProfile: configuration.ggufProfile
+                    quantizationProfile: configuration.ggufProfile,
+                    memoryMapped: configuration.memoryMappingEnabled
                 )
             case .vision:
                 guard let ggufMMProjURL else {
@@ -54,7 +74,8 @@ actor MLXRuntime {
                     weightURL: ggufWeightURL,
                     mmprojURL: ggufMMProjURL,
                     quantizationGroupSize: configuration.ggufGroupSize,
-                    quantizationProfile: configuration.ggufProfile
+                    quantizationProfile: configuration.ggufProfile,
+                    memoryMapped: configuration.memoryMappingEnabled
                 )
             }
             fputs(
@@ -212,6 +233,7 @@ actor MLXRuntime {
             maxKVSize: configuration.maxKVSize,
             kvBits: configuration.kvBits,
             kvGroupSize: configuration.kvGroupSize,
+            quantizedKVStart: configuration.quantizedKVStart,
             kvScheme: configuration.kvScheme,
             temperature: min(max(options.temperature ?? configuration.temperature, 0), 2),
             topP: min(max(options.topP ?? configuration.topP, 0), 1),
@@ -222,21 +244,31 @@ actor MLXRuntime {
             prefillStepSize: configuration.prefillStepSize,
             seed: options.seed
         )
+        let wiredMemoryTicket = memoryMapPlan?.inferenceTicket()
 
         if dflashDrafter != nil,
            let fallbackReason = dflashFallbackReason(parameters: parameters) {
             fputs("DFlash fallback to standard generation: \(fallbackReason)\n", stderr)
-            return try await container.generate(input: prepared, parameters: parameters)
+            return try await container.generate(
+                input: prepared,
+                parameters: parameters,
+                wiredMemoryTicket: wiredMemoryTicket
+            )
         }
         if let drafter = dflashDrafter {
             return try await container.generate(
                 input: prepared,
                 parameters: parameters,
                 dflashDrafter: drafter,
-                blockSize: configuration.dflashBlockSize
+                blockSize: configuration.dflashBlockSize,
+                wiredMemoryTicket: wiredMemoryTicket
             )
         }
-        return try await container.generate(input: prepared, parameters: parameters)
+        return try await container.generate(
+            input: prepared,
+            parameters: parameters,
+            wiredMemoryTicket: wiredMemoryTicket
+        )
     }
 
     private func dflashFallbackReason(parameters: GenerateParameters) -> String? {
@@ -412,14 +444,27 @@ actor MLXRuntime {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .text
         }
-        if object["vision_config"] != nil || object["vision_tower"] != nil
-            || object["mm_projector_type"] != nil || object["image_token_index"] != nil {
-            return .vision
-        }
+        let hasVisionConfiguration = object["vision_config"] != nil
+            || object["vision_tower"] != nil
+            || object["mm_projector_type"] != nil
+            || object["image_token_index"] != nil
         let modelType = object["model_type"] as? String ?? ""
         let architectures = object["architectures"] as? [String] ?? []
         let signature = ([modelType] + architectures).joined(separator: " ").lowercased()
         let markers = ["vision", "vl", "llava", "paligemma", "pixtral", "idefics", "florence"]
-        return markers.contains(where: signature.contains) ? .vision : .text
+        let declaresVisionModel = hasVisionConfiguration
+            || markers.contains(where: signature.contains)
+        guard declaresVisionModel else { return .text }
+
+        // 部分文字用途的衍生 checkpoint 會沿用原始 VLM 的 config.json，卻只保留
+        // Tokenizer 與語言權重，沒有任何 Vision Processor 設定。這類目錄若直接走
+        // VLMModelFactory，只會在載入 processor_config.json 時失敗；改由 LLM registry
+        // 實際判斷其 model_type 是否可作為文字模型載入。
+        let processorFiles = ["preprocessor_config.json", "processor_config.json"]
+        let hasVisionProcessor = processorFiles.contains { filename in
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent(filename).path)
+        }
+        return hasVisionProcessor ? .vision : .text
     }
 }

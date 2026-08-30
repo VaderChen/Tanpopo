@@ -12,16 +12,18 @@
 - llama-server 與 mlx-server Runtime 由部署包自動安裝、解析與版本管理，不需設定執行檔目錄。
 - GGUF 模型目錄預設為 `~/services/models`，MLX 模型目錄預設為 `~/services/mlx-models`，兩者都可在系統設定調整。
 - 支援 Hugging Face 公開、gated 與 private repository 的 GGUF 單檔或完整 MLX 模型下載。
-- 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 分組顯示，選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名。清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
+- 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
-- 執行狀態頁依所選 Runtime 提供支援模型下拉清單，不接受任意模型路徑。
-- 執行狀態頁提供預設關閉的 DFlash 開關；不支援的 Target 會禁用開關，勾選時會即時重新掃描並檢查配對 Draft。
+- 執行狀態頁依所選 Runtime 提供模型下拉清單，不接受任意模型路徑。mlx-server 模型依 GGUF／MLX 分群；Runtime 尚未明確回報支援的語言模型會保留在可選取的「尚未測試（N）」群組，啟動後由 Runtime 實際驗證相容性。
+- 執行狀態頁將 DFlash 與 MMap 收納於「進階設定」泡泡；兩者仍為獨立開關，不會隨功能增加而持續拉長頁面。
+- DFlash 預設關閉；不支援的 Target 會禁用開關，勾選時會即時重新掃描並檢查配對 Draft。MMap 同樣預設關閉，同時支援 `llama-server` 與 Apple Silicon `mlx-server`，啟用後可利用磁碟分頁降低載入模型時的記憶體壓力。
 - 系統設定提供服務主機目錄瀏覽器，可由 Home、檔案系統或掛載磁碟選擇 GGUF／MLX 模型目錄，不需要作業系統 Automation 權限或外部工具。
 - 可建立多組啟動參數並指定 `llama-server` 或 `mlx-server` Runtime，執行時才與選定模型動態組合。
 - 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
-- 成功啟動後會保存 Runtime、Profile、模型、mmproj 與 DFlash 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
+- 按下「載入並啟動」會立即顯示模型載入提示，提醒大型模型可能需要轉換並耐心等候；Runtime 執行後可按「測試」送出實際生成請求，測試期間立即顯示動畫視窗，完成後列出輸入／輸出 Token、生成速度與測試時間，失敗或載入逾時也會回報明確原因。主頁重新整理期間另有小型進度視窗，避免畫面等待時沒有回饋。
+- 成功啟動後會保存 Runtime、Profile、模型、mmproj、DFlash 與 MMap 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
 - 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning 或 `<think>` 區段時，會與最終回答分開顯示，等待生成時提供三點跳動狀態，完成後顯示輸入／輸出 Token 與每秒輸出 Token 數。
 - 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
 - 介面提供蒲公英、晴空藍、櫻花粉與深夜紫四種配色，其中深夜紫為深色主題；切換後立即預覽並保存。
@@ -44,7 +46,7 @@ cd /path/to/Tanpopo
 ./run.command
 ```
 
-`run.command` 會先檢查目前平台的開發用 Runtime。版本相符時直接沿用；缺少或版本不符時，會由專案內鎖定的原始碼編譯 `llama-server`，Apple Silicon 也會一併編譯 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime。
+`run.command` 會先呼叫 `build.command --runtime` 檢查目前平台的開發用 Runtime。版本相符且原始碼沒有更新時才直接沿用；缺少、版本不符或原始碼較新時，會由專案內鎖定的原始碼重新編譯 `llama-server`，Apple Silicon 也會一併處理 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime。
 
 在本機 macOS 圖形登入工作階段，服務開始監聽後會自動彈出原生管理視窗，載入目前 Session 對應的登入頁或主畫面，不會呼叫 Safari、Chrome 等外部瀏覽器。系統設定的「常駐」預設關閉；切換開關時會立即獨立保存，開啟後 Tanpopo 會出現在系統選單列，關閉視窗只會隱藏 UI，Go Service 與模型 Runtime 繼續在後台執行。可從選單列重新顯示視窗，或選擇「結束 Tanpopo」完整停止服務。常駐關閉時，關閉視窗仍會正常停止 Go Service。Linux、SSH、無圖形登入工作階段及其他未提供原生 UI 的平台，會維持現有 Shell 前景執行方式。可用環境變數明確覆寫模式：
 
@@ -117,7 +119,9 @@ llama-server \
 
 多模態模型可在執行狀態頁另外選擇檔名含 `mmproj` 的 GGUF。後端會在模型目錄內安全解析檔案路徑，並於啟動時加入 `--mmproj <完整路徑>`；純文字模型可保留「不使用 mmproj」。詳細行為請參考 [llama.cpp 多模態說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)。
 
-內建 Profile 的 Context Size 均為 256K（`262144`）。KV Cache Profile 使用 `--cache-type-k` 與 `--cache-type-v`；「強制關閉思考」同時設定 `--reasoning off`、`--reasoning-budget 0` 與 `--jinja`；MTP 使用主模型內建的 MTP heads，不需要 Draft GGUF。DFlash 由執行狀態頁的獨立開關控制，預設關閉；勾選後才會把配對的 Draft 與 Target 動態組合，llama-server 會加入 `--model-draft` 與 `--spec-type draft-dflash`。若 Draft 不存在，畫面會取消勾選並提示前往「模型下載」；啟動時後端仍會再次驗證路徑與架構。參數格式以 [llama-server 選項](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)與 [llama.cpp speculative decoding 說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md)為準。
+內建 Profile 的 Context Size 均為 256K（`262144`）。Profile 可直接選擇 KV Cache Q8 或 Q4；執行狀態頁的獨立 Switch 決定本次啟動是否套用，關閉時維持未量化，llama-server 開啟時會轉成 `--cache-type-k` 與 `--cache-type-v`。DFlash 與 KV Cache 量化互斥，介面與後端都會阻止兩者同時啟用。「強制關閉思考」同時設定 `--reasoning off`、`--reasoning-budget 0` 與 `--jinja`；MTP 使用主模型內建的 MTP heads，不需要 Draft GGUF。DFlash 預設關閉；勾選後才會把配對的 Draft 與 Target 動態組合，llama-server 會加入 `--model-draft` 與 `--spec-type draft-dflash`。若 Draft 不存在，畫面會取消勾選並提示前往「模型下載」；啟動時後端仍會再次驗證路徑與架構。參數格式以 [llama-server 選項](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)與 [llama.cpp speculative decoding 說明](https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md)為準。
+
+MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉的低記憶體開關，同時支援 `llama-server` 與 Apple Silicon 的 `mlx-server`。llama-server 開啟時使用 `--load-mode mmap`，mlx-server 則將可直接映射的 safetensors 或 GGUF 權重包裝成檔案頁面；後端會先移除 Profile 中衝突的舊參數，確保 Switch 與實際行為一致。啟動參數可選擇自動或 4、8、16、24、32、48、64、96、128 GB 的 MMap 記憶體保留目標。llama-server 會透過 `--fit-target` 自動配置 GPU Layers；mlx-server 會把實體記憶體扣除保留目標後的空間作為 MLX 配置目標。此數值不是 Runtime 的硬性使用上限。MMap 可讓作業系統按需從磁碟載入模型頁面，但模型大幅超過實體記憶體時，首 Token 與生成速度仍會受儲存裝置及分頁頻率影響。
 
 ## mlx-server Runtime
 
@@ -130,7 +134,7 @@ llama-server \
 
 整個應用不呼叫 Python、`mlx_lm.server`、pip 或虛擬環境；Go 管理服務與 Swift MLX Runtime 都是原生執行檔。部署主機不需要安裝 Python。
 
-啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重。現階段原生支援 Qwen3.5、Qwen3、Qwen2 與 Llama 架構；多模態 Qwen3.5 可另外選擇配對的 `mmproj`。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。
+啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。mmproj 選擇欄只在 llama-server 顯示；mlx-server 不顯示此欄位。
 
 GGUF 可透過 `--gguf-group-size 32|64` 與 `--gguf-profile quality|speed` 調整載入策略，預設為 `64` 與 `quality`。GGUF Target 使用一般 MLX 生成；既有 DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft，以維持精確回退語意。
 
@@ -150,7 +154,7 @@ POST /completion
 
 `/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts，以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 會在生成期間逐 Token 輸出 OpenAI 相容 SSE；客戶端關閉串流或取消請求時，SwiftNIO Channel 會立即取消對應的 MLX 生成 Task，不會等待整段回答生成完畢。`/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
 
-內建 MLX Profile 包含一般、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。一般 MLX Profile 的 Context Size 預設 256K，由 Go 後端轉成 `--max-kv-size 262144`。常用原生參數包含 `--kv-bits`、`--kv-group-size`、`--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
+內建 MLX Profile 包含一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。Profile 的量化選單決定 Q8 或 Q4，執行狀態頁的 Switch 決定本次是否啟用；開啟時 Go 後端會加入 `--kv-bits`、`--kv-group-size 64`、`--quantized-kv-start 2048`，並把 Context Size 轉成 `--max-kv-size`。KV Cache 量化與 DFlash 不可同時啟用。其他常用原生參數包含 `--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 
 ### 原生 MLX DFlash 1／2
 
@@ -288,7 +292,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `data/startup_commands.json`
 
-由「啟動參數」頁保存多組模型 Runtime 啟動參數。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q4、強制關閉思考、DFlash 1／2 Profile；Context 均預設 256K。舊版設定檔升級時也會補上缺少的內建 Profile。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
+由「啟動參數」頁保存多組模型 Runtime 啟動參數。每組 Profile 都可選擇 KV Cache Q8 或 Q4，以及 MMap 記憶體保留目標；是否實際套用量化由執行狀態頁的 Switch 控制。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1／2 Profile；Context 均預設 256K。舊版設定檔會自動把既有量化旗標遷移到新欄位。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
 
 ### `data/access_control.json`
 

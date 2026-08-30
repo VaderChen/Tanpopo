@@ -74,18 +74,68 @@ runtime_version() {
   fi
 }
 
+source_is_newer_than() {
+  local binary="$1"
+  shift
+  local source_path=""
+  local newer_source=""
+
+  for source_path in "$@"; do
+    if [[ -f "${source_path}" ]]; then
+      if [[ "${source_path}" -nt "${binary}" ]]; then
+        return 0
+      fi
+      continue
+    fi
+    if [[ ! -d "${source_path}" ]]; then
+      continue
+    fi
+    newer_source="$(find "${source_path}" \
+      -type f \
+      ! -path '*/.build/*' \
+      ! -path '*/.git/*' \
+      -newer "${binary}" \
+      -print \
+      -quit)"
+    if [[ -n "${newer_source}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 ensure_llama_server() {
   local platform="$1"
   local version="$2"
   local runtime_dir="${LLAMA_RUNTIME_ROOT}/${platform}"
   local installed_version=""
+  local source_changed="false"
   installed_version="$(runtime_version "${runtime_dir}")"
+
+  if [[ -x "${runtime_dir}/bin/llama-server" ]] \
+    && source_is_newer_than \
+      "${runtime_dir}/bin/llama-server" \
+      "${LLAMA_BUILD_SCRIPT}" \
+      "${LLAMA_VERSION_FILE}" \
+      "${LLAMA_SOURCE_DIR}/CMakeLists.txt" \
+      "${LLAMA_SOURCE_DIR}/common" \
+      "${LLAMA_SOURCE_DIR}/ggml" \
+      "${LLAMA_SOURCE_DIR}/src" \
+      "${LLAMA_SOURCE_DIR}/tools/server" \
+      "${LLAMA_SOURCE_DIR}/tools/mtmd"; then
+    source_changed="true"
+  fi
 
   if ! force_build_enabled \
     && [[ -x "${runtime_dir}/bin/llama-server" ]] \
-    && [[ "${installed_version}" == "${version}" ]]; then
+    && [[ "${installed_version}" == "${version}" ]] \
+    && [[ "${source_changed}" != "true" ]]; then
     echo "使用既有 llama-server ${version}（${platform}）"
     return
+  fi
+
+  if [[ "${source_changed}" == "true" ]]; then
+    echo "偵測到 llama-server 原始碼較新，重新建置 Runtime。"
   fi
 
   echo "編譯 llama-server ${version}（${platform}）..."
@@ -108,15 +158,34 @@ ensure_mlx_server() {
 
   local runtime_dir="${MLX_RUNTIME_ROOT}/${platform}"
   local installed_version=""
+  local source_changed="false"
   local metal_library="${runtime_dir}/bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"
   installed_version="$(runtime_version "${runtime_dir}")"
+
+  if [[ -x "${runtime_dir}/bin/mlx-server" ]] \
+    && source_is_newer_than \
+      "${runtime_dir}/bin/mlx-server" \
+      "${MLX_BUILD_SCRIPT}" \
+      "${MLX_SOURCE_DIR}/VERSION" \
+      "${MLX_SOURCE_DIR}/Package.swift" \
+      "${MLX_SOURCE_DIR}/Package.resolved" \
+      "${MLX_SOURCE_DIR}/Sources" \
+      "${MLX_SOURCE_DIR}/Vendor/mlx-swift-lm/Package.swift" \
+      "${MLX_SOURCE_DIR}/Vendor/mlx-swift-lm/Libraries"; then
+    source_changed="true"
+  fi
 
   if ! force_build_enabled \
     && [[ -x "${runtime_dir}/bin/mlx-server" ]] \
     && [[ -f "${metal_library}" ]] \
-    && [[ "${installed_version}" == "${version}" ]]; then
+    && [[ "${installed_version}" == "${version}" ]] \
+    && [[ "${source_changed}" != "true" ]]; then
     echo "使用既有 mlx-server ${version}（${platform}）"
     return
+  fi
+
+  if [[ "${source_changed}" == "true" ]]; then
+    echo "偵測到 mlx-server 原始碼較新，重新建置 Runtime。"
   fi
 
   echo "編譯 mlx-server ${version}（${platform}）..."

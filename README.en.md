@@ -8,13 +8,16 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 
 - Start, stop, restore, and inspect local model runtimes from one web interface.
 - Scan nested GGUF files and complete MLX model directories without exposing full directory paths in model selectors. On Apple Silicon, `mlx-server` can load supported GGUF models directly without a safetensors conversion step.
+- Group mlx-server targets by GGUF and MLX. Language models not yet declared compatible by the runtime remain selectable in an **Untested (N)** group and are validated by an actual load attempt.
 - Download public, gated, or private Hugging Face GGUF files and MLX repositories.
-- Pick popular GGUF or MLX models from a separate JSON catalog; the quick picker fills in the Runtime, repository, revision, and GGUF filename without hard-coding model entries in JavaScript.
+- Pick popular GGUF or MLX models from a separate JSON catalog. Each format is grouped into 8B-class, 30B-class, and 70B-and-above tiers, with model names sorted alphabetically inside each tier. The quick picker fills in the Runtime, repository, revision, and GGUF filename without hard-coding model entries in JavaScript.
 - When the server supports byte ranges, download large files in 64 MiB segments with at most four workers; otherwise fall back to one stream. Completed queue entries are removed automatically. The desktop app can open the destination folder, while browser mode keeps that action disabled.
 - Save reusable launch profiles for context size, GPU layers, threads, KV cache, MTP, and DFlash.
-- Detect DFlash support and require a compatible Draft model before enabling it.
+- Keep the independent DFlash and MMap switches in a compact Advanced settings popover so new options do not continuously lengthen the page.
+- Detect DFlash support and require a compatible Draft model before enabling it. The separate MMap switch supports both llama-server and Apple Silicon mlx-server, using file-backed paging to reduce model-loading memory pressure.
 - Automatically discover and download a matching DFlash Draft from the same or a separate Hugging Face repository, verified through metadata and model configuration instead of a hard-coded model list.
 - Use an ephemeral local chat with Markdown, math rendering, separated reasoning, animated waiting state, token counts, and output tokens per second.
+- Starting a model immediately opens a loading notice explaining that large models may require conversion. Test a running model through an animated dialog, then inspect input/output tokens, generation speed, elapsed time, or an explicit loading/connection error. Main-page refreshes use a separate compact progress dialog.
 - Use a real OpenAI-compatible per-token SSE stream from MLX; disconnecting or cancelling the client immediately cancels the matching generation task.
 - Protect the model API with access keys, an IP allowlist, both, or neither.
 - Restore the selected Runtime and running state before admin sign-in after restarting Tanpopo.
@@ -59,11 +62,17 @@ The application version uses `1.YY.MMDD build HHmm`, for example `1.26.0829 buil
 
 DFlash is off by default. Tanpopo inspects model architecture and pairing metadata before enabling the switch. If the required Draft GGUF is missing, the switch is reset and the UI asks the user to download it.
 
+MMap is a separate switch in the runtime page's Advanced settings popover, is off by default, and supports both `llama-server` and Apple Silicon `mlx-server`. llama-server uses `--load-mode mmap`; mlx-server maps supported safetensors and directly usable GGUF weights as file-backed pages. Launch profiles can use Auto or a 4, 8, 16, 24, 32, 48, 64, 96, or 128 GB memory reserve target. llama-server uses `--fit-target` to configure GPU Layers, while mlx-server uses physical memory minus the reserve as its MLX allocation target. This value is not a hard runtime memory limit. First-token latency and generation speed still depend on storage performance and page pressure.
+
+Launch profiles select Q8 or Q4 KV Cache. A separate Advanced settings switch decides whether the selected format is used for the current launch; turning it off keeps the cache unquantized. Q4 saves more memory, while Q8 preserves more precision. KV Cache quantization and DFlash are mutually exclusive in both the UI and backend.
+
 ### mlx-server
 
-`mlx-server` is a native Apple Silicon runtime built with Swift, SwiftNIO, and MLX Swift. It does not invoke Python, pip, or `mlx_lm.server`. It accepts complete MLX directories from `~/services/mlx-models` and supported GGUF files from the regular GGUF directory. The runtime reads embedded GGUF model and tokenizer metadata, converts supported quantized weights during MLX loading, and supports Qwen 3.5, Qwen 3, Qwen 2, and Llama architectures. A matching `mmproj` may be selected for multimodal Qwen 3.5 models.
+`mlx-server` is a native Apple Silicon runtime built with Swift, SwiftNIO, and MLX Swift. It does not invoke Python, pip, or `mlx_lm.server`. It accepts complete MLX directories from `~/services/mlx-models` and supported GGUF files from the regular GGUF directory. Native MLX model types are reported dynamically by the bundled `mlx-swift-lm 3.31.4` registries and include multimodal Gemma 4. The runtime currently reports direct GGUF support for Gemma, Llama, Mimo, MiniCPM, Mistral, Qwen 2, Qwen 3, Qwen 3.5, and SmolLM3; unsupported detected language models stay visible but disabled. A matching `mmproj` may be selected for multimodal Qwen 3.5 GGUF models.
 
 GGUF loading defaults to a group size of 64 and the quality profile; these can be changed with `--gguf-group-size 32|64` and `--gguf-profile quality|speed`. GGUF targets use standard MLX generation. Existing DFlash profiles continue to require an MLX safetensors target and a compatible Draft model.
+
+For mlx-server, enabling KV Cache quantization applies the profile's Q8 or Q4 mode with a group size of 64 and delayed quantization after 2,048 tokens. The profile Context Size becomes the quantized KV Cache limit.
 
 Supported compatibility endpoints include:
 
@@ -115,7 +124,7 @@ go build -buildvcs=false -trimpath -o bin/Tanpopo ./src/cmd/llamaloader
 ./scripts/build-mlx-server-runtime.sh  # Apple Silicon only
 ```
 
-`run.command` reuses a runtime when its pinned version matches and rebuilds only when required. Set `TANPOPO_REBUILD_RUNTIMES=1` to force a runtime rebuild.
+`run.command` calls `build.command --runtime` first. A runtime is reused only when its pinned version matches and no source file is newer than the prebuilt binary; otherwise it is rebuilt automatically. Set `TANPOPO_REBUILD_RUNTIMES=1` to force a runtime rebuild.
 
 ## License and notices
 
