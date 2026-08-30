@@ -456,6 +456,20 @@ tbody tr:hover td {
   font-weight: 850;
 }
 
+.performance-table tr.highlight-row td {
+  background: color-mix(in srgb, var(--highlight-green) 17%, var(--surface));
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.performance-table tr.highlight-row td.best {
+  color: #087a3d;
+}
+
+.performance-table tr.highlight-row:hover td {
+  background: color-mix(in srgb, var(--highlight-green) 23%, var(--surface));
+}
+
 .chart {
   display: grid;
   gap: 26px;

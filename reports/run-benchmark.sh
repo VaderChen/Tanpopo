@@ -164,13 +164,15 @@ done
 
 PEAK_RSS_KIB="$(awk 'BEGIN { max = 0 } $1 > max { max = $1 } END { print max }' "${RSS_LOG}")"
 PEAK_RSS_GIB="$(awk -v kib="${PEAK_RSS_KIB}" 'BEGIN { printf "%.3f", kib / 1048576 }')"
-AVERAGES="$(awk -F, '{ seconds += $3; server += $4; wall += $5; tokens += $2 }
-  END { printf "%.3f,%.3f,%.3f,%.1f", seconds / NR, server / NR, wall / NR, tokens / NR }' \
-  "${RUN_OUTPUT}")"
+AVERAGE_SECONDS="$(awk -F, '{ total += $3 } END { printf "%.3f", total / NR }' "${RUN_OUTPUT}")"
+MEDIAN_SERVER_TPS="$(awk -F, '{ print $4 }' "${RUN_OUTPUT}" | sort -n | sed -n '2p')"
+MEDIAN_WALL_TPS="$(awk -F, '{ print $5 }' "${RUN_OUTPUT}" | sort -n | sed -n '2p')"
+AVERAGE_TOKENS="$(awk -F, '{ total += $2 } END { printf "%.1f", total / NR }' "${RUN_OUTPUT}")"
+SUMMARY="${AVERAGE_SECONDS},${MEDIAN_SERVER_TPS},${MEDIAN_WALL_TPS},${AVERAGE_TOKENS}"
 
 printf 'RESULT,%s,%s,%s,%s,%s,%s\n' \
   "${MODEL_NAME}" "${RUNTIME}" "${LOAD_SECONDS}" "${PEAK_RSS_GIB}" \
-  "${AVERAGES}" "$(tr '\n' ' ' <"${SERVER_LOG}" | tail -c 320)"
+  "${SUMMARY}" "$(tr '\n' ' ' <"${SERVER_LOG}" | tail -c 320)"
 printf 'RUNS,%s,%s,' "${MODEL_NAME}" "${RUNTIME}"
 tr '\n' ';' <"${RUN_OUTPUT}"
 printf '\n'

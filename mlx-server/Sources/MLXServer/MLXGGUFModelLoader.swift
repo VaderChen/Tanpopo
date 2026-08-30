@@ -22,7 +22,7 @@ struct MLXGGUFQuantizationStrategy: Equatable, Sendable {
     let groupSize: Int
     let targetStorageCounts: [GGUFStorageType: Int]
 
-    var usedGroup32CompatibilityFallback: Bool {
+    var usedResolvedGroup32: Bool {
         groupSize == 32 && requestedGroupSize != 32
     }
 
@@ -990,8 +990,9 @@ enum MLXGGUFLoader {
     }
 
     /// 通用決策矩陣：浮點來源統一以 BF16 運算；Q8 保留 INT8；其餘支援的
-    /// 低位元矩陣依 profile 落到 INT4／INT8。Group 優先 64，若任一 affine
-    /// tensor 的內層維度不相容，才安全降級為 32。
+    /// 低位元矩陣依 profile 落到 INT4／INT8。自動 Group 以 tensor 材料化方式
+    /// 決定：直接保留 GGUF 32 元素 block 時使用 Group 32，需要重新量化時
+    /// 才優先 64；若任一 affine tensor 的內層維度不相容，再安全降級。
     static func quantizationStrategy(
         for tensors: [MLXGGUFTensorInfo],
         requestedGroupSize: Int?,
@@ -1005,6 +1006,7 @@ enum MLXGGUFLoader {
 
         var storageCounts = [GGUFStorageType: Int]()
         var affineTensors = [MLXGGUFTensorInfo]()
+        var hasPreserved32ElementBlocks = false
         for tensor in tensors {
             if profile == .quality, isBF16ReferenceType(tensor.type) {
                 storageCounts[.fp32, default: 0] += 1
@@ -1024,7 +1026,10 @@ enum MLXGGUFLoader {
             storageCounts[targetStorage, default: 0] += 1
 
             switch support.materialization {
-            case .quantized4, .quantized8, .requantized4, .requantized8:
+            case .quantized4, .quantized8:
+                affineTensors.append(tensor)
+                hasPreserved32ElementBlocks = true
+            case .requantized4, .requantized8:
                 affineTensors.append(tensor)
             default:
                 break
@@ -1039,7 +1044,8 @@ enum MLXGGUFLoader {
             }
         }
 
-        let preferredGroupSize = requestedGroupSize ?? 64
+        let preferredGroupSize = requestedGroupSize
+            ?? (hasPreserved32ElementBlocks ? 32 : 64)
         let resolvedGroupSize: Int
         if firstIncompatibleTensor(groupSize: preferredGroupSize) == nil {
             resolvedGroupSize = preferredGroupSize

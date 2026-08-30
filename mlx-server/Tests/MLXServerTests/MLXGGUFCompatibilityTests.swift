@@ -469,7 +469,8 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
             profile: .automatic
         )
 
-        XCTAssertEqual(strategy.groupSize, 64)
+        XCTAssertEqual(strategy.groupSize, 32)
+        XCTAssertTrue(strategy.usedResolvedGroup32)
         XCTAssertEqual(strategy.targetStorageCounts[.bf16], 1)
         XCTAssertNil(strategy.targetStorageCounts[.int4])
         XCTAssertEqual(strategy.targetStorageCounts[.int8], 3)
@@ -488,7 +489,24 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         )
 
         XCTAssertEqual(strategy.groupSize, 32)
-        XCTAssertTrue(strategy.usedGroup32CompatibilityFallback)
+        XCTAssertTrue(strategy.usedResolvedGroup32)
+    }
+
+    func testSpeedGGUFStrategyKeepsPreservedSourceBlocksAtGroup32() throws {
+        let tensors = [
+            MLXGGUFTensorInfo(
+                name: "generic.q4.weight", dimensions: [4_096, 4_096], type: 2, offset: 0)
+        ]
+
+        let strategy = try MLXGGUFLoader.quantizationStrategy(
+            for: tensors,
+            requestedGroupSize: nil,
+            profile: .speed
+        )
+
+        XCTAssertEqual(strategy.groupSize, 32)
+        XCTAssertTrue(strategy.usedResolvedGroup32)
+        XCTAssertEqual(strategy.targetStorageCounts[.int4], 1)
     }
 
     func testGGUFQualityProfileUsesFP32ReferenceStorage() throws {

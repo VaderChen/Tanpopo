@@ -42,7 +42,8 @@ struct ServerConfiguration: Sendable {
     var accessControlPath: String?
     var dflashDraftPath: String?
     var dflashBlockSize = 5
-    // nil 代表依所有量化 tensor 的實際維度自動選擇：優先 64，不相容才降級 32。
+    // nil 代表依 tensor 材料化方式與實際維度自動選擇：保留 32 元素 GGUF block
+    // 時使用 32，需要重新量化時優先 64；維度不相容則安全降級。
     // 這是資料驅動的全模型策略，不依賴模型名稱或固定樣本。
     var ggufGroupSize: Int?
     var ggufProfile = GGUFQuantizationProfile.automatic
@@ -286,7 +287,7 @@ struct ServerConfiguration: Sendable {
       --model-type <類型>          auto、text 或 vision，預設 auto
       --mmproj <GGUF 檔案>         GGUF 多模態視覺投影檔
       --gguf-group-size <auto|32|64>
-                                   GGUF 權重量化群組大小，預設 auto（優先 64）
+                                   GGUF 權重量化群組大小，預設 auto（block-aware）
       --gguf-profile <auto|quality|speed>
                                    GGUF 轉換策略，預設 auto
       --gguf-recurrent-promotion <off|controls|all>

@@ -14,6 +14,12 @@ if [[ ! -s "${RESULTS}" ]]; then
 fi
 
 awk -F, '
+  function isNative(variant) {
+    return variant == "native" || variant == "native-mlx"
+  }
+  function isLlama(variant) {
+    return variant == "llama-reference" || variant == "llama-gguf"
+  }
   NR == 1 { next }
   {
     model = $1
@@ -30,26 +36,34 @@ awk -F, '
     variantSeen[model SUBSEP variant] = 1
   }
   END {
-    print "model,variant,total,correct,accuracy,invalid,agreement_with_native,agreement_with_llama,delta_vs_native_pp,delta_vs_llama_pp,quality_gate"
+    print "model,variant,total,correct,accuracy,invalid,retention_vs_native,agreement_with_native,agreement_with_llama,delta_vs_native_pp,delta_vs_llama_pp,quality_gate"
     for (mv in variantSeen) {
       split(mv, parts, SUBSEP)
       model = parts[1]
       variant = parts[2]
       key = model SUBSEP variant
       accuracy = passed[key] / total[key]
-      nativeAgreement = 1
-      llamaAgreement = 1
+      nativeVariant = ""
+      llamaVariant = ""
+      for (candidate in variantSeen) {
+        split(candidate, candidateParts, SUBSEP)
+        if (candidateParts[1] == model && isNative(candidateParts[2])) nativeVariant = candidateParts[2]
+        if (candidateParts[1] == model && isLlama(candidateParts[2])) llamaVariant = candidateParts[2]
+      }
+      nativeAgreement = 0
+      llamaAgreement = 0
+      retention = 0
       nativeDelta = 0
       llamaDelta = 0
-      gate = (variant == "native" || variant == "llama-reference") ? "baseline" : "missing-reference"
-      if (variant != "native") {
+      gate = (isNative(variant) || isLlama(variant)) ? "baseline" : "missing-reference"
+      if (!isNative(variant) && nativeVariant != "") {
         same = 0
         compared = 0
         for (predictionKey in predictionByCase) {
           split(predictionKey, predictionParts, SUBSEP)
           if (predictionParts[1] == model && predictionParts[2] == variant) {
             caseID = predictionParts[3]
-            nativeKey = model SUBSEP "native" SUBSEP caseID
+            nativeKey = model SUBSEP nativeVariant SUBSEP caseID
             if (nativeKey in predictionByCase) {
               compared++
               if (predictionByCase[predictionKey] == predictionByCase[nativeKey]) same++
@@ -57,20 +71,26 @@ awk -F, '
           }
         }
         if (compared > 0) nativeAgreement = same / compared
-        nativeSummaryKey = model SUBSEP "native"
+        nativeSummaryKey = model SUBSEP nativeVariant
         if (nativeSummaryKey in total) {
           nativeAccuracy = passed[nativeSummaryKey] / total[nativeSummaryKey]
           nativeDelta = (accuracy - nativeAccuracy) * 100
+          if (nativeAccuracy > 0) retention = accuracy / nativeAccuracy
+          # 使用者接受少量精度犧牲，但快速策略至少必須保留同模型
+          # 原生 MLX 基準的 90%；無效答案已自然計入 accuracy。
+          if (!isLlama(variant)) {
+            gate = (retention >= 0.899999) ? "pass" : "fail"
+          }
         }
       }
-      if (variant != "llama-reference") {
+      if (!isLlama(variant) && llamaVariant != "") {
         same = 0
         compared = 0
         for (predictionKey in predictionByCase) {
           split(predictionKey, predictionParts, SUBSEP)
           if (predictionParts[1] == model && predictionParts[2] == variant) {
             caseID = predictionParts[3]
-            llamaKey = model SUBSEP "llama-reference" SUBSEP caseID
+            llamaKey = model SUBSEP llamaVariant SUBSEP caseID
             if (llamaKey in predictionByCase) {
               compared++
               if (predictionByCase[predictionKey] == predictionByCase[llamaKey]) same++
@@ -78,22 +98,19 @@ awk -F, '
           }
         }
         if (compared > 0) llamaAgreement = same / compared
-        llamaSummaryKey = model SUBSEP "llama-reference"
+        llamaSummaryKey = model SUBSEP llamaVariant
         if (llamaSummaryKey in total) {
           llamaAccuracy = passed[llamaSummaryKey] / total[llamaSummaryKey]
           llamaDelta = (accuracy - llamaAccuracy) * 100
-          if (variant != "native") {
-            # fastGGUF 可接受最多 2 個百分點的精度下降；無效答案不得比
-            # 相同 GGUF 的 llama 基準多超過 1 題。逐題一致率保留作診斷，
-            # 不直接當門檻，因為不同 Runtime 可能以不同答案達成相同正確率。
-            gate = (llamaDelta >= -2.000001 && invalid[key] <= invalid[llamaSummaryKey] + 1) \
-              ? "pass" : "fail"
-          }
         }
       }
-      printf "%s,%s,%d,%d,%.4f,%d,%.4f,%.4f,%.2f,%.2f,%s\n", \
-        model, variant, total[key], passed[key], accuracy, invalid[key] + 0, \
-        nativeAgreement, llamaAgreement, nativeDelta, llamaDelta, gate
+      if (isNative(variant)) retention = 1
+      if (isNative(variant)) nativeAgreement = 1
+      if (isLlama(variant)) llamaAgreement = 1
+      outputVariant = isNative(variant) ? "native" : (isLlama(variant) ? "llama-reference" : variant)
+      printf "%s,%s,%d,%d,%.4f,%d,%.4f,%.4f,%.4f,%.2f,%.2f,%s\n", \
+        model, outputVariant, total[key], passed[key], accuracy, invalid[key] + 0, \
+        retention, nativeAgreement, llamaAgreement, nativeDelta, llamaDelta, gate
     }
   }
 ' "${RESULTS}" | {

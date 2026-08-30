@@ -1,13 +1,13 @@
 model,runtime,variant,format,quantization,cold_start_seconds,peak_process_rss_gib,median_server_tokens_per_second,median_wall_tokens_per_second,average_request_seconds,average_completion_tokens,runs,warmups
-Qwen 3.5 4B,MLX,native,MLX Safetensors,Affine 4-bit group 64,1.607,2.433,73.555,67.627,1.890,128,3,1
-Qwen 3.5 4B,MLX+GGUF,fastgguf-off,GGUF Q4_0,auto profile / group 32,51.292,3.664,40.840,38.821,3.297,128,3,1
-Qwen 3.5 4B,MLX+GGUF,fastgguf-on,GGUF Q4_0,speed profile / resolved group 64,51.077,3.701,73.335,67.558,1.901,128,3,1
-Qwen 3.5 4B,llama+GGUF,llama-reference,GGUF Q4_0,native GGUF blocks,0.803,3.096,52.279,51.354,2.490,128,3,1
-Ornith 1.5 9B,MLX,native,MLX Safetensors,Affine 4-bit group 64,14.246,4.898,43.633,39.972,3.204,128,3,1
-Ornith 1.5 9B,MLX+GGUF,fastgguf-off,GGUF Q4_K_M,auto profile / group 32,67.126,7.814,23.070,21.951,5.821,128,3,1
-Ornith 1.5 9B,MLX+GGUF,fastgguf-on,GGUF Q4_K_M,speed profile / resolved group 64,51.881,7.418,44.209,40.586,3.227,128,3,1
-Ornith 1.5 9B,llama+GGUF,llama-reference,GGUF Q4_K_M,native GGUF blocks,1.101,5.935,30.158,29.611,4.332,128,3,1
-Qwen 3.8 27B,MLX,native,MLX Safetensors,Affine 4-bit group 64,42.207,14.293,12.158,11.181,11.338,128,3,1
-Qwen 3.8 27B,MLX+GGUF,fastgguf-off,GGUF Q4_K_M,auto profile / group 32,130.331,17.586,6.874,6.510,19.522,128,3,1
-Qwen 3.8 27B,MLX+GGUF,fastgguf-on,GGUF Q4_K_M,speed profile / resolved group 64,107.594,17.603,13.355,12.284,10.443,128,3,1
-Qwen 3.8 27B,llama+GGUF,llama-reference,GGUF Q4_K_M,native GGUF blocks,16.445,16.604,8.584,8.427,15.222,128,3,1
+Qwen 3.5 4B,MLX,native,MLX Safetensors,Affine 4-bit group 64,7.238,2.408,74.544,68.545,1.865,128,3,1
+Qwen 3.5 4B,MLX+GGUF,fastgguf-off,GGUF Q4_0,auto profile / group 32,8.025,3.499,41.354,39.302,3.262,128,3,1
+Qwen 3.5 4B,MLX+GGUF,fastgguf-on,GGUF Q4_0,speed profile / group 32 / recurrent controls,3.217,3.639,68.992,63.875,2.004,128,3,1
+Qwen 3.5 4B,llama+GGUF,llama-reference,GGUF Q4_0,native GGUF blocks,0.813,3.098,52.423,51.659,2.485,128,3,1
+Ornith 1.5 9B,MLX,native,MLX Safetensors,Affine 4-bit group 64,14.201,4.879,43.320,39.513,3.234,128,3,1
+Ornith 1.5 9B,MLX+GGUF,fastgguf-off,GGUF Q4_K_M,auto profile / group 32,18.425,6.945,24.791,23.509,5.458,128,3,1
+Ornith 1.5 9B,MLX+GGUF,fastgguf-on,GGUF Q4_K_M,speed profile / group 32 / recurrent controls,3.214,7.197,44.348,40.657,3.149,128,3,1
+Ornith 1.5 9B,llama+GGUF,llama-reference,GGUF Q4_K_M,native GGUF blocks,1.094,5.936,32.005,31.387,4.096,128,3,1
+Qwen 3.8 27B,MLX,native,MLX Safetensors,Affine 4-bit group 64,42.263,14.290,13.615,12.512,10.258,128,3,1
+Qwen 3.8 27B,MLX+GGUF,fastgguf-off,GGUF Q4_K_M,auto profile / group 32,42.533,17.549,7.092,6.743,18.952,128,3,1
+Qwen 3.8 27B,MLX+GGUF,fastgguf-on,GGUF Q4_K_M,speed profile / group 32 / recurrent controls,24.304,17.246,12.290,11.358,11.292,128,3,1
+Qwen 3.8 27B,llama+GGUF,llama-reference,GGUF Q4_K_M,native GGUF blocks,1.613,16.616,8.680,8.526,14.955,128,3,1

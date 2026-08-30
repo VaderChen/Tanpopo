@@ -30,7 +30,7 @@
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Performance &amp; accuracy report · 2026.08.30</p>
+        <p class="eyebrow">Performance &amp; accuracy report · 2026.08.31</p>
         <h1>MLX 與 GGUF<br>速度及精確度</h1>
         <p class="lede">
           以 4B、9B、27B 三組配對模型重新比較純 MLX、fastGGUF 關閉、fastGGUF 開啟及
@@ -59,29 +59,29 @@
       </div>
       <div class="metric-grid">
         <article class="metric-card">
-          <strong class="metric-value">+88.4%</strong>
+          <strong class="metric-value">+72.9%</strong>
           <span class="metric-label">fastGGUF 開啟對關閉</span>
           <p class="metric-note">三個模型生成速度倍率的幾何平均。</p>
         </article>
         <article class="metric-card">
-          <strong class="metric-value">103.5%</strong>
+          <strong class="metric-value">94.9%</strong>
           <span class="metric-label">fastGGUF 達到純 MLX</span>
-          <p class="metric-note">三個樣本分別為 99.7%、101.3%、109.8%。</p>
+          <p class="metric-note">三個樣本分別為 92.6%、102.4%、90.3%。</p>
         </article>
         <article class="metric-card">
           <strong class="metric-value failed">0 / 6</strong>
           <span class="metric-label">fastGGUF 品質閘門</span>
-          <p class="metric-note">開、關各三組，全部未達 llama+GGUF 精度門檻。</p>
+          <p class="metric-note">開、關各三組，全部未保留純 MLX 基準的 90%。</p>
         </article>
       </div>
       <div class="callout">
         <div>
           <h3>目前 fastGGUF 已推薦使用，但不能視為唯一手段，仍需驗證相容性</h3>
           <p>
-            本表保留整合 recurrent controls、tensor 契約驗證與新版快取前的基線數據；主系統完成這些修正後，
-            fastGGUF 已成為多數可解析 GGUF 的建議預設。模型架構、量化方式、Tokenizer 與自訂 checkpoint
-            仍可能影響結果，因此不能把 fastGGUF 視為唯一執行手段；正式使用前應逐模型驗證速度與精確度，
-            並保留原生 MLX 或 llama+GGUF 作為相容路徑。
+            fastGGUF 對三個樣本平均帶來 1.73×（相對關閉）的生成速度，適合在模型通過品質驗證後使用。
+            但本輪三個 fastGGUF 開啟結果皆未保留純 MLX 精確度的 90%，證明模型架構、量化方式、Tokenizer
+            與自訂 checkpoint 仍會影響結果。它是建議嘗試的加速手段，不是唯一手段，也不保證每個 GGUF
+            都相容；正式使用應保留原生 MLX 或 llama+GGUF 作為回退路徑。
           </p>
         </div>
       </div>
@@ -136,7 +136,7 @@
           <p class="eyebrow">Actual product parameters</p>
           <h2 id="generic-strategy">fastGGUF 開關實際策略</h2>
         </div>
-        <p>表內速度與精度是整合 recurrent controls 前的基線；主系統現行 fastGGUF 另將控制投影保留 BF16，整合後數據需重新量測。</p>
+        <p>表內速度與精度均為目前主系統策略的重測結果；Group 自動策略依 GGUF block 與 tensor 維度通用決定。</p>
       </div>
       <div class="table-wrap">
         <table>
@@ -171,42 +171,42 @@
       <div class="chart" role="img" aria-label="三個模型在四種模式的生成速度長條圖">
         <div class="chart-group">
           <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
-          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:73.555;--scale:1.2%;"></div></div><span class="bar-value">73.6 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:40.840;--scale:1.2%;"></div></div><span class="bar-value">40.8 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:73.335;--scale:1.2%;"></div></div><span class="bar-value">73.3 tok/s</span></div>
-          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:52.279;--scale:1.2%;"></div></div><span class="bar-value">52.3 tok/s</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:74.544;--scale:1.2%;"></div></div><span class="bar-value">74.5 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:41.354;--scale:1.2%;"></div></div><span class="bar-value">41.4 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:68.992;--scale:1.2%;"></div></div><span class="bar-value">69.0 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:52.423;--scale:1.2%;"></div></div><span class="bar-value">52.4 tok/s</span></div>
         </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
-          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:43.633;--scale:1.2%;"></div></div><span class="bar-value">43.6 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:23.070;--scale:1.2%;"></div></div><span class="bar-value">23.1 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:44.209;--scale:1.2%;"></div></div><span class="bar-value">44.2 tok/s</span></div>
-          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:30.158;--scale:1.2%;"></div></div><span class="bar-value">30.2 tok/s</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:43.320;--scale:1.2%;"></div></div><span class="bar-value">43.3 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:24.791;--scale:1.2%;"></div></div><span class="bar-value">24.8 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:44.348;--scale:1.2%;"></div></div><span class="bar-value">44.3 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:32.005;--scale:1.2%;"></div></div><span class="bar-value">32.0 tok/s</span></div>
         </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
-          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:12.158;--scale:1.2%;"></div></div><span class="bar-value">12.2 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:6.874;--scale:1.2%;"></div></div><span class="bar-value">6.9 tok/s</span></div>
-          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:13.355;--scale:1.2%;"></div></div><span class="bar-value">13.4 tok/s</span></div>
-          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:8.584;--scale:1.2%;"></div></div><span class="bar-value">8.6 tok/s</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:13.615;--scale:1.2%;"></div></div><span class="bar-value">13.6 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:7.092;--scale:1.2%;"></div></div><span class="bar-value">7.1 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:12.290;--scale:1.2%;"></div></div><span class="bar-value">12.3 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:8.680;--scale:1.2%;"></div></div><span class="bar-value">8.7 tok/s</span></div>
         </div>
       </div>
       <div class="table-wrap" style="margin-top: 24px;">
-        <table>
+        <table class="performance-table">
           <thead><tr><th>模型</th><th>模式</th><th class="number">中位 tok/s</th><th class="number">端到端 tok/s</th><th class="number">比較基準 (MLX)</th><th class="number">比較基準 (LLAMA)</th></tr></thead>
           <tbody>
-            <tr><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number best">73.555</td><td class="number">67.627</td><td class="number">100.0%</td><td class="number">1.41×</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">40.840</td><td class="number">38.821</td><td class="number">55.5%</td><td class="number">0.78×</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number">73.335</td><td class="number">67.558</td><td class="number">99.7%</td><td class="number">1.40×</td></tr>
-            <tr><td>llama+GGUF</td><td class="number">52.279</td><td class="number">51.354</td><td class="number">71.1%</td><td class="number">1.00×</td></tr>
-            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">43.633</td><td class="number">39.972</td><td class="number">100.0%</td><td class="number">1.45×</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">23.070</td><td class="number">21.951</td><td class="number">52.9%</td><td class="number">0.76×</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number best">44.209</td><td class="number">40.586</td><td class="number">101.3%</td><td class="number">1.47×</td></tr>
-            <tr><td>llama+GGUF</td><td class="number">30.158</td><td class="number">29.611</td><td class="number">69.1%</td><td class="number">1.00×</td></tr>
-            <tr><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number">12.158</td><td class="number">11.181</td><td class="number">100.0%</td><td class="number">1.42×</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">6.874</td><td class="number">6.510</td><td class="number">56.5%</td><td class="number">0.80×</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number best">13.355</td><td class="number">12.284</td><td class="number">109.8%</td><td class="number">1.56×</td></tr>
-            <tr><td>llama+GGUF</td><td class="number">8.584</td><td class="number">8.427</td><td class="number">70.6%</td><td class="number">1.00×</td></tr>
+            <tr class="highlight-row"><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number best">74.544</td><td class="number">68.545</td><td class="number">–</td><td class="number">1.42×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">41.354</td><td class="number">39.302</td><td class="number">55.5%</td><td class="number">0.79×</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">68.992</td><td class="number">63.875</td><td class="number">92.6%</td><td class="number">1.32×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">52.423</td><td class="number">51.659</td><td class="number">70.3%</td><td class="number">–</td></tr>
+            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">43.320</td><td class="number">39.513</td><td class="number">–</td><td class="number">1.35×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">24.791</td><td class="number">23.509</td><td class="number">57.2%</td><td class="number">0.77×</td></tr>
+            <tr class="highlight-row"><td>fastGGUF 開</td><td class="number best">44.348</td><td class="number">40.657</td><td class="number">102.4%</td><td class="number">1.39×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">32.005</td><td class="number">31.387</td><td class="number">73.9%</td><td class="number">–</td></tr>
+            <tr class="highlight-row"><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number best">13.615</td><td class="number">12.512</td><td class="number">–</td><td class="number">1.57×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">7.092</td><td class="number">6.743</td><td class="number">52.1%</td><td class="number">0.82×</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">12.290</td><td class="number">11.358</td><td class="number">90.3%</td><td class="number">1.42×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">8.680</td><td class="number">8.526</td><td class="number">63.7%</td><td class="number">–</td></tr>
           </tbody>
         </table>
       </div>
@@ -227,22 +227,22 @@
         <div class="chart-group">
           <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
           <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:68;--scale:1%;"></div></div><span class="bar-value">68%</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:39;--scale:1%;"></div></div><span class="bar-value">39%</span></div>
-          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:40;--scale:1%;"></div></div><span class="bar-value">40%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:60;--scale:1%;"></div></div><span class="bar-value">60%</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:37;--scale:1%;"></div></div><span class="bar-value">37%</span></div>
           <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:72;--scale:1%;"></div></div><span class="bar-value">72%</span></div>
         </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
           <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:78;--scale:1%;"></div></div><span class="bar-value">78%</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:44;--scale:1%;"></div></div><span class="bar-value">44%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:66;--scale:1%;"></div></div><span class="bar-value">66%</span></div>
           <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
           <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:78;--scale:1%;"></div></div><span class="bar-value">78%</span></div>
         </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
           <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:89;--scale:1%;"></div></div><span class="bar-value">89%</span></div>
-          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
-          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:71;--scale:1%;"></div></div><span class="bar-value">71%</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:78;--scale:1%;"></div></div><span class="bar-value">78%</span></div>
           <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:87;--scale:1%;"></div></div><span class="bar-value">87%</span></div>
         </div>
       </div>
@@ -250,9 +250,9 @@
         <table>
           <thead><tr><th>模型</th><th class="number">純 MLX</th><th class="number">fast 關</th><th class="number">fast 開</th><th class="number">llama</th><th class="number">無效（關／開）</th><th>品質閘門</th></tr></thead>
           <tbody>
-            <tr><td><strong>Qwen 3.5 4B</strong></td><td class="number">68%</td><td class="number">39%</td><td class="number">40%</td><td class="number best">72%</td><td class="number">18／28</td><td><span class="status unsupported">兩者失敗</span></td></tr>
-            <tr><td><strong>Ornith 1.5 9B</strong></td><td class="number best">78%</td><td class="number">44%</td><td class="number failed">0%</td><td class="number best">78%</td><td class="number">21／100</td><td><span class="status unsupported">兩者失敗</span></td></tr>
-            <tr><td><strong>Qwen 3.8 27B</strong></td><td class="number best">89%</td><td class="number failed">0%</td><td class="number failed">0%</td><td class="number">87%</td><td class="number">100／100</td><td><span class="status unsupported">兩者失敗</span></td></tr>
+            <tr><td><strong>Qwen 3.5 4B</strong></td><td class="number">68%</td><td class="number">60%</td><td class="number">37%</td><td class="number best">72%</td><td class="number">1／22</td><td><span class="status unsupported">88.2%／54.4%，皆失敗</span></td></tr>
+            <tr><td><strong>Ornith 1.5 9B</strong></td><td class="number best">78%</td><td class="number">66%</td><td class="number failed">0%</td><td class="number best">78%</td><td class="number">9／100</td><td><span class="status unsupported">84.6%／0%，皆失敗</span></td></tr>
+            <tr><td><strong>Qwen 3.8 27B</strong></td><td class="number best">89%</td><td class="number">71%</td><td class="number">78%</td><td class="number">87%</td><td class="number">6／1</td><td><span class="status unsupported">79.8%／87.6%，皆失敗</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -260,9 +260,9 @@
         <div>
           <h3>品質閘門定義</h3>
           <p>
-            fastGGUF 精度不得比同一 GGUF 的 llama 參考低超過 2 個百分點，無效答案不得多超過 1 題。
-            逐題一致率只作診斷，不直接當門檻。本輪 6 個 fastGGUF 組合全部失敗；27B 抽查可見連續標點輸出，
-            證實無效答案不是評分器漏抓 A–D。
+            快速策略必須至少保留同模型純 MLX 精確度的 90%；無效答案會自然計入錯誤，不另外美化。
+            llama+GGUF 保留為相同 GGUF 的獨立參考。本輪 6 個 MLX+GGUF 組合皆未過門檻，其中 27B fastGGUF
+            開啟達 78/100、保留 87.6%，最接近但仍不採用「以速度優先」的判定。
           </p>
         </div>
       </div>
@@ -280,23 +280,25 @@
         <table>
           <thead><tr><th>模型</th><th>模式</th><th class="number">載入秒數</th><th class="number">峰值 RSS</th><th>觀察</th></tr></thead>
           <tbody>
-            <tr><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number">1.607 s</td><td class="number best">2.433 GiB</td><td>原生 checkpoint</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">51.292 s</td><td class="number">3.664 GiB</td><td>INT8 轉換</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number">51.077 s</td><td class="number">3.701 GiB</td><td>INT4 轉換</td></tr>
-            <tr><td>llama+GGUF</td><td class="number best">0.803 s</td><td class="number">3.096 GiB</td><td>原生 GGUF block</td></tr>
-            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">14.246 s</td><td class="number best">4.898 GiB</td><td>原生 checkpoint</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">67.126 s</td><td class="number">7.814 GiB</td><td>本模型最高 RSS</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number">51.881 s</td><td class="number">7.418 GiB</td><td>較快轉換</td></tr>
-            <tr><td>llama+GGUF</td><td class="number best">1.101 s</td><td class="number">5.935 GiB</td><td>直接載入</td></tr>
-            <tr><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number">42.207 s</td><td class="number best">14.293 GiB</td><td>原生 checkpoint</td></tr>
-            <tr><td>fastGGUF 關</td><td class="number">130.331 s</td><td class="number">17.586 GiB</td><td>最慢轉換</td></tr>
-            <tr><td>fastGGUF 開</td><td class="number">107.594 s</td><td class="number">17.603 GiB</td><td>RSS 未顯著下降</td></tr>
-            <tr><td>llama+GGUF</td><td class="number best">16.445 s</td><td class="number">16.604 GiB</td><td>直接載入</td></tr>
+            <tr><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number">7.238 s</td><td class="number best">2.408 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">8.025 s</td><td class="number">3.499 GiB</td><td>INT8 轉換、不寫快取</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">3.217 s</td><td class="number">3.639 GiB</td><td>INT4 轉換、不寫快取</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">0.813 s</td><td class="number">3.098 GiB</td><td>原生 GGUF block</td></tr>
+            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">14.201 s</td><td class="number best">4.879 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">18.425 s</td><td class="number">6.945 GiB</td><td>INT8 轉換、不寫快取</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">3.214 s</td><td class="number">7.197 GiB</td><td>INT4 轉換、不寫快取</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">1.094 s</td><td class="number">5.936 GiB</td><td>原生 GGUF block</td></tr>
+            <tr><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number">42.263 s</td><td class="number best">14.290 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">42.533 s</td><td class="number">17.549 GiB</td><td>INT8 轉換、不寫快取</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">24.304 s</td><td class="number">17.246 GiB</td><td>INT4 轉換、不寫快取</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">1.613 s</td><td class="number">16.616 GiB</td><td>原生 GGUF block</td></tr>
           </tbody>
         </table>
       </div>
       <p class="caption" style="margin-top: 14px;">
-        MLX+GGUF 必須解碼並重新量化 K-quant，且目前沒有跨程序的永久轉換快取；MMap 也不會消除已轉換 MLX 權重的常駐成本。
+        為隔離轉換與生成效能，MLX+GGUF 此表使用 <code>--no-gguf-cache</code>，不包含壓縮並寫入永久
+        <code>.fgguf</code> 的時間。正式產品預設會在首次轉換後保存快取，後續啟動可直接重用；MMap
+        仍不會消除已轉換 MLX 權重的常駐成本。
       </p>
     </section>
 
@@ -306,15 +308,16 @@
           <p class="eyebrow">Experimental follow-up</p>
           <h2 id="poc-note">Recurrent controls POC</h2>
         </div>
-        <p>已整合為 fastGGUF 的實驗策略，預設仍關閉。</p>
+        <p>控制投影提升已納入本輪 fastGGUF 開啟測試，但不能單獨保證模型品質。</p>
       </div>
       <div class="callout">
         <div>
-          <h3>只提升 alpha／beta 控制投影可改善 4B，但仍未過門檻</h3>
+          <h3>recurrent controls 仍需配合模型級品質驗證</h3>
           <p>
-            先前以 Qwen 3.5 4B 將 Gated Delta／SSM 的 alpha、beta 投影升為 BF16，固定 100 題由 fastGGUF
-            基線 41% 提升到 59%，無效答案由 29 降至 3，生成維持約 73.6 tok/s；但仍比 llama 參考 72% 低 13 點。
-            此改善不足以讓 fastGGUF 預設開啟，因此只在使用者明確啟用時，以 tensor 語意角色通用套用；後續仍需擴充誤差敏感度與架構合約。
+            本輪以相同 100 題重測整合後策略，fastGGUF 開啟在 Qwen 3.5 4B、Ornith 1.5 9B、Qwen 3.8 27B
+            分別取得 37%、0%、78%，只有 27B 接近門檻。另測「INT4、Group 自動、recurrent 關閉」也只有
+            50% 與 1%（4B／9B），說明問題不是單一開關即可解決。後續必須依 tensor 語意角色、架構合約
+            與小型品質閘門共同決定是否啟用，而不是依模型名稱寫特例。
           </p>
         </div>
       </div>
@@ -355,6 +358,7 @@
           <ul class="method-list">
             <li>兩個 Runtime 均使用 Release build</li>
             <li>MLX+GGUF 明確傳入 <code>--mmap</code>；純 MLX 未傳入</li>
+            <li>速度量測以 <code>--no-gguf-cache</code> 排除快取壓縮與寫入</li>
             <li>KV cache 上限 4096 tokens</li>
             <li>未啟用 DFlash 與 KV Cache 量化</li>
             <li>llama：Metal 全層、Flash Attention、8 threads</li>
@@ -364,7 +368,7 @@
           <h3>解讀限制</h3>
           <ul class="method-list">
             <li>三個模型是通用策略的抽樣證據，不是支援白名單</li>
-            <li>載入時間未清除系統檔案快取</li>
+            <li>載入時間未清除 macOS 系統檔案快取</li>
             <li>程序 RSS 不等於系統統一記憶體總量</li>
             <li>Runtime 或 Metal 更新後應重新測試</li>
           </ul>
@@ -395,8 +399,8 @@
           <p>llama+GGUF 在三模型都維持有效答案與合理精度，且不需支付 MLX 重新量化的載入成本。</p>
         </article>
         <article class="feature-card">
-          <h3>fastGGUF 保持實驗旗標</h3>
-          <p>速度目標已達成，但不可只因模型能載入就開放；至少應通過模型級 smoke quality gate 才能啟用。</p>
+          <h3>fastGGUF 通過閘門後使用</h3>
+          <p>建議嘗試 fastGGUF，但必須先保留至少 90% 的同模型純 MLX 精確度；未通過時應自動或手動回退。</p>
         </article>
         <article class="feature-card">
           <h3>下一步是數值合約</h3>
@@ -407,7 +411,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>Tanpopo performance &amp; accuracy report · Apple M4 Pro · 2026-08-30</p>
+    <p>Tanpopo performance &amp; accuracy report · Apple M4 Pro · 2026-08-31</p>
     <p><a href="model-compatibility.html">← 閱讀模型相容性</a></p>
   </footer>
 </body>

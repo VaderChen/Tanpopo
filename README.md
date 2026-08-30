@@ -42,7 +42,7 @@
 ## 公開測試報告
 
 - [模型相容性報告](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：整理原生 MLX、MLX 直讀 GGUF、llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援範圍及相容性邊界。
-- [效能與精確度報告](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以三組配對模型比較原生 MLX、Fast GGUF 關閉、Fast GGUF 開啟及 llama+GGUF，並同時揭露生成速度、固定題庫精確度、測試環境與重測條件。
+- [效能與精確度報告](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以三組配對模型比較原生 MLX、Fast GGUF 關閉、Fast GGUF 開啟及 llama+GGUF；每個模式固定取樣 100 題，快速策略至少須保留同模型純 MLX 精確度的 90%，並同時揭露生成速度、有效答案、測試環境與重測條件。
 
 兩份 HTML 均可切換 `AUTO`、繁體中文與英文。報告數據是標示日期、硬體、Runtime 版本與樣本下的可重現測試快照，不代表所有模型或裝置都會得到相同結果，也不構成 Fast GGUF 的相容性、速度或精度保證。
 
@@ -145,7 +145,7 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。Qwen3.5 GGUF 若同目錄只有一份配對的 `mmproj`，mlx-server 會自動掛載；缺少或存在多份時會明確拒絕猜測。
 
-**快速GGUF模式（Fast GGUF）**是 mlx-server 的通用 GGUF 最佳化入口，選擇 GGUF 時預設開啟。它不依賴模型檔名，而是檢查 tensor 型別與形狀，讓浮點權重以 BF16 運算、Q8 保留 INT8，其餘支援的低位元矩陣依來源型別轉成 INT4；group size 依全部 tensor 的內層維度優先選擇 64，不相容時安全降級為 32，recurrent controls 則保留較高精度。可透過 `--gguf-group-size auto|32|64` 與 `--gguf-profile auto|quality|speed` 覆寫；`quality` 會讓 Q5_K／Q6_K 改用 INT8。
+**快速GGUF模式（Fast GGUF）**是 mlx-server 的通用 GGUF 最佳化入口，選擇 GGUF 時預設開啟。它不依賴模型檔名，而是檢查 tensor 型別與形狀，讓浮點權重以 BF16 運算、Q8 保留 INT8，其餘支援的低位元矩陣依來源型別轉成 INT4；直接保留 GGUF 32 元素 block 時使用 group 32，需要重新量化的 tensor 才在相容時優先 group 64，recurrent controls 則保留較高精度。可透過 `--gguf-group-size auto|32|64` 與 `--gguf-profile auto|quality|speed` 覆寫；`quality` 會讓 Q5_K／Q6_K 改用 INT8。
 
 Fast GGUF 的設計可套用於多數 mlx-server 能解析的 GGUF，不需要為每個模型寫特例；但它不是相容性或精度保證。模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂修改都可能影響結果，因此「尚未測試」模型仍可能啟動失敗、沒有速度收益或產生品質差異。遇到異常時可關閉快速GGUF模式比較，並以實際生成與精度測試決定是否採用。GGUF Target 使用一般 MLX 生成；DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft，以維持精確回退語意。
 

@@ -30,7 +30,7 @@
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Compatibility report · 2026.08.30</p>
+        <p class="eyebrow">Compatibility report · 2026.08.31</p>
         <h1>模型相容性報告</h1>
         <p class="lede">
           整理 Tanpopo 目前在 Apple Silicon 上對原生 MLX、MLX 直讀 GGUF、
@@ -76,10 +76,10 @@
       </div>
       <div class="callout">
         <div>
-          <h3>本輪重新驗證：21 項程式回歸、3 組實體模型</h3>
+          <h3>本輪重新驗證：23 項程式回歸、3 組實體模型</h3>
           <p>
-            2026-08-30 重新執行 <code>MLXGGUFCompatibilityTests</code>，21 項測試通過、0 失敗，
-            其中 3 項需額外實體模型環境的測試在一般回歸中略過；另以 4B、9B、27B 配對模型逐一完成
+            2026-08-31 重新執行 <code>MLXGGUFCompatibilityTests</code>，共 23 項，其中 20 項通過、0 失敗，
+            另 3 項需額外實體模型環境的測試在一般回歸中略過；並以 4B、9B、27B 配對模型逐一完成
             原生 MLX、MLX+GGUF 與 llama+GGUF 的載入、生成及固定 100 題品質驗證。
           </p>
         </div>
@@ -138,7 +138,7 @@
             <tr>
               <td><strong>fastGGUF</strong></td>
               <td><span class="status reference">不適用</span></td>
-              <td><span class="status partial">實驗性；速度通過、品質未通過</span></td>
+              <td><span class="status partial">推薦嘗試；仍需模型級品質驗證</span></td>
               <td><span class="status reference">不適用</span></td>
             </tr>
             <tr>
@@ -221,8 +221,8 @@
         </article>
         <article class="feature-card">
           <h3>fastGGUF 開啟：Speed／INT4</h3>
-          <p><code>speed + group auto + recurrent controls</code> 讓低位元矩陣走 MLX INT4，全部相容時優先 group 64，並將量化的 recurrent 控制投影保留為 BF16。這是通用 tensor 角色策略，不依模型名稱；本輪表格數據為整合前基線，仍需重新量測。</p>
-          <div class="tag-row"><span class="status partial">品質閘門未通過</span><span class="tag">auto 64→32</span></div>
+          <p><code>speed + group auto + recurrent controls</code> 讓低位元矩陣走 MLX INT4，直接保留 GGUF 32 元素 block 時使用 group 32，需要重新量化時才優先 group 64，並將量化的 recurrent 控制投影保留為 BF16。這是通用 tensor 角色策略，不依模型名稱；本輪數據已重測。</p>
+          <div class="tag-row"><span class="status partial">品質閘門未通過</span><span class="tag">block-aware auto group</span></div>
         </article>
         <article class="feature-card">
           <h3>Quality 診斷路徑</h3>
@@ -244,9 +244,9 @@
         <table>
           <thead><tr><th>模型</th><th>格式</th><th>規模</th><th>驗證項目</th><th>結果</th></tr></thead>
           <tbody>
-            <tr><td>Qwen 3.5 4B</td><td>MLX／GGUF</td><td>4B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
-            <tr><td>Ornith 1.5 9B</td><td>MLX／GGUF</td><td>9B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
-            <tr><td>Qwen 3.8 27B</td><td>MLX／GGUF</td><td>27B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
+            <tr><td>Qwen 3.5 4B</td><td>MLX／GGUF</td><td>4B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">關 60／開 37；皆未達 90%</span></td></tr>
+            <tr><td>Ornith 1.5 9B</td><td>MLX／GGUF</td><td>9B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">關 66／開 0；皆未達 90%</span></td></tr>
+            <tr><td>Qwen 3.8 27B</td><td>MLX／GGUF</td><td>27B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">關 71／開 78；皆未達 90%</span></td></tr>
             <tr><td>Gemma 3 12B</td><td>GGUF</td><td>12B</td><td>SentencePiece、norm、固定輸出</td><td><span class="status supported">先前實機通過</span></td></tr>
             <tr><td>Gemma 4 E2B／E4B</td><td>GGUF</td><td>MoE</td><td>PLE、共享 K/V、FFN 版型</td><td><span class="status supported">先前實機通過</span></td></tr>
             <tr><td>Apertus 1.5 70B</td><td>GGUF Q4_K_M</td><td>70B</td><td>xIELU、MMap、chat EOS 停止</td><td><span class="status supported">先前實機通過</span></td></tr>
@@ -288,7 +288,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>Tanpopo model compatibility report · 2026-08-30</p>
+    <p>Tanpopo model compatibility report · 2026-08-31</p>
     <p><a href="performance-comparison.html">閱讀效能比較 →</a></p>
   </footer>
 </body>
