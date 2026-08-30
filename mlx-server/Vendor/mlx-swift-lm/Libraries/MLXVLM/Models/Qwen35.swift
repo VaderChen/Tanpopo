@@ -1071,6 +1071,16 @@ public class Qwen35: Module, VLMModel {
     }
 
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
+        // GGUF 轉換器已將 Conv1D 與 RMSNorm 整理成 MLX 可直接載入的形狀；
+        // 只有原始 checkpoint（仍帶 MTP，或 Conv1D 尚未轉置）需要將
+        // Qwen3.5 的 RMSNorm 權重加一。若對已轉換權重再加一次，語言核心
+        // 的所有正規化層會發生偏移，最終解碼成看似編碼錯誤的亂碼。
+        let hasMTPWeights = weights.keys.contains { $0.contains("mtp.") }
+        let hasUnsanitizedConv1d = weights.contains { key, value in
+            key.contains("conv1d.weight") && value.dim(-1) != 1
+        }
+        let shouldShiftNormWeights = hasMTPWeights || hasUnsanitizedConv1d
+
         var weights = weights.filter { !$0.key.contains("mtp.") }
 
         if config.textConfiguration.tieWordEmbeddings {
@@ -1111,7 +1121,9 @@ public class Qwen35: Module, VLMModel {
             if key.contains("conv1d.weight") && value.dim(-1) != 1 {
                 value = value.movedAxis(source: 2, destination: 1)
             }
-            if normKeys.contains(where: { key.hasSuffix($0) }) && value.ndim == 1 {
+            if shouldShiftNormWeights
+                && normKeys.contains(where: { key.hasSuffix($0) }) && value.ndim == 1
+            {
                 value = value + MLXArray(1, dtype: value.dtype)
             }
 

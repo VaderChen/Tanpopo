@@ -33,6 +33,7 @@ import (
 type Server struct {
 	ctx             context.Context
 	webPath         string
+	reportPath      string
 	agentConfigPath string
 	settings        *config.Store
 	startupCommands *startupcommand.Store
@@ -70,6 +71,7 @@ func NewServer(
 	return &Server{
 		ctx:             ctx,
 		webPath:         webPath,
+		reportPath:      resolveReportPath(webPath),
 		agentConfigPath: agentConfigPath,
 		settings:        settings,
 		startupCommands: startupCommands,
@@ -81,6 +83,21 @@ func NewServer(
 		metrics:         metrics,
 		netPass:         netPass,
 	}
+}
+
+// resolveReportPath 同時支援原始碼工作區與封裝後目錄：開發模式的
+// reports 位於 website 的同層，正式封裝則放在 website/reports。
+func resolveReportPath(webPath string) string {
+	candidates := []string{
+		filepath.Join(webPath, "reports"),
+		filepath.Join(filepath.Dir(webPath), "reports"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func loadManagementPort(agentConfigPath string) int {
@@ -99,6 +116,13 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /"+pageName, s.requirePage(s.pageHandler(pageName)))
 	}
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.webPath, "assets")))))
+	if s.reportPath != "" {
+		reportFiles := http.StripPrefix("/reports/", http.FileServer(http.Dir(s.reportPath)))
+		mux.HandleFunc("GET /reports/{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/reports/model-compatibility.html", http.StatusFound)
+		})
+		mux.Handle("GET /reports/", reportFiles)
+	}
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/system/metrics", s.handleSystemMetrics)
@@ -123,6 +147,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/access-control/keys/{id}", s.requireAPI(s.handleAccessKeyRevoke))
 	mux.HandleFunc("POST /api/system/directories", s.requireAPI(s.handleDirectories))
 	mux.HandleFunc("GET /api/models", s.requireAPI(s.handleModels))
+	mux.HandleFunc("DELETE /api/models", s.requireAPI(s.handleModelDelete))
+	mux.HandleFunc("DELETE /api/models/conversion-cache", s.requireAPI(s.handleModelConversionCacheDelete))
 	mux.HandleFunc("GET /api/startup-commands", s.requireAPI(s.handleStartupCommands))
 	mux.HandleFunc("POST /api/startup-commands", s.requireAPI(s.handleStartupCommandCreate))
 	mux.HandleFunc("PUT /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandUpdate))
@@ -139,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runtime/logs", s.requireAPI(s.handleLlamaLogs))
 	mux.HandleFunc("DELETE /api/runtime/logs", s.requireAPI(s.handleLlamaLogsClear))
 	mux.HandleFunc("POST /api/runtime/start", s.requireAPI(s.handleLlamaStart))
+	mux.HandleFunc("POST /api/runtime/conversion-preflight", s.requireAPI(s.handleRuntimeConversionPreflight))
 	mux.HandleFunc("POST /api/runtime/stop", s.requireAPI(s.handleLlamaStop))
 	mux.HandleFunc("POST /api/chat/completions", s.requireAPI(s.handleChatCompletion))
 	return s.securityHeaders(mux)
@@ -457,15 +484,19 @@ func (s *Server) handleResidentModeUpdate(w http.ResponseWriter, r *http.Request
 }
 
 type settingsUpdateRequest struct {
-	ModelDirectory        string `json:"model_directory"`
-	MLXModelDirectory     string `json:"mlx_model_directory"`
-	ResidentMode          bool   `json:"resident_mode"`
-	UILanguage            string `json:"ui_language"`
-	UITheme               string `json:"ui_theme"`
-	HuggingFaceEndpoint   string `json:"huggingface_endpoint"`
-	HuggingFaceToken      string `json:"huggingface_token"`
-	ClearHuggingFaceToken bool   `json:"clear_huggingface_token"`
-	DefaultRevision       string `json:"default_revision"`
+	ModelDirectory         string `json:"model_directory"`
+	MLXModelDirectory      string `json:"mlx_model_directory"`
+	ResidentMode           bool   `json:"resident_mode"`
+	DefaultFastGGUFEnabled *bool  `json:"default_fast_gguf_enabled"`
+	DefaultKVCacheEnabled  *bool  `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled     *bool  `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled   *bool  `json:"default_dflash_enabled"`
+	UILanguage             string `json:"ui_language"`
+	UITheme                string `json:"ui_theme"`
+	HuggingFaceEndpoint    string `json:"huggingface_endpoint"`
+	HuggingFaceToken       string `json:"huggingface_token"`
+	ClearHuggingFaceToken  bool   `json:"clear_huggingface_token"`
+	DefaultRevision        string `json:"default_revision"`
 }
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
@@ -481,21 +512,41 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	} else if strings.TrimSpace(request.HuggingFaceToken) != "" {
 		token = strings.TrimSpace(request.HuggingFaceToken)
 	}
+	defaultFastGGUFEnabled := current.DefaultFastGGUFEnabled
+	if request.DefaultFastGGUFEnabled != nil {
+		defaultFastGGUFEnabled = *request.DefaultFastGGUFEnabled
+	}
+	defaultKVCacheEnabled := current.DefaultKVCacheEnabled
+	if request.DefaultKVCacheEnabled != nil {
+		defaultKVCacheEnabled = *request.DefaultKVCacheEnabled
+	}
+	defaultMMapEnabled := current.DefaultMMapEnabled
+	if request.DefaultMMapEnabled != nil {
+		defaultMMapEnabled = *request.DefaultMMapEnabled
+	}
+	defaultDFlashEnabled := current.DefaultDFlashEnabled
+	if request.DefaultDFlashEnabled != nil {
+		defaultDFlashEnabled = *request.DefaultDFlashEnabled
+	}
 	value := domain.Settings{
-		ModelDirectory:      request.ModelDirectory,
-		MLXModelDirectory:   request.MLXModelDirectory,
-		ResidentMode:        request.ResidentMode,
-		UILanguage:          request.UILanguage,
-		UITheme:             request.UITheme,
-		HuggingFaceEndpoint: request.HuggingFaceEndpoint,
-		HuggingFaceToken:    token,
-		DefaultRevision:     request.DefaultRevision,
-		ServerHost:          current.ServerHost,
-		ServerPort:          current.ServerPort,
-		ContextSize:         current.ContextSize,
-		GPULayers:           current.GPULayers,
-		Threads:             current.Threads,
-		ExtraArgs:           current.ExtraArgs,
+		ModelDirectory:         request.ModelDirectory,
+		MLXModelDirectory:      request.MLXModelDirectory,
+		ResidentMode:           request.ResidentMode,
+		DefaultFastGGUFEnabled: defaultFastGGUFEnabled,
+		DefaultKVCacheEnabled:  defaultKVCacheEnabled,
+		DefaultMMapEnabled:     defaultMMapEnabled,
+		DefaultDFlashEnabled:   defaultDFlashEnabled,
+		UILanguage:             request.UILanguage,
+		UITheme:                request.UITheme,
+		HuggingFaceEndpoint:    request.HuggingFaceEndpoint,
+		HuggingFaceToken:       token,
+		DefaultRevision:        request.DefaultRevision,
+		ServerHost:             current.ServerHost,
+		ServerPort:             current.ServerPort,
+		ContextSize:            current.ContextSize,
+		GPULayers:              current.GPULayers,
+		Threads:                current.Threads,
+		ExtraArgs:              current.ExtraArgs,
 	}
 	if err := s.settings.Save(value); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -597,7 +648,90 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if runtimeName == domain.RuntimeMLXServer && strings.TrimSpace(r.URL.Query().Get("role")) != "draft" {
+		models = s.llama.AttachGGUFConversionCacheInfo(models, settings.ModelDirectory)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Format string `json:"format"`
+		Path   string `json:"path"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	status := s.llama.Status()
+	if status.Running && activeModelMatches(status, request.Format, request.Path) {
+		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務"))
+		return
+	}
+	settings := s.settings.Get()
+	if err := llamacpp.DeleteStoredModel(
+		settings.MLXModelDirectory,
+		settings.ModelDirectory,
+		request.Format,
+		request.Path,
+	); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleModelConversionCacheDelete(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	status := s.llama.Status()
+	if status.Running && activeModelMatches(status, "gguf", request.Path) {
+		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務再清除轉換快取"))
+		return
+	}
+	settings := s.settings.Get()
+	deletedBytes, deletedCount, err := s.llama.DeleteGGUFConversionCache(
+		settings.ModelDirectory,
+		request.Path,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"deleted_bytes": deletedBytes,
+		"deleted_count": deletedCount,
+	})
+}
+
+func activeModelMatches(status domain.LlamaStatus, format, modelPath string) bool {
+	format = strings.ToLower(strings.TrimSpace(format))
+	modelPath = filepath.ToSlash(strings.TrimSpace(modelPath))
+	modelPath = strings.TrimPrefix(modelPath, "gguf:")
+	activePath := filepath.ToSlash(strings.TrimSpace(status.Model))
+	activeFormat := "gguf"
+	if status.Runtime == domain.RuntimeMLXServer && !strings.HasPrefix(activePath, "gguf:") {
+		activeFormat = "mlx"
+	}
+	if activeFormat != format {
+		return false
+	}
+	activePath = strings.TrimPrefix(activePath, "gguf:")
+	if format == "mlx" {
+		return activePath == modelPath || strings.HasPrefix(activePath, modelPath+"/")
+	}
+	separator := strings.Index(modelPath, "/")
+	if separator < 0 {
+		return activePath == modelPath
+	}
+	modelDirectory := modelPath[:separator]
+	return activePath == modelDirectory || strings.HasPrefix(activePath, modelDirectory+"/")
 }
 
 type startupCommandRequest struct {
@@ -750,7 +884,10 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		DraftModel                 string `json:"draft_model"`
 		DFlashEnabled              bool   `json:"dflash_enabled"`
 		MMapEnabled                bool   `json:"mmap_enabled"`
+		FastGGUF                   bool   `json:"fast_gguf_enabled"`
 		KVCacheQuantizationEnabled bool   `json:"kv_cache_quantization_enabled"`
+		SkipGGUFConversionCache    bool   `json:"skip_gguf_conversion_cache"`
+		ConversionConfirmationKey  string `json:"conversion_confirmation_key"`
 		StartupCommandID           string `json:"startup_command_id"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
@@ -768,7 +905,10 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		request.DraftModel,
 		request.DFlashEnabled,
 		request.MMapEnabled,
+		request.FastGGUF,
 		request.KVCacheQuantizationEnabled,
+		request.SkipGGUFConversionCache,
+		request.ConversionConfirmationKey,
 		startupCommand,
 	)
 	if err != nil {
@@ -776,6 +916,38 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, status)
+}
+
+func (s *Server) handleRuntimeConversionPreflight(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Model            string `json:"model"`
+		MMProj           string `json:"mmproj"`
+		FastGGUF         bool   `json:"fast_gguf_enabled"`
+		StartupCommandID string `json:"startup_command_id"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	startupCommand, err := s.startupCommands.Get(request.StartupCommandID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	inspection, err := s.llama.InspectConversion(
+		ctx,
+		request.Model,
+		request.MMProj,
+		request.FastGGUF,
+		startupCommand,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
 }
 
 func (s *Server) handleLlamaStop(w http.ResponseWriter, _ *http.Request) {
@@ -816,7 +988,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasSuffix(r.URL.Path, ".html") {
 			w.Header().Set("Cache-Control", "no-store")
-		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") || strings.HasPrefix(r.URL.Path, "/reports/") {
 			w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 		}
 		next.ServeHTTP(w, r)

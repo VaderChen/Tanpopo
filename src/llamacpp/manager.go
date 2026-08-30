@@ -55,16 +55,18 @@ func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath s
 		stateStore:        stateStore,
 		logs:              newLogBuffer(128 * 1024),
 		status: domain.LlamaStatus{
-			DesiredRunning:      saved.DesiredRunning,
-			Runtime:             saved.Runtime,
-			Model:               saved.Model,
-			MMProj:              saved.MMProj,
-			DraftModel:          saved.DraftModel,
-			DFlashEnabled:       saved.DFlashEnabled,
-			MMapEnabled:         saved.MMapEnabled,
-			KVCacheQuantization: saved.KVCacheQuantization,
-			StartupCommandID:    saved.StartupCommandID,
-			StartupCommandName:  saved.StartupCommandName,
+			DesiredRunning:          saved.DesiredRunning,
+			Runtime:                 saved.Runtime,
+			Model:                   saved.Model,
+			MMProj:                  saved.MMProj,
+			DraftModel:              saved.DraftModel,
+			DFlashEnabled:           saved.DFlashEnabled,
+			MMapEnabled:             saved.MMapEnabled,
+			FastGGUF:                saved.FastGGUF,
+			SkipGGUFConversionCache: saved.SkipGGUFConversionCache,
+			KVCacheQuantization:     saved.KVCacheQuantization,
+			StartupCommandID:        saved.StartupCommandID,
+			StartupCommandName:      saved.StartupCommandName,
 		},
 	}
 	manager.refreshURL()
@@ -73,7 +75,9 @@ func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath s
 
 func (m *Manager) Start(
 	model, mmproj, draftModel string,
-	dflashEnabled, mmapEnabled, kvCacheQuantizationEnabled bool,
+	dflashEnabled, mmapEnabled, fastGGUFEnabled, kvCacheQuantizationEnabled bool,
+	skipGGUFConversionCache bool,
+	conversionConfirmationKey string,
 	startupCommand domain.StartupCommand,
 ) (domain.LlamaStatus, error) {
 	m.mu.Lock()
@@ -83,6 +87,9 @@ func (m *Manager) Start(
 	}
 	if dflashEnabled && kvCacheQuantizationEnabled {
 		return m.status, errors.New("DFlash 與 KV Cache 量化不可同時啟用")
+	}
+	if skipGGUFConversionCache && startupCommand.Runtime != domain.RuntimeMLXServer {
+		return m.status, errors.New("不建立轉換快取只適用於 mlx-server 載入 GGUF")
 	}
 	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
 		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
@@ -107,19 +114,50 @@ func (m *Manager) Start(
 		}
 	}
 	settings := m.settings()
+	conversionExpected := false
+	if startupCommand.Runtime == domain.RuntimeMLXServer && !skipGGUFConversionCache {
+		inspectionContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		inspection, inspectionErr := m.inspectConversion(
+			inspectionContext, settings, model, mmproj, fastGGUFEnabled, startupCommand,
+		)
+		cancel()
+		if inspectionErr != nil {
+			return m.status, fmt.Errorf("無法判斷 GGUF 是否需要轉換: %w", inspectionErr)
+		}
+		if inspection.RequiresConversion &&
+			strings.TrimSpace(conversionConfirmationKey) != inspection.CacheKey {
+			return m.status, fmt.Errorf(
+				"此模型需要轉換並建立約 %d bytes 的永久快取，請先確認轉換",
+				inspection.EstimatedCacheBytes,
+			)
+		}
+		conversionExpected = inspection.RequiresConversion
+	}
 	var status domain.LlamaStatus
 	var err error
 	if startupCommand.Runtime == domain.RuntimeMLXServer {
-		status, err = m.startMLXLocked(settings, model, mmproj, mmapEnabled, startupCommand)
+		status, err = m.startMLXLocked(
+			settings, model, mmproj, mmapEnabled, fastGGUFEnabled,
+			skipGGUFConversionCache, startupCommand,
+		)
 	} else {
+		if fastGGUFEnabled {
+			return m.status, errors.New("快速GGUF模式目前只支援 mlx-server 載入 GGUF")
+		}
 		status, err = m.startLlamaLocked(settings, model, mmproj, mmapEnabled, startupCommand)
 	}
 	if err != nil {
 		return status, err
 	}
+	if conversionExpected {
+		m.status.ModelPreparation = domain.ModelPreparationConverting
+		status.ModelPreparation = domain.ModelPreparationConverting
+	}
 	m.status.DesiredRunning = true
 	m.status.DFlashEnabled = dflashEnabled
 	m.status.MMapEnabled = mmapEnabled
+	m.status.FastGGUF = fastGGUFEnabled
+	m.status.SkipGGUFConversionCache = skipGGUFConversionCache
 	m.status.KVCacheQuantization = startupCommand.KVCacheQuantization
 	m.status.MMapReserveGB = 0
 	if mmapEnabled {
@@ -232,6 +270,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
 		StartupCommandName: startupCommand.Name,
+		ModelPreparation:   domain.ModelPreparationLoading,
 		URL:                serverURL(startupCommand.ServerHost, startupCommand.ServerPort),
 		StartedAt:          time.Now(),
 	}
@@ -243,7 +282,8 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 func (m *Manager) startMLXLocked(
 	settings domain.Settings,
 	model, mmproj string,
-	mmapEnabled bool,
+	mmapEnabled, fastGGUFEnabled bool,
+	skipGGUFConversionCache bool,
 	startupCommand domain.StartupCommand,
 ) (domain.LlamaStatus, error) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
@@ -253,43 +293,23 @@ func (m *Manager) startMLXLocked(
 	if err != nil {
 		return m.status, err
 	}
-	modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
+	selection, err := resolveMLXTargetSelection(settings, model, mmproj)
 	if err != nil {
 		return m.status, err
 	}
-	ggufArchitecture := ""
-	if isGGUF {
-		if isMMProjGGUF(modelArgument) {
-			return m.status, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
-		}
-		architecture, metadataErr := readGGUFStringMetadata(modelArgument, "general.architecture")
-		if metadataErr != nil {
-			return m.status, fmt.Errorf("無法讀取 GGUF 模型架構：%w", metadataErr)
-		}
-		if strings.TrimSpace(architecture) == "" {
-			return m.status, errors.New("GGUF 缺少 general.architecture，無法交由 mlx-server 載入")
-		}
-		ggufArchitecture = canonicalMLXGGUFArchitecture(architecture)
+	modelArgument := selection.modelArgument
+	isGGUF := selection.isGGUF
+	if skipGGUFConversionCache && !isGGUF {
+		return m.status, errors.New("不建立轉換快取只適用於 mlx-server 載入 GGUF")
+	}
+	if fastGGUFEnabled && !isGGUF {
+		return m.status, errors.New("快速GGUF模式只適用於 mlx-server 載入 GGUF")
 	}
 	if (isGGUF && isGGUFDFlashDraft(modelArgument)) || (!isGGUF && isMLXDFlashDraftDirectory(modelArgument)) {
 		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
 	}
-	var mmprojArgument string
-	statusMMProj := strings.TrimSpace(mmproj)
-	if strings.TrimSpace(mmproj) != "" {
-		if !isGGUF {
-			return m.status, errors.New("mmproj 只能搭配 GGUF Target 模型")
-		}
-		mmprojArgument, err = resolveMLXGGUFFile(settings.ModelDirectory, mmproj, "mmproj")
-		if err != nil {
-			return m.status, err
-		}
-	} else if ggufArchitecture == "qwen35" {
-		mmprojArgument, statusMMProj, err = resolveCompanionMMProj(settings.ModelDirectory, modelArgument)
-		if err != nil {
-			return m.status, err
-		}
-	}
+	mmprojArgument := selection.mmprojArgument
+	statusMMProj := selection.statusMMProj
 	var draftModelArgument string
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
 		if isGGUF {
@@ -315,6 +335,11 @@ func (m *Manager) startMLXLocked(
 		domain.RuntimeMLXServer,
 		startupCommand.KVCacheQuantization,
 	)
+	args = withManagedMLXGGUFOptimization(args, isGGUF, fastGGUFEnabled)
+	args = withoutMLXGGUFCacheArguments(args)
+	if isGGUF && skipGGUFConversionCache {
+		args = append(args, "--no-gguf-cache")
+	}
 	if draftModelArgument != "" {
 		// mlx-server 只要看到 rotating 或量化的 target KV Cache 就會整個退回標準
 		// 生成，而且只在 stderr 留一行訊息。受管 KV 量化已由 Start 的互斥檢查擋掉，
@@ -355,8 +380,11 @@ func (m *Manager) startMLXLocked(
 	}
 
 	command := exec.Command(binary, args...)
-	command.Stdout = m.logs
-	command.Stderr = m.logs
+	output := newRuntimeOutputWriter(m.logs, func(line string) {
+		m.handleMLXRuntimeOutput(command, line)
+	})
+	command.Stdout = output
+	command.Stderr = output
 	m.logs.Append("\n$ " + binary + " " + strings.Join(args, " ") + "\n")
 	if err := command.Start(); err != nil {
 		return m.status, fmt.Errorf("啟動 mlx-server 失敗: %w", err)
@@ -366,21 +394,148 @@ func (m *Manager) startMLXLocked(
 	m.done = done
 	m.stopping = false
 	m.status = domain.LlamaStatus{
-		Running:            true,
-		Runtime:            domain.RuntimeMLXServer,
-		PID:                command.Process.Pid,
-		Model:              strings.TrimSpace(model),
-		MMProj:             statusMMProj,
-		DraftModel:         filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
-		Binary:             binary,
-		StartupCommandID:   startupCommand.ID,
-		StartupCommandName: startupCommand.Name,
-		URL:                serverURL(startupCommand.ServerHost, startupCommand.ServerPort),
-		StartedAt:          time.Now(),
+		Running:                 true,
+		Runtime:                 domain.RuntimeMLXServer,
+		PID:                     command.Process.Pid,
+		Model:                   strings.TrimSpace(model),
+		MMProj:                  statusMMProj,
+		DraftModel:              filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
+		Binary:                  binary,
+		StartupCommandID:        startupCommand.ID,
+		StartupCommandName:      startupCommand.Name,
+		SkipGGUFConversionCache: skipGGUFConversionCache,
+		ModelPreparation: func() string {
+			if isGGUF && skipGGUFConversionCache {
+				return domain.ModelPreparationDirectLoading
+			}
+			if isGGUF {
+				return domain.ModelPreparationCheckingCache
+			}
+			return domain.ModelPreparationLoading
+		}(),
+		URL:       serverURL(startupCommand.ServerHost, startupCommand.ServerPort),
+		StartedAt: time.Now(),
 	}
 	go m.wait(command, done)
 	go m.monitorReady(command, m.status.URL)
 	return m.status, nil
+}
+
+type mlxTargetSelection struct {
+	modelArgument  string
+	isGGUF         bool
+	mmprojArgument string
+	statusMMProj   string
+}
+
+func resolveMLXTargetSelection(
+	settings domain.Settings,
+	model, mmproj string,
+) (mlxTargetSelection, error) {
+	modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
+	if err != nil {
+		return mlxTargetSelection{}, err
+	}
+	selection := mlxTargetSelection{
+		modelArgument: modelArgument,
+		isGGUF:        isGGUF,
+		statusMMProj:  strings.TrimSpace(mmproj),
+	}
+	if !isGGUF {
+		if selection.statusMMProj != "" {
+			return mlxTargetSelection{}, errors.New("mmproj 只能搭配 GGUF Target 模型")
+		}
+		return selection, nil
+	}
+	if isMMProjGGUF(modelArgument) {
+		return mlxTargetSelection{}, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
+	}
+	architecture, metadataErr := readGGUFStringMetadata(modelArgument, "general.architecture")
+	if metadataErr != nil {
+		return mlxTargetSelection{}, fmt.Errorf("無法讀取 GGUF 模型架構：%w", metadataErr)
+	}
+	if strings.TrimSpace(architecture) == "" {
+		return mlxTargetSelection{}, errors.New("GGUF 缺少 general.architecture，無法交由 mlx-server 載入")
+	}
+	if selection.statusMMProj != "" {
+		selection.mmprojArgument, err = resolveMLXGGUFFile(
+			settings.ModelDirectory, mmproj, "mmproj",
+		)
+		return selection, err
+	}
+	if canonicalMLXGGUFArchitecture(architecture) == "qwen35" {
+		selection.mmprojArgument, selection.statusMMProj, err = resolveCompanionMMProj(
+			settings.ModelDirectory, modelArgument,
+		)
+		if err != nil {
+			return mlxTargetSelection{}, err
+		}
+	}
+	return selection, nil
+}
+
+func (m *Manager) InspectConversion(
+	ctx context.Context,
+	model, mmproj string,
+	fastGGUFEnabled bool,
+	startupCommand domain.StartupCommand,
+) (domain.ModelConversionPreflight, error) {
+	return m.inspectConversion(
+		ctx, m.settings(), model, mmproj, fastGGUFEnabled, startupCommand,
+	)
+}
+
+func (m *Manager) inspectConversion(
+	ctx context.Context,
+	settings domain.Settings,
+	model, mmproj string,
+	fastGGUFEnabled bool,
+	startupCommand domain.StartupCommand,
+) (domain.ModelConversionPreflight, error) {
+	if startupCommand.Runtime != domain.RuntimeMLXServer {
+		return domain.ModelConversionPreflight{Model: strings.TrimSpace(model)}, nil
+	}
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		return domain.ModelConversionPreflight{}, fmt.Errorf(
+			"mlx-server 僅支援 macOS Apple Silicon；目前平台為 %s/%s",
+			runtime.GOOS, runtime.GOARCH,
+		)
+	}
+	selection, err := resolveMLXTargetSelection(settings, model, mmproj)
+	if err != nil {
+		return domain.ModelConversionPreflight{}, err
+	}
+	if !selection.isGGUF {
+		return domain.ModelConversionPreflight{Model: strings.TrimSpace(model)}, nil
+	}
+	binary, err := ResolveMLXServer()
+	if err != nil {
+		return domain.ModelConversionPreflight{}, err
+	}
+	args := withManagedMLXGGUFOptimization(nil, true, fastGGUFEnabled)
+	args = append(args,
+		"--model", selection.modelArgument,
+	)
+	if selection.mmprojArgument != "" {
+		args = append(args, "--mmproj", selection.mmprojArgument)
+	}
+	args = append(args, "--inspect-gguf-cache")
+	command := exec.CommandContext(ctx, binary, args...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return domain.ModelConversionPreflight{}, errors.New(message)
+	}
+	var inspection domain.ModelConversionPreflight
+	if err := json.Unmarshal(bytes.TrimSpace(output), &inspection); err != nil {
+		return domain.ModelConversionPreflight{}, fmt.Errorf(
+			"mlx-server 轉換預檢回傳格式無效: %w", err,
+		)
+	}
+	return inspection, nil
 }
 
 func resolveMLXTargetModel(settings domain.Settings, value, label string) (string, bool, error) {
@@ -517,7 +672,10 @@ func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, er
 			saved.DraftModel,
 			saved.DFlashEnabled,
 			saved.MMapEnabled,
+			saved.FastGGUF,
 			saved.KVCacheQuantization != domain.KVCacheQuantizationNone,
+			saved.SkipGGUFConversionCache,
+			"",
 			command,
 		)
 	}
@@ -541,17 +699,19 @@ func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, er
 
 func (m *Manager) persistStatusLocked(desiredRunning bool) error {
 	return m.stateStore.Save(persistedRuntimeState{
-		Version:             runtimeStateVersion,
-		DesiredRunning:      desiredRunning,
-		Runtime:             m.status.Runtime,
-		Model:               m.status.Model,
-		MMProj:              m.status.MMProj,
-		DraftModel:          m.status.DraftModel,
-		DFlashEnabled:       m.status.DFlashEnabled,
-		MMapEnabled:         m.status.MMapEnabled,
-		KVCacheQuantization: m.status.KVCacheQuantization,
-		StartupCommandID:    m.status.StartupCommandID,
-		StartupCommandName:  m.status.StartupCommandName,
+		Version:                 runtimeStateVersion,
+		DesiredRunning:          desiredRunning,
+		Runtime:                 m.status.Runtime,
+		Model:                   m.status.Model,
+		MMProj:                  m.status.MMProj,
+		DraftModel:              m.status.DraftModel,
+		DFlashEnabled:           m.status.DFlashEnabled,
+		MMapEnabled:             m.status.MMapEnabled,
+		FastGGUF:                m.status.FastGGUF,
+		SkipGGUFConversionCache: m.status.SkipGGUFConversionCache,
+		KVCacheQuantization:     m.status.KVCacheQuantization,
+		StartupCommandID:        m.status.StartupCommandID,
+		StartupCommandName:      m.status.StartupCommandName,
 	})
 }
 
@@ -576,6 +736,11 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 		wasStopping := m.stopping
 		m.status.Running = false
 		m.status.Ready = false
+		m.status.ModelPreparation = ""
+		m.status.ModelPreparationDone = 0
+		m.status.ModelPreparationTotal = 0
+		m.status.ModelPreparationPercent = 0
+		m.status.ModelPreparationKnown = false
 		m.status.PID = 0
 		m.status.StoppedAt = time.Now()
 		if err != nil && !wasStopping {
@@ -619,6 +784,11 @@ func (m *Manager) monitorReady(command *exec.Cmd, baseURL string) {
 					m.mu.Lock()
 					if m.cmd == command && m.status.Running {
 						m.status.Ready = true
+						m.status.ModelPreparation = ""
+						m.status.ModelPreparationDone = 0
+						m.status.ModelPreparationTotal = 0
+						m.status.ModelPreparationPercent = 0
+						m.status.ModelPreparationKnown = false
 					}
 					m.mu.Unlock()
 					return
@@ -633,6 +803,117 @@ func runtimeHealthResponseReady(statusCode int) bool {
 	return statusCode >= 200 && statusCode < 300 ||
 		statusCode == http.StatusUnauthorized ||
 		statusCode == http.StatusForbidden
+}
+
+func (m *Manager) handleMLXRuntimeOutput(command *exec.Cmd, line string) {
+	if phase, completed, total, unit, ok := parseMLXGGUFProgress(line); ok {
+		m.mu.Lock()
+		if m.cmd == command && m.status.Running && !m.status.Ready {
+			m.status.ModelPreparationPercent = int(float64(completed) / float64(total) * 100)
+			m.status.ModelPreparationKnown = true
+			if unit == "steps" {
+				m.status.ModelPreparationDone = 0
+				m.status.ModelPreparationTotal = 0
+			} else {
+				m.status.ModelPreparationDone = completed
+				m.status.ModelPreparationTotal = total
+			}
+			if !m.status.SkipGGUFConversionCache {
+				m.status.ModelPreparation = phase
+			}
+		}
+		m.mu.Unlock()
+		return
+	}
+	if !strings.Contains(line, "TANPOPO_GGUF_CACHE ") {
+		return
+	}
+	preparation := ""
+	switch {
+	case strings.Contains(line, "state=checking"):
+		preparation = domain.ModelPreparationCheckingCache
+	case strings.Contains(line, "state=loading"), strings.Contains(line, "state=hit"):
+		preparation = domain.ModelPreparationLoadingCache
+	case strings.Contains(line, "state=miss"), strings.Contains(line, "state=invalid"):
+		preparation = domain.ModelPreparationConverting
+	case strings.Contains(line, "state=saving"):
+		preparation = domain.ModelPreparationSavingCache
+	case strings.Contains(line, "state=stored"), strings.Contains(line, "state=unavailable"):
+		preparation = domain.ModelPreparationLoading
+	case strings.Contains(line, "state=disabled"):
+		preparation = domain.ModelPreparationDirectLoading
+	}
+	if preparation == "" {
+		return
+	}
+	m.mu.Lock()
+	if m.cmd == command && m.status.Running && !m.status.Ready {
+		if m.status.SkipGGUFConversionCache {
+			preparation = domain.ModelPreparationDirectLoading
+		} else if m.status.ModelPreparation == domain.ModelPreparationConverting &&
+			preparation == domain.ModelPreparationCheckingCache {
+			// 啟動前已確認本次需要轉換；Runtime 仍會重新檢查快取以處理
+			// 並行建立的競態，但不應讓使用者看到狀態倒退為「檢查中」。
+			preparation = domain.ModelPreparationConverting
+		}
+		m.status.ModelPreparation = preparation
+		if preparation == domain.ModelPreparationCheckingCache ||
+			preparation == domain.ModelPreparationLoadingCache ||
+			preparation == domain.ModelPreparationDirectLoading {
+			m.status.ModelPreparationDone = 0
+			m.status.ModelPreparationTotal = 0
+			m.status.ModelPreparationPercent = 0
+			m.status.ModelPreparationKnown = false
+		}
+	}
+	m.mu.Unlock()
+}
+
+func parseMLXGGUFProgress(line string) (string, int64, int64, string, bool) {
+	marker := ""
+	markerIndex := -1
+	for _, candidate := range []string{"TANPOPO_MODEL_PROGRESS ", "TANPOPO_GGUF_PROGRESS "} {
+		if index := strings.Index(line, candidate); index >= 0 {
+			marker = candidate
+			markerIndex = index
+			break
+		}
+	}
+	if markerIndex < 0 {
+		return "", 0, 0, "", false
+	}
+	phase := ""
+	unit := "bytes"
+	var completed, total int64
+	for _, field := range strings.Fields(line[markerIndex+len(marker):]) {
+		key, value, found := strings.Cut(field, "=")
+		if !found {
+			continue
+		}
+		switch key {
+		case "phase":
+			phase = value
+		case "completed":
+			completed, _ = strconv.ParseInt(value, 10, 64)
+		case "total":
+			total, _ = strconv.ParseInt(value, 10, 64)
+		case "unit":
+			unit = value
+		}
+	}
+	if phase != domain.ModelPreparationConverting &&
+		phase != domain.ModelPreparationSavingCache &&
+		phase != domain.ModelPreparationLoadingCache &&
+		phase != domain.ModelPreparationLoading {
+		return "", 0, 0, "", false
+	}
+	if completed < 0 || total <= 0 || (unit != "bytes" && unit != "steps") {
+		return "", 0, 0, "", false
+	}
+	if completed > total {
+		completed = total
+	}
+	return phase, completed, total, unit, true
 }
 
 func (m *Manager) refreshURL() {
@@ -862,6 +1143,429 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 	return result, nil
 }
 
+const maximumConversionManifestBytes = 4 * 1024 * 1024
+
+type conversionCacheManifest struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	Key           string   `json:"key"`
+	SourceNames   []string `json:"sourceNames"`
+	SourcePaths   []string `json:"sourcePaths"`
+	Shards        []string `json:"shards"`
+}
+
+type ggufConversionCacheEntry struct {
+	path       string
+	shardPaths []string
+	directory  bool
+	sourceName string
+	sourcePath string
+	bytes      int64
+}
+
+// AttachGGUFConversionCacheInfo 將已完成且結構完整的轉換快取資訊附加到
+// GGUF 模型清單。新 manifest 以來源完整路徑精確配對；舊 manifest 只有
+// 檔名時，僅在目前 GGUF 清單中檔名唯一才採用，避免同名模型誤判。
+func (m *Manager) AttachGGUFConversionCacheInfo(
+	models []domain.ModelFile,
+	ggufDirectory string,
+) []domain.ModelFile {
+	entries, err := m.ggufConversionCacheEntries(models, ggufDirectory)
+	if err != nil || len(entries) == 0 {
+		return models
+	}
+	nameCounts := ggufModelFilenameCounts(models)
+	for index := range models {
+		if strings.ToLower(models[index].Format) != "gguf" {
+			continue
+		}
+		modelPath := strings.TrimPrefix(filepath.ToSlash(models[index].Path), mlxGGUFPathPrefix)
+		target, err := canonicalGGUFModelPath(ggufDirectory, modelPath)
+		if err != nil {
+			continue
+		}
+		filename := filepath.Base(filepath.FromSlash(modelPath))
+		for _, entry := range entries {
+			if !ggufConversionCacheMatches(entry, target, filename, nameCounts[strings.ToLower(filename)] == 1) {
+				continue
+			}
+			models[index].ConversionCached = true
+			models[index].ConversionCacheBytes += entry.bytes
+			models[index].ConversionCacheCount++
+		}
+	}
+	return models
+}
+
+// DeleteGGUFConversionCache 只刪除指定原始 GGUF 對應的完整轉換快取項目，
+// 不會移除原始 GGUF、mmproj、Draft 或模型目錄中的其他檔案。不同轉換策略
+// 可能各有一份快取，因此一次刪除所有可安全辨識的對應項目。
+func (m *Manager) DeleteGGUFConversionCache(
+	ggufDirectory string,
+	modelPath string,
+) (deletedBytes int64, deletedCount int, err error) {
+	modelPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(modelPath)), mlxGGUFPathPrefix)
+	if modelPath == "" {
+		return 0, 0, errors.New("模型路徑不可為空")
+	}
+	models, err := ListModels(ggufDirectory)
+	if err != nil {
+		return 0, 0, err
+	}
+	var found bool
+	filenameCounts := make(map[string]int)
+	for _, model := range models {
+		if model.DFlashDraft || isMMProjGGUF(model.Path) {
+			continue
+		}
+		filename := strings.ToLower(filepath.Base(filepath.FromSlash(model.Path)))
+		filenameCounts[filename]++
+		if filepath.ToSlash(model.Path) == modelPath {
+			found = true
+		}
+	}
+	if !found {
+		return 0, 0, errors.New("找不到模型，請重新整理清單後再試")
+	}
+	target, err := canonicalGGUFModelPath(ggufDirectory, modelPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	entries, err := m.ggufConversionCacheEntriesForRoots([]string{filepath.Dir(target)})
+	if err != nil {
+		return 0, 0, err
+	}
+	filename := filepath.Base(filepath.FromSlash(modelPath))
+	uniqueName := filenameCounts[strings.ToLower(filename)] == 1
+	for _, entry := range entries {
+		if !ggufConversionCacheMatches(entry, target, filename, uniqueName) {
+			continue
+		}
+		if err := deleteGGUFConversionCacheEntry(entry); err != nil {
+			return deletedBytes, deletedCount, fmt.Errorf("刪除 GGUF 轉換快取失敗: %w", err)
+		}
+		deletedBytes += entry.bytes
+		deletedCount++
+	}
+	if deletedCount == 0 {
+		return 0, 0, errors.New("找不到可刪除的 GGUF 轉換快取")
+	}
+	return deletedBytes, deletedCount, nil
+}
+
+func (m *Manager) ggufConversionCacheEntries(
+	models []domain.ModelFile,
+	ggufDirectory string,
+) ([]ggufConversionCacheEntry, error) {
+	roots := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, model := range models {
+		if !strings.EqualFold(model.Format, "gguf") {
+			continue
+		}
+		modelPath := strings.TrimPrefix(filepath.ToSlash(model.Path), mlxGGUFPathPrefix)
+		target, err := canonicalGGUFModelPath(ggufDirectory, modelPath)
+		if err != nil {
+			continue
+		}
+		root := filepath.Dir(target)
+		if _, exists := seen[root]; exists {
+			continue
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	return m.ggufConversionCacheEntriesForRoots(roots)
+}
+
+func (m *Manager) ggufConversionCacheEntriesForRoots(
+	roots []string,
+) ([]ggufConversionCacheEntry, error) {
+	result := make([]ggufConversionCacheEntry, 0)
+	seenManifests := make(map[string]struct{})
+	for _, root := range roots {
+		entries, err := adjacentGGUFConversionCacheEntries(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if _, exists := seenManifests[entry.path]; exists {
+				continue
+			}
+			seenManifests[entry.path] = struct{}{}
+			result = append(result, entry)
+		}
+	}
+	legacy, err := m.legacyGGUFConversionCacheEntries()
+	if err != nil {
+		return nil, err
+	}
+	return append(result, legacy...), nil
+}
+
+func (m *Manager) legacyGGUFConversionCacheEntries() ([]ggufConversionCacheEntry, error) {
+	root := filepath.Join(filepath.Dir(m.accessControlPath), "converted_gguf_cache")
+	directories, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("讀取 GGUF 轉換快取失敗: %w", err)
+	}
+	result := make([]ggufConversionCacheEntry, 0, len(directories))
+	for _, directory := range directories {
+		if !directory.IsDir() || directory.Type()&os.ModeSymlink != 0 || strings.HasPrefix(directory.Name(), ".") {
+			continue
+		}
+		entryPath := filepath.Join(root, directory.Name())
+		manifestPath := filepath.Join(entryPath, "manifest.json")
+		manifestInfo, err := os.Lstat(manifestPath)
+		if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Size() <= 0 || manifestInfo.Size() > maximumConversionManifestBytes {
+			continue
+		}
+		manifestData, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+		var manifest conversionCacheManifest
+		if json.Unmarshal(manifestData, &manifest) != nil ||
+			(manifest.SchemaVersion != 2 && manifest.SchemaVersion != 3) ||
+			manifest.Key != directory.Name() || len(manifest.SourceNames) == 0 || len(manifest.Shards) == 0 {
+			continue
+		}
+		storedBytes := manifestInfo.Size()
+		valid := true
+		for _, shard := range manifest.Shards {
+			if shard == "" || filepath.Base(shard) != shard ||
+				(!strings.HasSuffix(shard, ".safetensors") && !strings.HasSuffix(shard, ".fgguf")) {
+				valid = false
+				break
+			}
+			shardInfo, err := os.Lstat(filepath.Join(entryPath, shard))
+			if err != nil || !shardInfo.Mode().IsRegular() || shardInfo.Size() <= 0 {
+				valid = false
+				break
+			}
+			storedBytes += shardInfo.Size()
+		}
+		if !valid {
+			continue
+		}
+		sourcePath := ""
+		if len(manifest.SourcePaths) > 0 {
+			sourcePath = canonicalExistingPath(manifest.SourcePaths[0])
+		}
+		result = append(result, ggufConversionCacheEntry{
+			path:       entryPath,
+			shardPaths: nil,
+			directory:  true,
+			sourceName: filepath.Base(filepath.FromSlash(manifest.SourceNames[0])),
+			sourcePath: sourcePath,
+			bytes:      storedBytes,
+		})
+	}
+	return result, nil
+}
+
+func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry, error) {
+	files, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("讀取 GGUF 轉換快取失敗: %w", err)
+	}
+	result := make([]ggufConversionCacheEntry, 0)
+	for _, file := range files {
+		if file.IsDir() || file.Type()&os.ModeSymlink != 0 ||
+			!strings.HasSuffix(file.Name(), ".fgguf.json") {
+			continue
+		}
+		manifestPath := filepath.Join(root, file.Name())
+		manifestInfo, err := os.Lstat(manifestPath)
+		if err != nil || !manifestInfo.Mode().IsRegular() ||
+			manifestInfo.Size() <= 0 || manifestInfo.Size() > maximumConversionManifestBytes {
+			continue
+		}
+		manifestData, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+		var manifest conversionCacheManifest
+		if json.Unmarshal(manifestData, &manifest) != nil || manifest.SchemaVersion != 3 ||
+			manifest.Key == "" || len(manifest.SourceNames) == 0 || len(manifest.Shards) == 0 {
+			continue
+		}
+		storedBytes := manifestInfo.Size()
+		shardPaths := make([]string, 0, len(manifest.Shards))
+		valid := true
+		for _, shard := range manifest.Shards {
+			if shard == "" || filepath.Base(shard) != shard || !strings.HasSuffix(shard, ".fgguf") {
+				valid = false
+				break
+			}
+			shardPath := filepath.Join(root, shard)
+			shardInfo, err := os.Lstat(shardPath)
+			if err != nil || !shardInfo.Mode().IsRegular() || shardInfo.Size() <= 0 {
+				valid = false
+				break
+			}
+			storedBytes += shardInfo.Size()
+			shardPaths = append(shardPaths, shardPath)
+		}
+		if !valid {
+			continue
+		}
+		sourcePath := ""
+		if len(manifest.SourcePaths) > 0 {
+			sourcePath = canonicalExistingPath(manifest.SourcePaths[0])
+		}
+		result = append(result, ggufConversionCacheEntry{
+			path:       manifestPath,
+			shardPaths: shardPaths,
+			directory:  false,
+			sourceName: filepath.Base(filepath.FromSlash(manifest.SourceNames[0])),
+			sourcePath: sourcePath,
+			bytes:      storedBytes,
+		})
+	}
+	return result, nil
+}
+
+func deleteGGUFConversionCacheEntry(entry ggufConversionCacheEntry) error {
+	if entry.directory {
+		return os.RemoveAll(entry.path)
+	}
+	for _, shardPath := range entry.shardPaths {
+		if err := os.Remove(shardPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := os.Remove(entry.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func ggufModelFilenameCounts(models []domain.ModelFile) map[string]int {
+	counts := make(map[string]int)
+	for _, model := range models {
+		if strings.ToLower(model.Format) != "gguf" {
+			continue
+		}
+		modelPath := strings.TrimPrefix(filepath.ToSlash(model.Path), mlxGGUFPathPrefix)
+		filename := strings.ToLower(filepath.Base(filepath.FromSlash(modelPath)))
+		counts[filename]++
+	}
+	return counts
+}
+
+func canonicalGGUFModelPath(root, modelPath string) (string, error) {
+	target, err := download.SafeJoin(root, modelPath)
+	if err != nil {
+		return "", fmt.Errorf("模型路徑格式錯誤: %w", err)
+	}
+	return canonicalExistingPath(target), nil
+}
+
+func canonicalExistingPath(path string) string {
+	path = filepath.Clean(path)
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
+}
+
+func ggufConversionCacheMatches(
+	entry ggufConversionCacheEntry,
+	target string,
+	filename string,
+	uniqueName bool,
+) bool {
+	if entry.sourcePath != "" {
+		return entry.sourcePath == target
+	}
+	return uniqueName && strings.EqualFold(entry.sourceName, filename)
+}
+
+// DeleteStoredModel 只刪除模型掃描器實際列出的 Target，並以 SafeJoin 限制
+// 目標必須位於對應模型根目錄內。MLX 模型以完整目錄為單位刪除；位於
+// 子目錄的 GGUF 會刪除模型根目錄下的第一層完整資料夾，連同 mmproj 與
+// 其他附屬檔案一起移除。直接放在共用根目錄的 GGUF 只刪除該檔案，避免
+// 誤刪整個模型根目錄。mmproj 與 DFlash Draft 不屬於此清單。
+func DeleteStoredModel(mlxDirectory, ggufDirectory, format, modelPath string) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	modelPath = filepath.ToSlash(strings.TrimSpace(modelPath))
+	modelPath = strings.TrimPrefix(modelPath, mlxGGUFPathPrefix)
+	if modelPath == "" {
+		return errors.New("模型路徑不可為空")
+	}
+
+	var (
+		root       string
+		models     []domain.ModelFile
+		err        error
+		removeTree bool
+	)
+	switch format {
+	case "mlx":
+		root = mlxDirectory
+		removeTree = true
+		models, err = ListMLXModels(root)
+	case "gguf":
+		root = ggufDirectory
+		models, err = ListModels(root)
+	case "":
+		return errors.New("模型格式不可為空")
+	default:
+		return fmt.Errorf("不支援的模型格式：%s", format)
+	}
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for _, model := range models {
+		if format == "gguf" && (model.DFlashDraft || isMMProjGGUF(model.Path)) {
+			continue
+		}
+		if filepath.ToSlash(model.Path) == modelPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New("找不到可刪除的模型，請重新整理清單後再試")
+	}
+
+	target, err := download.SafeJoin(root, modelPath)
+	if err != nil {
+		return fmt.Errorf("模型路徑格式錯誤: %w", err)
+	}
+	if removeTree {
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("刪除 MLX 模型失敗: %w", err)
+		}
+		return nil
+	}
+	if separator := strings.Index(modelPath, "/"); separator > 0 {
+		modelDirectory, err := download.SafeJoin(root, modelPath[:separator])
+		if err != nil {
+			return fmt.Errorf("GGUF 模型目錄格式錯誤: %w", err)
+		}
+		if err := os.RemoveAll(modelDirectory); err != nil {
+			return fmt.Errorf("刪除 GGUF 模型目錄失敗: %w", err)
+		}
+		return nil
+	}
+	if err := os.Remove(target); err != nil {
+		return fmt.Errorf("刪除 GGUF 模型失敗: %w", err)
+	}
+	return nil
+}
+
 func isSupportedMLXGGUFArchitecture(architecture string) bool {
 	canonical := canonicalMLXGGUFArchitecture(architecture)
 	if support := mlxRuntimeSupport(); support.available {
@@ -1010,6 +1714,8 @@ func canonicalMLXGGUFArchitecture(architecture string) string {
 	)
 }
 
+// resolveCompanionMMProj 只在架構宣告需要視覺投影時使用，並要求同一個
+// 模型目錄中只有一個明確配對的 mmproj，避免靜默掛載錯誤投影權重。
 func resolveCompanionMMProj(modelRoot, targetPath string) (string, string, error) {
 	entries, err := os.ReadDir(filepath.Dir(targetPath))
 	if err != nil {
@@ -1017,13 +1723,14 @@ func resolveCompanionMMProj(modelRoot, targetPath string) (string, string, error
 	}
 	candidates := make([]string, 0, 1)
 	for _, entry := range entries {
-		if entry.IsDir() || !isMMProjGGUF(entry.Name()) || !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
+		if entry.IsDir() || !isMMProjGGUF(entry.Name()) ||
+			!strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
 			continue
 		}
 		candidates = append(candidates, filepath.Join(filepath.Dir(targetPath), entry.Name()))
 	}
 	if len(candidates) == 0 {
-		return "", "", errors.New("Qwen3.5 GGUF 需要搭配同目錄的 mmproj 才能由 mlx-server 正確生成內容；請先下載配對的 mmproj")
+		return "", "", errors.New("Qwen3.5 GGUF 需要搭配同目錄的 mmproj；請先下載配對的 mmproj")
 	}
 	if len(candidates) > 1 {
 		return "", "", errors.New("找到多個 mmproj，請在執行狀態頁選擇與 GGUF 模型配對的檔案")
@@ -1356,6 +2063,72 @@ func withoutMLXMMapArguments(arguments []string) []string {
 	return filtered
 }
 
+// withManagedMLXGGUFOptimization 讓執行狀態頁的「快速GGUF模式」成為 GGUF
+// 權重量化與 recurrent 混合精度策略的唯一來源。預設模式以較保守的
+// INT8／Group 32 為主；快速模式啟用 INT4／自動 Group（相容時優先 64），
+// 並將語意上屬於 recurrent control 的量化投影保留為 BF16。原生 MLX 模型
+// 會移除殘留的 GGUF 參數，避免把不適用的旗標傳給 Runtime。
+func withManagedMLXGGUFOptimization(arguments []string, isGGUF, fastMode bool) []string {
+	filtered := withoutMLXGGUFOptimizationArguments(arguments)
+	if !isGGUF {
+		return filtered
+	}
+	if fastMode {
+		return append(filtered,
+			"--gguf-profile", "speed",
+			"--gguf-group-size", "auto",
+			"--gguf-recurrent-promotion", "controls",
+		)
+	}
+	return append(filtered,
+		"--gguf-profile", "auto",
+		"--gguf-group-size", "32",
+		"--gguf-recurrent-promotion", "off",
+	)
+}
+
+func withoutMLXGGUFOptimizationArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		switch argument {
+		case "--gguf-profile", "--gguf-group-size", "--gguf-recurrent-promotion":
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--gguf-profile=") ||
+			strings.HasPrefix(argument, "--gguf-group-size=") ||
+			strings.HasPrefix(argument, "--gguf-recurrent-promotion=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
+func withoutMLXGGUFCacheArguments(arguments []string) []string {
+	filtered := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		argument := strings.TrimSpace(arguments[index])
+		if argument == "--no-gguf-cache" {
+			continue
+		}
+		if argument == "--gguf-cache-dir" {
+			if index+1 < len(arguments) {
+				index++
+			}
+			continue
+		}
+		if strings.HasPrefix(argument, "--gguf-cache-dir=") {
+			continue
+		}
+		filtered = append(filtered, arguments[index])
+	}
+	return filtered
+}
+
 // withManagedKVCacheQuantization 依 Runtime 產生對應的 Q8／Q4 參數。
 // 先移除 Profile 額外參數中的舊設定，確保 Switch 與量化選單是唯一來源。
 func withManagedKVCacheQuantization(arguments []string, runtimeName, quantization string) []string {
@@ -1572,6 +2345,45 @@ type logBuffer struct {
 	mu    sync.Mutex
 	max   int
 	bytes bytes.Buffer
+}
+
+type runtimeOutputWriter struct {
+	destination io.Writer
+	onLine      func(string)
+	mu          sync.Mutex
+	pending     string
+}
+
+func newRuntimeOutputWriter(destination io.Writer, onLine func(string)) *runtimeOutputWriter {
+	return &runtimeOutputWriter{destination: destination, onLine: onLine}
+}
+
+func (w *runtimeOutputWriter) Write(value []byte) (int, error) {
+	count, err := w.destination.Write(value)
+	if count <= 0 || w.onLine == nil {
+		return count, err
+	}
+
+	w.mu.Lock()
+	w.pending += string(value[:count])
+	lines := make([]string, 0, 2)
+	for {
+		newline := strings.IndexByte(w.pending, '\n')
+		if newline < 0 {
+			break
+		}
+		lines = append(lines, strings.TrimSuffix(w.pending[:newline], "\r"))
+		w.pending = w.pending[newline+1:]
+	}
+	if len(w.pending) > 64*1024 {
+		w.pending = w.pending[len(w.pending)-64*1024:]
+	}
+	w.mu.Unlock()
+
+	for _, line := range lines {
+		w.onLine(line)
+	}
+	return count, err
 }
 
 func newLogBuffer(max int) *logBuffer {

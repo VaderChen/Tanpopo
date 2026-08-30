@@ -15,6 +15,31 @@ enum MLXServerMain {
         }
         do {
             let configuration = try ServerConfiguration.parse(arguments)
+            if configuration.inspectGGUFCache {
+                let weightURL = URL(fileURLWithPath: configuration.modelPath)
+                guard weightURL.pathExtension.lowercased() == "gguf" else {
+                    throw ConfigurationError.invalidModelPath(configuration.modelPath)
+                }
+                let inspection = try MLXGGUFModelLoader.inspectConversion(
+                    from: weightURL.deletingLastPathComponent(),
+                    weightURL: weightURL,
+                    mmprojURL: configuration.mmprojPath.map(URL.init(fileURLWithPath:)),
+                    quantizationGroupSize: configuration.ggufGroupSize,
+                    quantizationProfile: configuration.ggufProfile,
+                    recurrentPromotion: configuration.ggufRecurrentPromotion,
+                    conversionCacheDirectory: configuration.ggufCacheDirectory
+                )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                guard let output = String(
+                    data: try encoder.encode(inspection),
+                    encoding: .utf8
+                ) else {
+                    throw CocoaError(.fileWriteInapplicableStringEncoding)
+                }
+                print(output)
+                Foundation.exit(EXIT_SUCCESS)
+            }
             let runtime = try MLXRuntime(configuration: configuration)
             let kind = runtime.kind.rawValue
             print("mlx-server \(ServerConfiguration.version)")

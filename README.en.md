@@ -8,6 +8,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 
 - Start, stop, restore, and inspect local model runtimes from one web interface.
 - Scan nested GGUF files and complete MLX model directories without exposing full directory paths in model selectors. On Apple Silicon, `mlx-server` can load supported GGUF models directly without a safetensors conversion step.
+- **Fast GGUF mode** is enabled by default when `mlx-server` loads GGUF. Its model-name-independent tensor policy selects INT4, INT8, BF16, group sizing, and recurrent controls, then persists the converted weights in `.fgguf`. It benefits most GGUF models that mlx-server can parse, but it does not guarantee that every architecture, quantization, or custom checkpoint will load, run faster, or preserve identical accuracy; validate important workloads before relying on it.
 - Group mlx-server targets by GGUF and MLX. Language models not yet declared compatible by the runtime remain selectable in an **Untested (N)** group and are validated by an actual load attempt.
 - Download public, gated, or private Hugging Face GGUF files and MLX repositories.
 - Pick popular GGUF or MLX models from a separate JSON catalog. Each format is grouped into 8B-class, 30B-class, and 70B-and-above tiers, with model names sorted alphabetically inside each tier. The quick picker fills in the Runtime, repository, revision, and GGUF filename without hard-coding model entries in JavaScript.
@@ -15,8 +16,9 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 - Save reusable launch profiles for context size, GPU layers, threads, KV cache, MTP, and DFlash.
 - Keep the independent DFlash and MMap switches in a compact Advanced settings popover so new options do not continuously lengthen the page.
 - Detect DFlash support and require a compatible Draft model before enabling it. The separate MMap switch supports both llama-server and Apple Silicon mlx-server, using file-backed paging to reduce model-loading memory pressure.
+- KV Cache, MMap, and DFlash are integrated end to end across feature defaults, launch profiles, runtime switches, compatibility preflight, runtime arguments, persisted state, and error reporting. Availability still depends on the runtime and model; DFlash requires a compatible Target/Draft pair and is mutually exclusive with KV Cache quantization.
 - Automatically discover and download a matching DFlash Draft from the same or a separate Hugging Face repository, verified through metadata and model configuration instead of a hard-coded model list.
-- Use an ephemeral local chat with Markdown, math rendering, separated reasoning, animated waiting state, token counts, and output tokens per second.
+- Use an ephemeral local chat with Markdown, math rendering, and separated reasoning. The reasoning panel opens by default while generation is active, shows animated dots, and collapses automatically when generation finishes; token counts and output tokens per second remain visible.
 - Starting a model immediately opens a loading notice explaining that large models may require conversion. Test a running model through an animated dialog, then inspect input/output tokens, generation speed, elapsed time, or an explicit loading/connection error. Main-page refreshes use a separate compact progress dialog.
 - Use a real OpenAI-compatible per-token SSE stream from MLX; disconnecting or cancelling the client immediately cancels the matching generation task.
 - Protect the model API with access keys, an IP allowlist, both, or neither.
@@ -27,6 +29,13 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 - Inspect read-only OS, kernel, architecture, hostname, CPU, GPU, memory, network interface, and reachable management URL details under **System settings → System information**. Loopback URLs are omitted from shared URL lists.
 - Check the latest stable GitHub Release at startup and every hour, notify when an update is available, and expose the current version, manual update check, and clickable repository URL under **System settings → About**.
 - On macOS, run as a native AppKit/WKWebView app and optionally remain in the system menu bar.
+
+## Public test reports
+
+- [Model compatibility report](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): documents the supported scope and compatibility boundaries for native MLX, MLX loading GGUF, llama.cpp GGUF, multimodal projection, KV Cache quantization, and speculative decoding.
+- [Performance and accuracy report](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): uses three paired models to compare native MLX, Fast GGUF off, Fast GGUF on, and llama+GGUF, including generation speed, fixed-dataset accuracy, the test environment, and rerun conditions.
+
+Both HTML reports support `AUTO`, Traditional Chinese, and English. Their results are reproducible snapshots for the stated date, hardware, runtime versions, and samples—not a promise that every model or device will behave identically, nor a compatibility, speed, or accuracy guarantee for Fast GGUF.
 
 ## Quick start
 
@@ -52,7 +61,7 @@ TANPOPO_UI=shell ./run.command  # Force foreground shell mode
 TANPOPO_UI=gui ./run.command    # Force the native UI where supported
 ```
 
-The application version uses `1.YY.MMDD build HHmm`, for example `1.26.0829 build 1430`. The root `VERSION` file stores only the `1.YY.MMDD` release version used for GitHub comparisons; build and launch scripts inject `build HHmm` from the build time. Unless `TANPOPO_VERSION` is explicitly set, `pack.command` validates `VERSION` against the current `Asia/Taipei` date so a package cannot silently reuse the previous day's version; set `TANPOPO_VERSION` only when intentionally rebuilding a historical release. Tanpopo checks the latest stable GitHub Release once at startup and then hourly; the same UI session reports each new version only once. **System settings → About** shows the current and latest versions, last check time, a manual check button, and a clickable [GitHub repository URL](https://github.com/VaderChen/Tanpopo). Update checks compare only `1.YY.MMDD`; drafts and prereleases are not treated as the latest version.
+The application version uses `1.YY.MMDD build HHmm`. `run.command`, `run.sh`, `build.command`, and `pack.command` all derive `1.YY.MMDD` directly from the current `Asia/Taipei` date and `build HHmm` from their execution time. They do not read, validate, or modify the root `VERSION`, so running or packaging on a new day requires no manual date edit. Set `TANPOPO_VERSION` only when intentionally rebuilding a historical release, and use `TANPOPO_BUILD` when a fixed build number is required; generated packages record the effective version. The root `VERSION` remains only as version metadata and for compatibility with older workflows. Tanpopo checks the latest stable GitHub Release once at startup and then hourly; the same UI session reports each new version only once. **System settings → About** shows the current and latest versions, last check time, a manual check button, and a clickable [GitHub repository URL](https://github.com/VaderChen/Tanpopo). Update checks compare only `1.YY.MMDD`; drafts and prereleases are not treated as the latest version.
 
 ## Model runtimes
 
@@ -70,9 +79,13 @@ Launch profiles select Q8 or Q4 KV Cache. A separate Advanced settings switch de
 
 `mlx-server` is a native Apple Silicon runtime built with Swift, SwiftNIO, and MLX Swift. It does not invoke Python, pip, or `mlx_lm.server`. It accepts complete MLX directories from `~/services/mlx-models` and supported GGUF files from the regular GGUF directory. Native MLX model types are reported dynamically by the bundled `mlx-swift-lm 3.31.4` registries and include multimodal Gemma 4. The runtime currently reports direct GGUF support for Gemma, Llama, Mimo, MiniCPM, Mistral, Qwen 2, Qwen 3, Qwen 3.5, and SmolLM3; unsupported detected language models stay visible but disabled. A matching `mmproj` may be selected for multimodal Qwen 3.5 GGUF models.
 
-GGUF loading defaults to a group size of 64 and the quality profile; these can be changed with `--gguf-group-size 32|64` and `--gguf-profile quality|speed`. GGUF targets use standard MLX generation. Existing DFlash profiles continue to require an MLX safetensors target and a compatible Draft model.
+**Fast GGUF mode** is the general GGUF optimization entry point for mlx-server and is enabled by default when a GGUF target is selected. It examines tensor types and shapes rather than model filenames: floating-point weights use BF16 compute, Q8 remains INT8, supported low-bit matrices are mapped to INT4, group size prefers 64 with a safe fallback to 32, and recurrent controls retain higher precision. Use `--gguf-group-size auto|32|64` and `--gguf-profile auto|quality|speed` to override it; `quality` maps Q5_K and Q6_K to INT8.
+
+The strategy applies without per-model special cases and helps most GGUF models that mlx-server can parse, but it is not a compatibility, speed, or accuracy guarantee. Architecture contracts, GGUF metadata, tokenizers, tensor layouts, quantization methods, and custom checkpoint changes can all affect the result. Untested models may still fail to load, show no speed gain, or produce quality differences. Disable Fast GGUF for comparison and validate generation quality before deployment. GGUF targets use standard MLX generation; DFlash continues to require an MLX safetensors target and a compatible Draft model.
 
 For mlx-server, enabling KV Cache quantization applies the profile's Q8 or Q4 mode with a group size of 64 and delayed quantization after 2,048 tokens. The profile Context Size becomes the quantized KV Cache limit.
+
+KV Cache, MMap, and DFlash are first-class Tanpopo features rather than undocumented command-line flags. Settings persist model-feature defaults, launch profiles define detailed parameters, and the runtime page can override them for one load. The backend validates incompatible combinations, builds the runtime arguments, persists state, and reports failures to the UI. End-to-end integration does not mean every model supports every feature: cache formats and MMap behavior depend on the runtime, while DFlash requires a compatible Target/Draft pair.
 
 Supported compatibility endpoints include:
 

@@ -21,8 +21,18 @@ public func loadWeights(
     var metadata = [String: String]()
     let enumerator = FileManager.default.enumerator(
         at: modelDirectory, includingPropertiesForKeys: nil)!
-    for case let url as URL in enumerator {
-        if url.pathExtension == "safetensors" {
+    var weightURLs = [URL]()
+    for case let url as URL in enumerator where url.pathExtension == "safetensors" {
+        weightURLs.append(url)
+    }
+    weightURLs.sort { $0.path < $1.path }
+    let fileByteCounts = weightURLs.map { url in
+        Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+    }
+    let totalFileBytes = fileByteCounts.reduce(Int64(0), +)
+    var completedFileBytes: Int64 = 0
+    ModelWeightLoadingContext.progressHandler?(0, 100)
+    for (index, url) in weightURLs.enumerated() {
             let (w, m): ([String: MLXArray], [String: String])
             switch ModelWeightLoadingContext.mode {
             case .eager:
@@ -36,11 +46,19 @@ public func loadWeights(
             if metadata.isEmpty {
                 metadata = m
             }
-        }
+            completedFileBytes += fileByteCounts[index]
+            let fileProgress: Int64
+            if totalFileBytes > 0 {
+                fileProgress = min(55, completedFileBytes * 55 / totalFileBytes)
+            } else {
+                fileProgress = Int64((index + 1) * 55 / max(1, weightURLs.count))
+            }
+            ModelWeightLoadingContext.progressHandler?(fileProgress, 100)
     }
 
     // per-model cleanup (models can inspect metadata to customize behavior)
     weights = model.sanitize(weights: weights, metadata: metadata)
+    ModelWeightLoadingContext.progressHandler?(65, 100)
 
     // quantize if needed
     if quantization != nil || perLayerQuantization != nil {
@@ -56,10 +74,13 @@ public func loadWeights(
             }
         }
     }
+    ModelWeightLoadingContext.progressHandler?(75, 100)
 
     // apply the loaded weights
     let parameters = ModuleParameters.unflattened(weights)
     try model.update(parameters: parameters, verify: [.all])
+    ModelWeightLoadingContext.progressHandler?(90, 100)
 
     eval(model)
+    ModelWeightLoadingContext.progressHandler?(100, 100)
 }

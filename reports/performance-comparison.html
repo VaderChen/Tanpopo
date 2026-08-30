@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tanpopo 在 Apple M4 Pro 上比較原生 MLX、fastGGUF 開關與 llama.cpp GGUF 的速度及精確度。">
+  <title>Tanpopo MLX 與 GGUF 效能及精確度比較</title>
+  <link rel="stylesheet" href="report.css">
+  <script src="report-i18n.js" defer></script>
+</head>
+<body data-report="performance">
+  <header class="site-header">
+    <div class="brand-row">
+      <a class="brand" href="../" aria-label="Tanpopo 公開測試報告首頁">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Tanpopo · Local Model Control</span>
+      </a>
+      <div class="report-tools">
+        <nav class="report-nav" aria-label="報告導覽">
+          <a href="model-compatibility.html">模型相容性</a>
+          <a href="performance-comparison.html" aria-current="page">效能測試</a>
+        </nav>
+        <div class="language-switcher" role="group" aria-label="報告語言">
+          <button type="button" data-report-language="auto">AUTO</button>
+          <button type="button" data-report-language="zh-Hant">繁中</button>
+          <button type="button" data-report-language="en">English</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Performance &amp; accuracy report · 2026.08.30</p>
+        <h1>MLX 與 GGUF<br>速度及精確度</h1>
+        <p class="lede">
+          以 4B、9B、27B 三組配對模型重新比較純 MLX、fastGGUF 關閉、fastGGUF 開啟及
+          llama+GGUF。速度接近純 MLX 並不足夠；本報告也以固定 100 題驗證輸出品質。
+        </p>
+      </div>
+      <aside class="hero-meta" aria-label="測試摘要">
+        <dl>
+          <div><dt>模型</dt><dd>3 組</dd></div>
+          <div><dt>執行模式</dt><dd>4 種</dd></div>
+          <div><dt>速度正式量測</dt><dd>36 次</dd></div>
+          <div><dt>精度正式問答</dt><dd>1,200 次</dd></div>
+        </dl>
+      </aside>
+    </section>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="performance-summary">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Executive summary</p>
+          <h2 id="performance-summary">速度成功，品質尚未達標</h2>
+        </div>
+        <p>跨模型速度使用同模型倍率的幾何平均；精度以每模型相同的 100 題比較。</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <strong class="metric-value">+88.4%</strong>
+          <span class="metric-label">fastGGUF 開啟對關閉</span>
+          <p class="metric-note">三個模型生成速度倍率的幾何平均。</p>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value">103.5%</strong>
+          <span class="metric-label">fastGGUF 達到純 MLX</span>
+          <p class="metric-note">三個樣本分別為 99.7%、101.3%、109.8%。</p>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value failed">0 / 6</strong>
+          <span class="metric-label">fastGGUF 品質閘門</span>
+          <p class="metric-note">開、關各三組，全部未達 llama+GGUF 精度門檻。</p>
+        </article>
+      </div>
+      <div class="callout">
+        <div>
+          <h3>目前 fastGGUF 只能視為效能 POC</h3>
+          <p>
+            開啟後，4B、9B、27B 的中位生成速度都接近或超過純 MLX；但固定題庫中，4B 只有 40%，
+            9B 與 27B 更出現大量無效輸出。關閉 fastGGUF 的 Auto／INT8 路徑同樣沒有恢復品質，
+            因此開關不能被描述成「速度／品質」二選一，正式啟用前仍需要通用的數值保真策略與架構能力門控。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="test-environment">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Test environment</p>
+          <h2 id="test-environment">測試環境</h2>
+        </div>
+        <p>四種模式在同一台主機串行執行；同一時間只啟動一個 mlx-server 或 llama-server。</p>
+      </div>
+      <div class="environment-grid">
+        <article class="environment-card">
+          <h3>硬體</h3>
+          <dl class="facts">
+            <div><dt>主機</dt><dd>Mac mini（Mac16,11）</dd></div>
+            <div><dt>SoC</dt><dd>Apple M4 Pro</dd></div>
+            <div><dt>CPU／GPU</dt><dd>12 核／16 核</dd></div>
+            <div><dt>記憶體</dt><dd>64 GB 統一記憶體</dd></div>
+          </dl>
+        </article>
+        <article class="environment-card">
+          <h3>系統與模型磁碟</h3>
+          <dl class="facts">
+            <div><dt>macOS</dt><dd>26.6.2（25G83）</dd></div>
+            <div><dt>架構／Metal</dt><dd>arm64／Metal 4</dd></div>
+            <div><dt>模型卷宗</dt><dd><span class="mono">extSSD</span></dd></div>
+            <div><dt>儲存</dt><dd>1 TB USB／APFS</dd></div>
+          </dl>
+        </article>
+        <article class="environment-card">
+          <h3>Runtime</h3>
+          <dl class="facts">
+            <div><dt>Tanpopo MLX</dt><dd>1.5.0</dd></div>
+            <div><dt>mlx-swift-lm</dt><dd>3.31.4</dd></div>
+            <div><dt>MLX Swift</dt><dd>0.31.6</dd></div>
+            <div><dt>llama.cpp</dt><dd><span class="mono">4e97ac86</span></dd></div>
+          </dl>
+        </article>
+      </div>
+      <p class="caption" style="margin-top: 18px;">
+        測試前確認沒有其他 mlx-server／llama-server；<code>pmset -g therm</code> 未回報 thermal 或 performance warning。
+        速度異常組合另行重跑，正式吞吐採三次中位數降低偶發背景負載影響。未清除 macOS 系統檔案快取。
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="generic-strategy">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Actual product parameters</p>
+          <h2 id="generic-strategy">fastGGUF 開關實際策略</h2>
+        </div>
+        <p>表內速度與精度是整合 recurrent controls 前的基線；主系統現行 fastGGUF 另將控制投影保留 BF16，整合後數據需重新量測。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>模式</th><th>參數</th><th>主要權重</th><th>定位</th></tr></thead>
+          <tbody>
+            <tr><td><strong>純 MLX</strong></td><td>原生 checkpoint</td><td>Affine 4-bit／group 64</td><td>速度與品質基準</td></tr>
+            <tr><td><strong>fastGGUF 關閉</strong></td><td><code>auto + group 32</code></td><td>Q4 等低位元來源重新量化為 INT8</td><td>較保守，但不是保真模式</td></tr>
+            <tr><td><strong>fastGGUF 開啟</strong></td><td><code>speed + group auto + recurrent controls</code></td><td>低位元矩陣轉為 INT4；控制投影保留 BF16</td><td>實驗性速度／精度折衷</td></tr>
+            <tr><td><strong>llama+GGUF</strong></td><td>原始 GGUF block</td><td>Q4_0／Q4_K_M 原生執行</td><td>相同 GGUF 的品質參考</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption" style="margin-top: 14px;">
+        手動 <code>quality</code> 會走 FP32 參考權重，只用於誤差診斷，不屬於 fastGGUF 開關，也未納入本次速度比較。
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="steady-speed">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Steady-state generation</p>
+          <h2 id="steady-speed">生成速度</h2>
+        </div>
+        <p>每組先暖機一次，再取三次 128-token 回覆的 Runtime 生成速度中位數。</p>
+      </div>
+      <div class="legend" aria-label="圖例">
+        <span><i></i>純 MLX</span>
+        <span><i class="fast-off"></i>fastGGUF 關</span>
+        <span><i class="mlx-gguf"></i>fastGGUF 開</span>
+        <span><i class="llama"></i>llama+GGUF</span>
+      </div>
+      <div class="chart" role="img" aria-label="三個模型在四種模式的生成速度長條圖">
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:73.555;--scale:1.2%;"></div></div><span class="bar-value">73.6 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:40.840;--scale:1.2%;"></div></div><span class="bar-value">40.8 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:73.335;--scale:1.2%;"></div></div><span class="bar-value">73.3 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:52.279;--scale:1.2%;"></div></div><span class="bar-value">52.3 tok/s</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:43.633;--scale:1.2%;"></div></div><span class="bar-value">43.6 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:23.070;--scale:1.2%;"></div></div><span class="bar-value">23.1 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:44.209;--scale:1.2%;"></div></div><span class="bar-value">44.2 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:30.158;--scale:1.2%;"></div></div><span class="bar-value">30.2 tok/s</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:12.158;--scale:1.2%;"></div></div><span class="bar-value">12.2 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:6.874;--scale:1.2%;"></div></div><span class="bar-value">6.9 tok/s</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:13.355;--scale:1.2%;"></div></div><span class="bar-value">13.4 tok/s</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:8.584;--scale:1.2%;"></div></div><span class="bar-value">8.6 tok/s</span></div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 24px;">
+        <table>
+          <thead><tr><th>模型</th><th>模式</th><th class="number">中位 tok/s</th><th class="number">端到端 tok/s</th><th class="number">比較基準 (MLX)</th><th class="number">比較基準 (LLAMA)</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number best">73.555</td><td class="number">67.627</td><td class="number">100.0%</td><td class="number">1.41×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">40.840</td><td class="number">38.821</td><td class="number">55.5%</td><td class="number">0.78×</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">73.335</td><td class="number">67.558</td><td class="number">99.7%</td><td class="number">1.40×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">52.279</td><td class="number">51.354</td><td class="number">71.1%</td><td class="number">1.00×</td></tr>
+            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">43.633</td><td class="number">39.972</td><td class="number">100.0%</td><td class="number">1.45×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">23.070</td><td class="number">21.951</td><td class="number">52.9%</td><td class="number">0.76×</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number best">44.209</td><td class="number">40.586</td><td class="number">101.3%</td><td class="number">1.47×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">30.158</td><td class="number">29.611</td><td class="number">69.1%</td><td class="number">1.00×</td></tr>
+            <tr><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number">12.158</td><td class="number">11.181</td><td class="number">100.0%</td><td class="number">1.42×</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">6.874</td><td class="number">6.510</td><td class="number">56.5%</td><td class="number">0.80×</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number best">13.355</td><td class="number">12.284</td><td class="number">109.8%</td><td class="number">1.56×</td></tr>
+            <tr><td>llama+GGUF</td><td class="number">8.584</td><td class="number">8.427</td><td class="number">70.6%</td><td class="number">1.00×</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption" style="margin-top: 14px;">
+        「中位 tok/s」是 Runtime 回報的三次生成速度中位數；「端到端 tok/s」依請求開始到回覆完成的實際經過時間換算，包含 API、排程與資料處理開銷。
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="accuracy-test">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Fixed-set quality evaluation</p>
+          <h2 id="accuracy-test">精確度與有效答案</h2>
+        </div>
+        <p>MMLU 固定 100 題、seed 0；四種模式使用完全相同題目、prompt、temperature 0 與 seed 42。</p>
+      </div>
+      <div class="chart" role="img" aria-label="三個模型在四種模式的 MMLU 精確度長條圖">
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:68;--scale:1%;"></div></div><span class="bar-value">68%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:39;--scale:1%;"></div></div><span class="bar-value">39%</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:40;--scale:1%;"></div></div><span class="bar-value">40%</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:72;--scale:1%;"></div></div><span class="bar-value">72%</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:78;--scale:1%;"></div></div><span class="bar-value">78%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:44;--scale:1%;"></div></div><span class="bar-value">44%</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:78;--scale:1%;"></div></div><span class="bar-value">78%</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>純 MLX</span><div class="bar-track"><div class="bar" style="--value:89;--scale:1%;"></div></div><span class="bar-value">89%</span></div>
+          <div class="bar-row"><span>fastGGUF 關</span><div class="bar-track"><div class="bar fast-off" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
+          <div class="bar-row"><span>fastGGUF 開</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:0;--scale:1%;"></div></div><span class="bar-value failed">0%</span></div>
+          <div class="bar-row"><span>llama+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:87;--scale:1%;"></div></div><span class="bar-value">87%</span></div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 24px;">
+        <table>
+          <thead><tr><th>模型</th><th class="number">純 MLX</th><th class="number">fast 關</th><th class="number">fast 開</th><th class="number">llama</th><th class="number">無效（關／開）</th><th>品質閘門</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Qwen 3.5 4B</strong></td><td class="number">68%</td><td class="number">39%</td><td class="number">40%</td><td class="number best">72%</td><td class="number">18／28</td><td><span class="status unsupported">兩者失敗</span></td></tr>
+            <tr><td><strong>Ornith 1.5 9B</strong></td><td class="number best">78%</td><td class="number">44%</td><td class="number failed">0%</td><td class="number best">78%</td><td class="number">21／100</td><td><span class="status unsupported">兩者失敗</span></td></tr>
+            <tr><td><strong>Qwen 3.8 27B</strong></td><td class="number best">89%</td><td class="number failed">0%</td><td class="number failed">0%</td><td class="number">87%</td><td class="number">100／100</td><td><span class="status unsupported">兩者失敗</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <div>
+          <h3>品質閘門定義</h3>
+          <p>
+            fastGGUF 精度不得比同一 GGUF 的 llama 參考低超過 2 個百分點，無效答案不得多超過 1 題。
+            逐題一致率只作診斷，不直接當門檻。本輪 6 個 fastGGUF 組合全部失敗；27B 抽查可見連續標點輸出，
+            證實無效答案不是評分器漏抓 A–D。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="load-memory">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Loading &amp; memory</p>
+          <h2 id="load-memory">載入時間與程序峰值 RSS</h2>
+        </div>
+        <p>載入從建立程序到 <code>/v1/models</code> 可用；RSS 每 200 ms 取樣，不能視為統一記憶體硬上限。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>模型</th><th>模式</th><th class="number">載入秒數</th><th class="number">峰值 RSS</th><th>觀察</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="4"><strong>Qwen 3.5 4B</strong></td><td>純 MLX</td><td class="number">1.607 s</td><td class="number best">2.433 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">51.292 s</td><td class="number">3.664 GiB</td><td>INT8 轉換</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">51.077 s</td><td class="number">3.701 GiB</td><td>INT4 轉換</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">0.803 s</td><td class="number">3.096 GiB</td><td>原生 GGUF block</td></tr>
+            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>純 MLX</td><td class="number">14.246 s</td><td class="number best">4.898 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">67.126 s</td><td class="number">7.814 GiB</td><td>本模型最高 RSS</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">51.881 s</td><td class="number">7.418 GiB</td><td>較快轉換</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">1.101 s</td><td class="number">5.935 GiB</td><td>直接載入</td></tr>
+            <tr><td rowspan="4"><strong>Qwen 3.8 27B</strong></td><td>純 MLX</td><td class="number">42.207 s</td><td class="number best">14.293 GiB</td><td>原生 checkpoint</td></tr>
+            <tr><td>fastGGUF 關</td><td class="number">130.331 s</td><td class="number">17.586 GiB</td><td>最慢轉換</td></tr>
+            <tr><td>fastGGUF 開</td><td class="number">107.594 s</td><td class="number">17.603 GiB</td><td>RSS 未顯著下降</td></tr>
+            <tr><td>llama+GGUF</td><td class="number best">16.445 s</td><td class="number">16.604 GiB</td><td>直接載入</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption" style="margin-top: 14px;">
+        MLX+GGUF 必須解碼並重新量化 K-quant，且目前沒有跨程序的永久轉換快取；MMap 也不會消除已轉換 MLX 權重的常駐成本。
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="poc-note">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Experimental follow-up</p>
+          <h2 id="poc-note">Recurrent controls POC</h2>
+        </div>
+        <p>已整合為 fastGGUF 的實驗策略，預設仍關閉。</p>
+      </div>
+      <div class="callout">
+        <div>
+          <h3>只提升 alpha／beta 控制投影可改善 4B，但仍未過門檻</h3>
+          <p>
+            先前以 Qwen 3.5 4B 將 Gated Delta／SSM 的 alpha、beta 投影升為 BF16，固定 100 題由 fastGGUF
+            基線 41% 提升到 59%，無效答案由 29 降至 3，生成維持約 73.6 tok/s；但仍比 llama 參考 72% 低 13 點。
+            此改善不足以讓 fastGGUF 預設開啟，因此只在使用者明確啟用時，以 tensor 語意角色通用套用；後續仍需擴充誤差敏感度與架構合約。
+          </p>
+        </div>
+      </div>
+      <p class="small-note">
+        POC 彙總：<a href="fastgguf-poc-results.csv">fastgguf-poc-results.csv</a>；主系統參數為
+        <code>--gguf-recurrent-promotion controls</code>。
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="methodology">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Methodology</p>
+          <h2 id="methodology">測試方法與限制</h2>
+        </div>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>速度</h3>
+          <ul class="method-list">
+            <li>OpenAI 相容 <code>/v1/chat/completions</code></li>
+            <li>46 prompt tokens、128 completion tokens</li>
+            <li>Temperature 0、Top-K 1、thinking 關閉</li>
+            <li>暖機 1 次；正式 3 次採中位 tok/s</li>
+          </ul>
+        </article>
+        <article class="feature-card">
+          <h3>精度</h3>
+          <ul class="method-list">
+            <li>OpenAI Simple Evals MMLU CSV</li>
+            <li>固定 100 題、seed 0</li>
+            <li>每個模型與模式使用完全相同題目</li>
+            <li>只接受獨立 A、B、C、D；其餘為無效</li>
+          </ul>
+        </article>
+        <article class="feature-card">
+          <h3>共同 Runtime</h3>
+          <ul class="method-list">
+            <li>兩個 Runtime 均使用 Release build</li>
+            <li>MLX+GGUF 明確傳入 <code>--mmap</code>；純 MLX 未傳入</li>
+            <li>KV cache 上限 4096 tokens</li>
+            <li>未啟用 DFlash 與 KV Cache 量化</li>
+            <li>llama：Metal 全層、Flash Attention、8 threads</li>
+          </ul>
+        </article>
+        <article class="feature-card">
+          <h3>解讀限制</h3>
+          <ul class="method-list">
+            <li>三個模型是通用策略的抽樣證據，不是支援白名單</li>
+            <li>載入時間未清除系統檔案快取</li>
+            <li>程序 RSS 不等於系統統一記憶體總量</li>
+            <li>Runtime 或 Metal 更新後應重新測試</li>
+          </ul>
+        </article>
+      </div>
+      <p class="small-note" style="margin-top: 20px;">
+        速度彙總：<a href="benchmark-results.csv">benchmark-results.csv</a> ·
+        精度彙總：<a href="accuracy-summary.csv">accuracy-summary.csv</a> ·
+        重現腳本：<a href="run-benchmark.sh">run-benchmark.sh</a>、
+        <a href="run-accuracy-benchmark.sh">run-accuracy-benchmark.sh</a>
+      </p>
+    </section>
+
+    <section class="panel" aria-labelledby="recommendation">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Recommendation</p>
+          <h2 id="recommendation">目前建議</h2>
+        </div>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>正式使用優先純 MLX</h3>
+          <p>若有可信原生 MLX checkpoint，這仍是本輪速度、載入、RSS 與精度最完整的路徑。</p>
+        </article>
+        <article class="feature-card">
+          <h3>GGUF 先回退 llama</h3>
+          <p>llama+GGUF 在三模型都維持有效答案與合理精度，且不需支付 MLX 重新量化的載入成本。</p>
+        </article>
+        <article class="feature-card">
+          <h3>fastGGUF 保持實驗旗標</h3>
+          <p>速度目標已達成，但不可只因模型能載入就開放；至少應通過模型級 smoke quality gate 才能啟用。</p>
+        </article>
+        <article class="feature-card">
+          <h3>下一步是數值合約</h3>
+          <p>建立逐層漂移、logit 一致性、敏感 tensor 提升與自動回退，讓策略依 tensor／架構能力決定，而非模型名稱。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Tanpopo performance &amp; accuracy report · Apple M4 Pro · 2026-08-30</p>
+    <p><a href="model-compatibility.html">← 閱讀模型相容性</a></p>
+  </footer>
+</body>
+</html>

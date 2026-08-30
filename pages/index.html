@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tanpopo 模型相容性、Fast GGUF 效能與精確度公開測試報告。">
+  <title>Tanpopo 公開測試報告</title>
+  <link rel="stylesheet" href="reports/report.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand-row">
+      <a class="brand" href="https://github.com/VaderChen/Tanpopo" aria-label="Tanpopo GitHub 專案">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Tanpopo · Local Model Control</span>
+      </a>
+      <nav class="report-nav" aria-label="報告導覽">
+        <a href="reports/model-compatibility.html">模型相容性</a>
+        <a href="reports/performance-comparison.html">效能與精確度</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Public technical reports</p>
+        <h1>Tanpopo<br>公開測試報告</h1>
+        <p class="lede">
+          公開 Tanpopo 對原生 MLX、MLX + GGUF 與 llama.cpp + GGUF 的相容性、生成速度及精確度測試。
+          報告提供 AUTO、繁體中文與英文顯示。
+        </p>
+      </div>
+      <aside class="hero-meta" aria-label="網站摘要">
+        <dl>
+          <div><dt>Reports</dt><dd>2</dd></div>
+          <div><dt>Languages</dt><dd>AUTO／繁中／EN</dd></div>
+          <div><dt>Focus</dt><dd>Fast GGUF</dd></div>
+          <div><dt>Project</dt><dd><a href="https://github.com/VaderChen/Tanpopo">GitHub</a></dd></div>
+        </dl>
+      </aside>
+    </section>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="reports-title">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Reports</p>
+          <h2 id="reports-title">選擇報告</h2>
+        </div>
+        <p>測試數據皆附上日期、硬體、Runtime 版本、方法與限制。</p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card">
+          <span class="status supported">Compatibility</span>
+          <h3>模型相容性報告</h3>
+          <p>整理 MLX、GGUF、多模態投影、KV Cache、MMap 與 DFlash 的支援範圍及相容性邊界。</p>
+          <p><a href="reports/model-compatibility.html">閱讀模型相容性報告 →</a></p>
+        </article>
+        <article class="feature-card">
+          <span class="status reference">Performance &amp; accuracy</span>
+          <h3>效能與精確度報告</h3>
+          <p>以三組模型比較原生 MLX、Fast GGUF 開／關及 llama+GGUF，並同時檢查速度與輸出品質。</p>
+          <p><a href="reports/performance-comparison.html">閱讀效能與精確度報告 →</a></p>
+        </article>
+      </div>
+
+      <div class="callout">
+        <div>
+          <h3>Fast GGUF 對多數可解析的 GGUF 有幫助，但不作保證</h3>
+          <p>
+            模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂 checkpoint 都可能影響結果。
+            報告是特定測試環境下的可重現快照，不代表所有模型或裝置都能得到相同的相容性、速度或精確度。
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Tanpopo · Local model control for GGUF and MLX</p>
+    <p><a href="https://github.com/VaderChen/Tanpopo">Source and releases on GitHub</a></p>
+  </footer>
+</body>
+</html>

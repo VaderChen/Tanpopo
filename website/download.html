@@ -6,9 +6,9 @@
   <title>模型下載 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-33">
-  <script src="/assets/common.js?v=20260829-47" defer></script>
-  <script src="/assets/download.js?v=20260829-9" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260831-49">
+  <script src="/assets/common.js?v=20260831-67" defer></script>
+  <script src="/assets/download.js?v=20260831-18" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -39,7 +39,26 @@
         </div>
         <p class="section-note">使用官方 repository / resolve / revision / filename 下載方式</p>
       </div>
-      <div class="download-grid">
+      <div class="download-workspace">
+        <nav class="panel download-sidebar" role="tablist" aria-label="模型下載分類">
+          <button id="downloadCenterTab" class="settings-sidebar-item active" type="button"
+            role="tab" aria-selected="true" aria-controls="downloadCenterPane"
+            data-download-target="downloadCenterPane">
+            <strong>下載中心</strong>
+            <span>新增模型與查看下載進度</span>
+          </button>
+          <button id="downloadedModelsTab" class="settings-sidebar-item" type="button"
+            role="tab" aria-selected="false" aria-controls="downloadedModelsPane"
+            data-download-target="downloadedModelsPane">
+            <strong>已下載模型</strong>
+            <span>依 MLX、GGUF 格式瀏覽</span>
+          </button>
+        </nav>
+
+        <div class="download-content">
+          <section id="downloadCenterPane" class="download-pane" role="tabpanel"
+            aria-labelledby="downloadCenterTab" tabindex="0">
+            <div class="download-grid">
         <form id="downloadForm" class="panel form-panel">
           <div class="field">
             <label for="downloadRuntime">模型格式</label>
@@ -107,6 +126,27 @@
             <p class="empty-state">目前沒有下載工作。</p>
           </div>
         </article>
+            </div>
+          </section>
+
+          <section id="downloadedModelsPane" class="download-pane" role="tabpanel"
+            aria-labelledby="downloadedModelsTab" tabindex="0" hidden>
+            <article class="panel downloaded-models-panel">
+              <div class="panel-title-row downloaded-models-heading">
+                <div>
+                  <p class="section-kicker">LOCAL MODELS</p>
+                  <h3>已下載模型</h3>
+                  <p class="muted">列出目前模型目錄中可辨識的 MLX 與 GGUF 模型。</p>
+                </div>
+                <button id="refreshDownloadedModelsButton" class="button secondary compact"
+                  type="button">重新整理</button>
+              </div>
+              <div id="downloadedModels" class="downloaded-model-groups" aria-live="polite">
+                <p class="empty-state">模型清單讀取中…</p>
+              </div>
+            </article>
+          </section>
+        </div>
       </div>
     </section>
   </main>

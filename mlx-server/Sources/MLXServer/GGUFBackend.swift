@@ -24,9 +24,11 @@ public enum GGUFMaterializationKind: String, Codable, Hashable, Sendable {
     case requantized8
 }
 
-/// GGUF 重新量化的品質／速度取捨。`.quality` 維持來源型別較高的精度；
-/// `.speed` 將 Q5_K／Q6_K 改以 INT4 儲存，以降低 decode 時的記憶體頻寬。
+/// GGUF 重新量化的通用策略。`.automatic` 以 INT8 處理低位元來源，
+/// 作為 fastGGUF 關閉時的穩健預設；`.quality` 將可解碼權重展開為 FP32，
+/// 僅供精度診斷；`.speed` 採用 INT4 與自動 group 大小的效能策略。
 public enum GGUFQuantizationProfile: String, Codable, Hashable, Sendable {
+    case automatic = "auto"
     case quality
     case speed
 }
@@ -220,7 +222,7 @@ public enum GGUFStoragePolicy {
     ]
 
     public static func support(for sourceType: String) -> GGUFTypeSupport? {
-        support(for: sourceType, profile: .quality)
+        support(for: sourceType, profile: .automatic)
     }
 
     public static func support(
@@ -229,7 +231,26 @@ public enum GGUFStoragePolicy {
     ) -> GGUFTypeSupport? {
         let normalized = sourceType.uppercased()
         guard let support = supportByType[normalized] else { return nil }
-        guard profile == .speed else { return support }
+        if profile == .automatic {
+            // 保守模式不直接沿用 Q4 block 的執行布局，而是把低位元來源
+            // 統一重新量化為 INT8。這能降低二次量化誤差，也避免把「來源
+            // 格式可解析」誤當成「來源 block 可直接作為 MLX 執行布局」。
+            switch normalized {
+            case "Q4_0", "Q4_1", "Q1_0", "Q2_0", "Q2_K", "Q3_K", "Q4_K",
+                 "IQ4_NL", "IQ3_S", "IQ4_XS":
+                return GGUFTypeSupport(
+                    storageType: .int8,
+                    materialization: .requantized8,
+                    preservesSourceQuantization: false,
+                    requiresConversion: true
+                )
+            default:
+                return support
+            }
+        }
+        if profile == .quality {
+            return support
+        }
         switch normalized {
         case "Q5_K", "Q6_K":
             return GGUFTypeSupport(
@@ -263,7 +284,7 @@ public enum GGUFStoragePolicy {
     }
 
     public static func targetStorageType(for sourceType: String) -> GGUFStorageType? {
-        targetStorageType(for: sourceType, profile: .quality)
+        targetStorageType(for: sourceType, profile: .automatic)
     }
 
     public static func targetStorageType(

@@ -18,8 +18,35 @@ func computeGatedDeltaG(_ aLog: MLXArray, _ a: MLXArray, _ dtBias: MLXArray) -> 
 
 // MARK: - Metal Kernel
 
-private func makeGatedDeltaKernel(hasMask: Bool) -> MLXFast.MLXFastKernel? {
+private func makeGatedDeltaKernel(
+    hasMask: Bool,
+    compensated: Bool = false
+) -> MLXFast.MLXFastKernel? {
     let maskSource = hasMask ? "mask[b_idx * T + t]" : "true"
+    let accumulationSource = compensated
+        ? """
+                  {
+                    #pragma clang fp reassociate(off)
+                    #pragma clang fp contract(off)
+                    float kv_compensation = 0.0f;
+                    for (int i = 0; i < n_per_t; ++i) {
+                      auto s_idx = n_per_t * dk_idx + i;
+                      state[i] = state[i] * g_[hv_idx];
+                      auto product = state[i] * k_[s_idx];
+                      auto corrected = product - kv_compensation;
+                      auto next_sum = kv_mem + corrected;
+                      kv_compensation = (next_sum - kv_mem) - corrected;
+                      kv_mem = next_sum;
+                    }
+                  }
+          """
+        : """
+                  for (int i = 0; i < n_per_t; ++i) {
+                    auto s_idx = n_per_t * dk_idx + i;
+                    state[i] = state[i] * g_[hv_idx];
+                    kv_mem += state[i] * k_[s_idx];
+                  }
+          """
 
     let source = """
             auto n = thread_position_in_grid.z;
@@ -56,11 +83,7 @@ private func makeGatedDeltaKernel(hasMask: Bool) -> MLXFast.MLXFastKernel? {
             for (int t = 0; t < T; ++t) {
               if (\(maskSource)) {
                 float kv_mem = 0.0f;
-                for (int i = 0; i < n_per_t; ++i) {
-                  auto s_idx = n_per_t * dk_idx + i;
-                  state[i] = state[i] * g_[hv_idx];
-                  kv_mem += state[i] * k_[s_idx];
-                }
+                \(accumulationSource)
                 kv_mem = simd_sum(kv_mem);
 
                 auto delta = (v_[dv_idx] - kv_mem) * beta_[hv_idx];
@@ -97,7 +120,7 @@ private func makeGatedDeltaKernel(hasMask: Bool) -> MLXFast.MLXFastKernel? {
         inputNames.append("mask")
     }
 
-    let suffix = hasMask ? "_mask" : ""
+    let suffix = (compensated ? "_compensated" : "") + (hasMask ? "_mask" : "")
 
     return MLXFast.metalKernel(
         name: "gated_delta_step\(suffix)",
@@ -112,10 +135,14 @@ private final class GatedDeltaKernelManager: Sendable {
 
     let kernel: MLXFast.MLXFastKernel?
     let kernelMasked: MLXFast.MLXFastKernel?
+    let compensatedKernel: MLXFast.MLXFastKernel?
+    let compensatedKernelMasked: MLXFast.MLXFastKernel?
 
     private init() {
         kernel = makeGatedDeltaKernel(hasMask: false)
         kernelMasked = makeGatedDeltaKernel(hasMask: true)
+        compensatedKernel = makeGatedDeltaKernel(hasMask: false, compensated: true)
+        compensatedKernelMasked = makeGatedDeltaKernel(hasMask: true, compensated: true)
     }
 }
 
@@ -128,7 +155,8 @@ func gatedDeltaKernel(
     g: MLXArray,
     beta: MLXArray,
     state: MLXArray,
-    mask: MLXArray? = nil
+    mask: MLXArray? = nil,
+    compensated: Bool = false
 ) -> (MLXArray, MLXArray) {
     let B = k.dim(0)
     let T = k.dim(1)
@@ -142,10 +170,14 @@ func gatedDeltaKernel(
     let selectedKernel: MLXFast.MLXFastKernel?
     var inputs: [MLXArray] = [q, k, v, g, beta, state, MLXArray(T)]
     if let mask {
-        selectedKernel = GatedDeltaKernelManager.shared.kernelMasked
+        selectedKernel = compensated
+            ? GatedDeltaKernelManager.shared.compensatedKernelMasked
+            : GatedDeltaKernelManager.shared.kernelMasked
         inputs.append(mask)
     } else {
-        selectedKernel = GatedDeltaKernelManager.shared.kernel
+        selectedKernel = compensated
+            ? GatedDeltaKernelManager.shared.compensatedKernel
+            : GatedDeltaKernelManager.shared.kernel
     }
 
     guard let kernel = selectedKernel else {
@@ -272,6 +304,11 @@ func gatedDeltaOps(
 
 // MARK: - Public API
 
+/// 實驗性精度 POC。預設保留原 fused kernel；只有測試程序明確設定環境變數時，
+/// 才改用補償加總版本，避免把已量測到的吞吐量成本帶進一般與 fastGGUF 路徑。
+private let gatedDeltaCompensatedPOC =
+    ProcessInfo.processInfo.environment["TANPOPO_GATED_DELTA_COMPENSATED"] == "1"
+
 public func gatedDeltaUpdate(
     q: MLXArray,
     k: MLXArray,
@@ -298,8 +335,22 @@ public func gatedDeltaUpdate(
         state = state.asType(.float32)
     }
 
-    if GatedDeltaKernelManager.shared.kernel != nil {
-        return gatedDeltaKernel(q: q, k: k, v: v, g: g, beta: beta, state: state, mask: mask)
+    // The fused kernel distributes Dk over exactly 32 SIMD lanes. An arbitrary
+    // config value that is not divisible by 32 would otherwise drop the tail.
+    let selectedKernelAvailable = gatedDeltaCompensatedPOC
+        ? GatedDeltaKernelManager.shared.compensatedKernel != nil
+        : GatedDeltaKernelManager.shared.kernel != nil
+    if selectedKernelAvailable, Dk % 32 == 0 {
+        return gatedDeltaKernel(
+            q: q,
+            k: k,
+            v: v,
+            g: g,
+            beta: beta,
+            state: state,
+            mask: mask,
+            compensated: gatedDeltaCompensatedPOC
+        )
     }
 
     return gatedDeltaOps(q: q, k: k, v: v, g: g, beta: beta, state: state, mask: mask)

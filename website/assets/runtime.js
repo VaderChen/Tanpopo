@@ -16,6 +16,7 @@
     testing: false,
     modelLoadingDismissed: false
   };
+  let modelConversionResolver = null;
 
   function selectedCommand() {
     return state.commands.find((command) => command.id === byId("commandSelect").value) || null;
@@ -27,6 +28,27 @@
 
   function isMLXGGUFModel(model) {
     return model?.format === "gguf" || String(model?.path || "").startsWith("gguf:");
+  }
+
+  function applyModelFeatureDefaults() {
+    const model = selectedModel();
+    const isMLX = selectedRuntime() === MLX_RUNTIME;
+    const isGGUF = isMLXGGUFModel(model);
+    const kvEnabled = Boolean(model && state.settings?.default_kv_cache_quantization_enabled);
+    byId("fastGGUFToggle").checked = Boolean(
+      model && isMLX && isGGUF && state.settings?.default_fast_gguf_enabled !== false
+    );
+    byId("mmapToggle").checked = Boolean(model && state.settings?.default_mmap_enabled);
+    byId("kvCacheQuantizationToggle").checked = kvEnabled;
+    byId("dflashToggle").checked = Boolean(
+      model
+        && isMLX
+        && !isGGUF
+        && !kvEnabled
+        && state.settings?.default_dflash_enabled
+        && model.dflash_supported
+        && matchedDraftModel()
+    );
   }
 
   function updateRuntimeSpecificFields() {
@@ -272,6 +294,9 @@
     byId("modelFieldLabel").textContent = isMLX
       ? "選擇 mlx-server 的 MLX 或 GGUF 模型"
       : "選擇 llama-server 支援的 GGUF 模型";
+    if (!preserveSelection && !state.runtime?.running) {
+      applyModelFeatureDefaults();
+    }
     updateRuntimeSpecificFields();
     renderModelMeta();
     renderMMProjMeta();
@@ -394,6 +419,35 @@
       : "模型支援 DFlash，但尚未找到配對的 Draft。");
   }
 
+  function renderFastGGUFControl(status) {
+    const toggle = byId("fastGGUFToggle");
+    const meta = byId("fastGGUFMeta");
+    const description = t("以 INT4、自動 Group 與 recurrent 控制投影 BF16 提高 MLX + GGUF 生成速度；屬實驗模式，可能明顯影響精度。");
+    const describe = (statusText) => `${description} ${t(statusText)}`;
+    const running = Boolean(status?.running);
+    if (running) {
+      toggle.checked = Boolean(status.fast_gguf);
+      toggle.disabled = true;
+      meta.textContent = describe(status.fast_gguf
+        ? "本次啟動已使用快速GGUF模式。"
+        : "本次啟動未使用快速GGUF模式。");
+      return;
+    }
+
+    const available = selectedRuntime() === MLX_RUNTIME && isMLXGGUFModel(selectedModel());
+    if (!available) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("僅適用於 mlx-server 載入 GGUF。");
+      return;
+    }
+
+    toggle.disabled = false;
+    meta.textContent = describe(toggle.checked
+      ? "已開啟；採用 INT4、自動 Group，並將 recurrent 控制投影保留為 BF16。"
+      : "預設採用較保守的 INT8 與 Group 32。");
+  }
+
   function renderMMapControl(status) {
     const toggle = byId("mmapToggle");
     const meta = byId("mmapMeta");
@@ -491,7 +545,7 @@
     const loading = running && !ready;
     const failed = !running && Boolean(status.last_error);
     if (loading) {
-      showModelLoadingDialog();
+      showModelLoadingDialog(status);
     } else {
       closeModelLoadingDialog();
     }
@@ -544,9 +598,14 @@
       if (state.mmprojModels.some((model) => model.path === status.mmproj)) {
         byId("mmprojSelect").value = status.mmproj;
       }
-      byId("dflashToggle").checked = Boolean(status.dflash_enabled);
-      byId("mmapToggle").checked = Boolean(status.mmap_enabled);
-      byId("kvCacheQuantizationToggle").checked = Boolean(status.kv_cache_quantization);
+      if (running) {
+        byId("dflashToggle").checked = Boolean(status.dflash_enabled);
+        byId("mmapToggle").checked = Boolean(status.mmap_enabled);
+        byId("fastGGUFToggle").checked = Boolean(status.fast_gguf);
+        byId("kvCacheQuantizationToggle").checked = Boolean(status.kv_cache_quantization);
+      } else if (!state.selectionTouched) {
+        applyModelFeatureDefaults();
+      }
       renderModelMeta();
       renderMMProjMeta();
     }
@@ -565,6 +624,7 @@
     byId("testRuntimeButton").disabled = !running || state.testing;
     byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
     renderDFlashControl(status);
+    renderFastGGUFControl(status);
     renderMMapControl(status);
     renderKVCacheQuantizationControl(status);
   }
@@ -612,11 +672,81 @@
     return wait(1200);
   }
 
-  function showModelLoadingDialog() {
+  function showModelLoadingDialog(status = state.runtime) {
     if (state.modelLoadingDismissed) return;
     const dialog = byId("modelLoadingDialog");
     const otherDialog = document.querySelector("dialog[open]");
     if (otherDialog && otherDialog !== dialog) return;
+    const preparation = String(status?.model_preparation || "loading");
+    const modelName = displayModelName(status?.model || selectedModel()?.path) || "—";
+    const content = {
+      checking_cache: [
+        "正在檢查轉換快取",
+        "正在確認此模型是否已有可重用的轉換權重。"
+      ],
+      converting: [
+        "正在轉換模型",
+        "此模型需要轉換並建立永久快取；完成前請勿關閉程式。"
+      ],
+      saving_cache: [
+        "正在建立轉換快取",
+        "模型已完成轉換，正在寫入永久快取；後續載入可直接重用。"
+      ],
+      loading_cache: [
+        "正在載入轉換快取",
+        "已找到轉換完成的永久快取，本次不需要重新轉換。"
+      ],
+      direct_loading: [
+        "正在直接載入模型",
+        "本次不建立永久快取；正在從 GGUF 即時準備 MLX 執行所需的權重。"
+      ],
+      loading: [
+        "正在載入模型",
+        "部分模型可能需要轉換，請耐心等候。"
+      ]
+    }[preparation] || [
+      "正在載入模型",
+      "部分模型可能需要轉換，請耐心等候。"
+    ];
+    byId("modelLoadingDialogTitle").textContent = t(content[0]);
+    byId("modelLoadingDialogModel").textContent = `${t("模型")}：${modelName}`;
+    byId("modelLoadingDialogDescription").textContent = t(content[1]);
+    const completedBytes = Number(status?.model_preparation_completed_bytes || 0);
+    const totalBytes = Number(status?.model_preparation_total_bytes || 0);
+    const byteProgress = Number.isFinite(completedBytes)
+      && Number.isFinite(totalBytes)
+      && completedBytes >= 0
+      && totalBytes > 0;
+    const reportedPercent = Number(status?.model_preparation_progress_percent || 0);
+    const reportedDeterminate = Boolean(status?.model_preparation_progress_determinate)
+      && Number.isFinite(reportedPercent);
+    const determinate = byteProgress || reportedDeterminate;
+    const progressBar = byId("modelLoadingProgressBar");
+    const progressTrack = byId("modelLoadingProgressTrack");
+    const progressStage = byId("modelLoadingProgressStage");
+    const progressPercent = byId("modelLoadingProgressPercent");
+    progressBar.classList.toggle("indeterminate", !determinate);
+    if (determinate) {
+      const boundedCompleted = byteProgress ? Math.min(completedBytes, totalBytes) : 0;
+      const percent = Math.min(100, Math.max(0, reportedDeterminate
+        ? reportedPercent
+        : boundedCompleted / totalBytes * 100));
+      progressBar.style.width = `${percent}%`;
+      progressStage.textContent = byteProgress
+        ? `${formatBytes(boundedCompleted)} / ${formatBytes(totalBytes)}`
+        : t("模型組裝進度");
+      progressPercent.textContent = `${Math.floor(percent)}%`;
+      progressTrack.setAttribute("aria-valuemin", "0");
+      progressTrack.setAttribute("aria-valuemax", "100");
+      progressTrack.setAttribute("aria-valuenow", String(Math.floor(percent)));
+    } else {
+      progressBar.style.width = "";
+      progressStage.textContent = t("準備中…");
+      progressPercent.textContent = "—";
+      progressTrack.removeAttribute("aria-valuemin");
+      progressTrack.removeAttribute("aria-valuemax");
+      progressTrack.removeAttribute("aria-valuenow");
+    }
     if (!dialog.open) dialog.showModal();
   }
 
@@ -624,6 +754,28 @@
     if (dismiss) state.modelLoadingDismissed = true;
     const dialog = byId("modelLoadingDialog");
     if (dialog.open) dialog.close();
+  }
+
+  function requestModelConversionConfirmation(inspection) {
+    const dialog = byId("modelConversionConfirmDialog");
+    const modelName = displayModelName(inspection?.model || selectedModel()?.path) || "—";
+    byId("modelConversionConfirmModel").textContent = modelName;
+    byId("modelConversionConfirmSize").textContent = `${t("約")} ${formatBytes(
+      Number(inspection?.estimated_cache_bytes || 0)
+    )}`;
+    if (modelConversionResolver) modelConversionResolver(null);
+    return new Promise((resolve) => {
+      modelConversionResolver = resolve;
+      if (!dialog.open) dialog.showModal();
+    });
+  }
+
+  function settleModelConversionConfirmation(choice) {
+    const dialog = byId("modelConversionConfirmDialog");
+    if (dialog.open) dialog.close();
+    const resolve = modelConversionResolver;
+    modelConversionResolver = null;
+    if (resolve) resolve(choice);
   }
 
   async function closeRefreshDialog(minimumVisibleTime) {
@@ -735,16 +887,48 @@
     const runtimeName = selectedRuntime();
     const dflashEnabled = byId("dflashToggle").checked;
     const mmapEnabled = byId("mmapToggle").checked;
+    const fastGGUFEnabled = byId("fastGGUFToggle").checked;
     const kvCacheQuantizationEnabled = byId("kvCacheQuantizationToggle").checked;
     const draftModel = dflashEnabled ? matchedDraftModel() : null;
     if (dflashEnabled && !draftModel) {
       promptDraftDownload();
       return;
     }
-    state.modelLoadingDismissed = false;
-    showModelLoadingDialog();
     button.disabled = true;
     try {
+      let conversionConfirmationKey = "";
+      let skipGGUFConversionCache = false;
+      let initialPreparation = "loading";
+      if (runtimeName === MLX_RUNTIME && isMLXGGUFModel(selectedModel())) {
+        const inspection = await api("/api/runtime/conversion-preflight", {
+          method: "POST",
+          body: JSON.stringify({
+            model: byId("modelSelect").value,
+            mmproj: "",
+            fast_gguf_enabled: fastGGUFEnabled,
+            startup_command_id: byId("commandSelect").value
+          })
+        });
+        if (inspection.requires_conversion) {
+          const conversionChoice = await requestModelConversionConfirmation(inspection);
+          if (!conversionChoice) return;
+          skipGGUFConversionCache = conversionChoice === "direct";
+          if (!skipGGUFConversionCache) {
+            conversionConfirmationKey = String(inspection.cache_key || "");
+          }
+          initialPreparation = skipGGUFConversionCache ? "direct_loading" : "converting";
+        } else if (inspection.cache_hit) {
+          initialPreparation = "loading_cache";
+        } else {
+          initialPreparation = "checking_cache";
+        }
+      }
+      state.modelLoadingDismissed = false;
+      showModelLoadingDialog({
+        runtime: runtimeName,
+        model: byId("modelSelect").value,
+        model_preparation: initialPreparation
+      });
       await api("/api/runtime/start", {
         method: "POST",
         body: JSON.stringify({
@@ -753,7 +937,10 @@
           draft_model: draftModel?.path || "",
           dflash_enabled: dflashEnabled,
           mmap_enabled: mmapEnabled,
+          fast_gguf_enabled: fastGGUFEnabled,
           kv_cache_quantization_enabled: kvCacheQuantizationEnabled,
+          skip_gguf_conversion_cache: skipGGUFConversionCache,
+          conversion_confirmation_key: conversionConfirmationKey,
           startup_command_id: byId("commandSelect").value
         })
       });
@@ -802,6 +989,20 @@
   const closeRuntimeTestDialog = () => byId("runtimeTestDialog").close();
   byId("closeRuntimeTestButton").addEventListener("click", closeRuntimeTestDialog);
   byId("closeRuntimeTestIcon").addEventListener("click", closeRuntimeTestDialog);
+
+  byId("cancelModelConversionButton").addEventListener("click", () => {
+    settleModelConversionConfirmation(null);
+  });
+  byId("skipModelConversionCacheButton").addEventListener("click", () => {
+    settleModelConversionConfirmation("direct");
+  });
+  byId("confirmModelConversionButton").addEventListener("click", () => {
+    settleModelConversionConfirmation("cache");
+  });
+  byId("modelConversionConfirmDialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    settleModelConversionConfirmation(null);
+  });
 
   byId("closeModelLoadingDialog").addEventListener("click", () => {
     closeModelLoadingDialog(true);
@@ -875,9 +1076,8 @@
   });
   byId("modelSelect").addEventListener("change", () => {
     state.selectionTouched = true;
-    byId("dflashToggle").checked = false;
-    byId("kvCacheQuantizationToggle").checked = false;
     selectMatchedMMProj(true);
+    applyModelFeatureDefaults();
     renderModelMeta();
     renderMMProjMeta();
     updateRuntimeSpecificFields();
@@ -916,6 +1116,10 @@
   byId("mmapToggle").addEventListener("change", () => {
     state.selectionTouched = true;
     renderMMapControl(state.runtime);
+  });
+  byId("fastGGUFToggle").addEventListener("change", () => {
+    state.selectionTouched = true;
+    renderFastGGUFControl(state.runtime);
   });
   byId("kvCacheQuantizationToggle").addEventListener("change", () => {
     state.selectionTouched = true;

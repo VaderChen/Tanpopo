@@ -63,6 +63,9 @@ actor MLXRuntime {
                     weightURL: ggufWeightURL,
                     quantizationGroupSize: configuration.ggufGroupSize,
                     quantizationProfile: configuration.ggufProfile,
+                    recurrentPromotion: configuration.ggufRecurrentPromotion,
+                    conversionCacheDirectory: configuration.ggufCacheDirectory,
+                    conversionCacheEnabled: configuration.ggufCacheEnabled,
                     memoryMapped: configuration.memoryMappingEnabled
                 )
             case .vision:
@@ -75,25 +78,41 @@ actor MLXRuntime {
                     mmprojURL: ggufMMProjURL,
                     quantizationGroupSize: configuration.ggufGroupSize,
                     quantizationProfile: configuration.ggufProfile,
+                    recurrentPromotion: configuration.ggufRecurrentPromotion,
+                    conversionCacheDirectory: configuration.ggufCacheDirectory,
+                    conversionCacheEnabled: configuration.ggufCacheEnabled,
                     memoryMapped: configuration.memoryMappingEnabled
                 )
             }
+            let requestedGroupSize = configuration.ggufGroupSize.map(String.init) ?? "auto"
             fputs(
-                "GGUF loaded model=\(ggufWeightURL.lastPathComponent) profile=\(configuration.ggufProfile.rawValue) group_size=\(configuration.ggufGroupSize)\n",
+                "GGUF loaded model=\(ggufWeightURL.lastPathComponent) "
+                    + "profile=\(configuration.ggufProfile.rawValue) "
+                    + "recurrent=\(configuration.ggufRecurrentPromotion.rawValue) "
+                    + "requested_group=\(requestedGroupSize)\n",
                 stderr
             )
         } else {
-            switch kind {
-            case .text, .auto:
-                container = try await LLMModelFactory.shared.loadContainer(
-                    from: modelDirectory,
-                    using: #huggingFaceTokenizerLoader()
+            let progressHandler: @Sendable (Int64, Int64) -> Void = { completed, total in
+                fputs(
+                    "TANPOPO_MODEL_PROGRESS phase=loading "
+                        + "completed=\(completed) total=\(total) unit=steps\n",
+                    stderr
                 )
-            case .vision:
-                container = try await VLMModelFactory.shared.loadContainer(
-                    from: modelDirectory,
-                    using: #huggingFaceTokenizerLoader()
-                )
+            }
+            try await ModelWeightLoadingContext.$progressHandler.withValue(progressHandler) {
+                switch kind {
+                case .text, .auto:
+                    container = try await LLMModelFactory.shared.loadContainer(
+                        from: modelDirectory,
+                        using: #huggingFaceTokenizerLoader()
+                    )
+                case .vision:
+                    container = try await VLMModelFactory.shared.loadContainer(
+                        from: modelDirectory,
+                        using: #huggingFaceTokenizerLoader()
+                    )
+                }
             }
         }
 

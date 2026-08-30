@@ -5,9 +5,14 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${PROJECT_DIR}"
 
-APP_VERSION="$(tr -d '[:space:]' < "${PROJECT_DIR}/VERSION")"
-APP_BUILD="${TANPOPO_BUILD:-$(date +%H%M)}"
+TODAY_VERSION="$(TZ=Asia/Taipei date '+1.%y.%m%d')"
+APP_VERSION="${TANPOPO_VERSION:-${TODAY_VERSION}}"
+APP_BUILD="${TANPOPO_BUILD:-$(TZ=Asia/Taipei date '+%H%M')}"
 UPDATE_REPOSITORY="${TANPOPO_UPDATE_REPOSITORY:-VaderChen/Tanpopo}"
+if [[ ! "${APP_VERSION}" =~ ^1\.[0-9]{2}\.[0-9]{4}$ ]]; then
+  echo "Tanpopo 版本號格式錯誤：${APP_VERSION}（應為 1.YY.MMDD）" >&2
+  exit 1
+fi
 if [[ ! "${APP_BUILD}" =~ ^[0-9]{4}$ ]]; then
   echo "Tanpopo build 編號格式錯誤：${APP_BUILD}（應為 HHmm）" >&2
   exit 1

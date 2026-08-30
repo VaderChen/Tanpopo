@@ -35,18 +35,22 @@ func DefaultSettings() domain.Settings {
 		homeDirectory = "."
 	}
 	return domain.Settings{
-		ModelDirectory:      filepath.Join(homeDirectory, "services", "models"),
-		MLXModelDirectory:   filepath.Join(homeDirectory, "services", "mlx-models"),
-		UILanguage:          "auto",
-		UITheme:             "tanpopo",
-		HuggingFaceEndpoint: "https://huggingface.co",
-		DefaultRevision:     "main",
-		ServerHost:          "0.0.0.0",
-		ServerPort:          8080,
-		ContextSize:         256 * 1024,
-		GPULayers:           -1,
-		Threads:             0,
-		ExtraArgs:           []string{},
+		ModelDirectory:         filepath.Join(homeDirectory, "services", "models"),
+		MLXModelDirectory:      filepath.Join(homeDirectory, "services", "mlx-models"),
+		DefaultFastGGUFEnabled: true,
+		DefaultKVCacheEnabled:  false,
+		DefaultMMapEnabled:     false,
+		DefaultDFlashEnabled:   false,
+		UILanguage:             "auto",
+		UITheme:                "tanpopo",
+		HuggingFaceEndpoint:    "https://huggingface.co",
+		DefaultRevision:        "main",
+		ServerHost:             "0.0.0.0",
+		ServerPort:             8080,
+		ContextSize:            256 * 1024,
+		GPULayers:              -1,
+		Threads:                0,
+		ExtraArgs:              []string{},
 	}
 }
 
@@ -165,14 +169,18 @@ func (s *Store) Get() domain.Settings {
 func (s *Store) Public() domain.PublicSettings {
 	value := s.Get()
 	return domain.PublicSettings{
-		ModelDirectory:      value.ModelDirectory,
-		MLXModelDirectory:   value.MLXModelDirectory,
-		ResidentMode:        value.ResidentMode,
-		UILanguage:          value.UILanguage,
-		UITheme:             value.UITheme,
-		HuggingFaceEndpoint: value.HuggingFaceEndpoint,
-		HuggingFaceTokenSet: value.HuggingFaceToken != "",
-		DefaultRevision:     value.DefaultRevision,
+		ModelDirectory:         value.ModelDirectory,
+		MLXModelDirectory:      value.MLXModelDirectory,
+		ResidentMode:           value.ResidentMode,
+		DefaultFastGGUFEnabled: value.DefaultFastGGUFEnabled,
+		DefaultKVCacheEnabled:  value.DefaultKVCacheEnabled,
+		DefaultMMapEnabled:     value.DefaultMMapEnabled,
+		DefaultDFlashEnabled:   value.DefaultDFlashEnabled,
+		UILanguage:             value.UILanguage,
+		UITheme:                value.UITheme,
+		HuggingFaceEndpoint:    value.HuggingFaceEndpoint,
+		HuggingFaceTokenSet:    value.HuggingFaceToken != "",
+		DefaultRevision:        value.DefaultRevision,
 	}
 }
 
@@ -269,6 +277,9 @@ func expandHome(path string) string {
 }
 
 func ValidateSettings(value domain.Settings) error {
+	if value.DefaultKVCacheEnabled && value.DefaultDFlashEnabled {
+		return errors.New("KV Cache 量化與 DFlash 不可同時設為預設開啟")
+	}
 	switch value.UILanguage {
 	case "auto", "zh-Hant", "en", "ja", "ko":
 	default:

@@ -1,5 +1,5 @@
 (() => {
-  const { api, byId, showMessage, formatBytes, getLanguage, t } = window.LlamaLoader;
+  const { api, byId, showMessage, formatBytes, formatTime, getLanguage, t } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
   const QUICK_MODEL_URL = "/assets/popular-models.json";
@@ -10,6 +10,7 @@
   ];
   const MODEL_NAME_COLLATOR = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
   let quickModelCatalog = null;
+  let downloadedModelsLoaded = false;
   let storageDirectories = { gguf: "", mlx: "" };
   const cancellingJobs = new Set();
 
@@ -17,12 +18,45 @@
     return window.webkit?.messageHandlers?.tanpopoNative || null;
   }
 
+  function isLoopbackInterface() {
+    const hostname = String(window.location.hostname || "")
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    return hostname === "localhost" || hostname === "::1" || /^127(?:\.|$)/.test(hostname);
+  }
+
+  function localNativeBridge() {
+    return isLoopbackInterface() ? nativeBridge() : null;
+  }
+
+  function modelDirectoryLabel(format) {
+    return format === "MLX" ? t("開啟 MLX 模型目錄") : t("開啟 GGUF 模型目錄");
+  }
+
+  function updateDownloadedModelDirectoryButtons() {
+    document.querySelectorAll("[data-open-model-directory]").forEach((button) => {
+      const format = button.dataset.openModelDirectory;
+      const available = Boolean(localNativeBridge() && storageDirectories[format.toLowerCase()]);
+      button.disabled = !available;
+      button.title = available
+        ? modelDirectoryLabel(format)
+        : t("僅能在 Tanpopo 本機桌面介面使用");
+    });
+  }
+
+  function openModelDirectory(format) {
+    const bridge = localNativeBridge();
+    const path = storageDirectories[String(format || "").toLowerCase()];
+    if (!bridge || !path) return;
+    bridge.postMessage({ type: "open-model-directory", path });
+  }
+
   function updateOpenStorageButton() {
     const button = byId("openStorageButton");
     const format = byId("downloadRuntime").value === MLX_RUNTIME ? "mlx" : "gguf";
-    const available = Boolean(nativeBridge() && storageDirectories[format]);
+    const available = Boolean(localNativeBridge() && storageDirectories[format]);
     button.disabled = !available;
-    button.title = available ? t("開啟儲存位置") : t("僅能在 Tanpopo 桌面介面使用");
+    button.title = available ? t("開啟儲存位置") : t("僅能在 Tanpopo 本機桌面介面使用");
   }
 
   function renderRuntimeFields() {
@@ -41,11 +75,217 @@
       mlx: String(settings.mlx_model_directory || "").trim()
     };
     updateOpenStorageButton();
+    updateDownloadedModelDirectoryButtons();
   }
 
   async function loadDownloads() {
     const payload = await api("/api/downloads");
     renderDownloads(payload.downloads || []);
+  }
+
+  function downloadedModelName(path) {
+    const normalized = String(path || "")
+      .replace(/^gguf:/, "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+    return normalized.split("/").pop() || normalized || "—";
+  }
+
+  async function deleteDownloadedModel(format, model, button) {
+    const name = downloadedModelName(model.path);
+    const relativePath = String(model.path || "").replace(/^gguf:/, "").replace(/\\/g, "/");
+    const removesDirectory = format === "MLX" || relativePath.includes("/");
+    const warning = removesDirectory
+      ? t("確定要刪除此模型的完整目錄嗎？目錄內所有檔案都會從硬碟移除，且無法復原。")
+      : t("確定要刪除此模型嗎？模型檔案將從硬碟移除，且無法復原。");
+    const confirmed = window.confirm(
+      `${name}\n${formatBytes(Number(model.size || 0))}\n\n${warning}`
+    );
+    if (!confirmed) return;
+    button.disabled = true;
+    button.textContent = t("刪除中…");
+    try {
+      await api("/api/models", {
+        method: "DELETE",
+        body: JSON.stringify({ format: format.toLowerCase(), path: model.path })
+      });
+      downloadedModelsLoaded = false;
+      showMessage(t("模型已刪除"));
+      await loadDownloadedModels(true);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = t("刪除");
+      throw error;
+    }
+  }
+
+  async function clearDownloadedModelConversionCache(model, button) {
+    const name = downloadedModelName(model.path);
+    const cacheBytes = Number(model.conversion_cache_bytes || 0);
+    const confirmed = window.confirm(
+      `${name}\n${formatBytes(cacheBytes)}\n\n${t("確定要清除此模型的轉換快取嗎？原始 GGUF 與模型目錄不會刪除；下次以 MLX 載入時需要重新轉換。")}`
+    );
+    if (!confirmed) return;
+    button.disabled = true;
+    button.textContent = t("正在清除快取…");
+    try {
+      await api("/api/models/conversion-cache", {
+        method: "DELETE",
+        body: JSON.stringify({ path: model.path })
+      });
+      downloadedModelsLoaded = false;
+      showMessage(t("轉換快取已清除"));
+      await loadDownloadedModels(true);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = t("清除快取");
+      throw error;
+    }
+  }
+
+  function downloadedModelGroup(format, models) {
+    const section = document.createElement("section");
+    section.className = "downloaded-model-group";
+    const heading = document.createElement("div");
+    heading.className = "downloaded-model-group-heading";
+    const headingLabel = document.createElement("div");
+    headingLabel.className = "downloaded-model-group-label";
+    const title = document.createElement("h4");
+    title.textContent = format;
+    const count = document.createElement("span");
+    count.className = "downloaded-model-group-count";
+    count.textContent = `${models.length} ${t("個模型")}`;
+    const openDirectoryButton = document.createElement("button");
+    openDirectoryButton.className = "downloaded-model-directory-button";
+    openDirectoryButton.type = "button";
+    openDirectoryButton.dataset.openModelDirectory = format;
+    openDirectoryButton.setAttribute("aria-label", modelDirectoryLabel(format));
+    openDirectoryButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h4.1l1.8 2h7.6a1.75 1.75 0 0 1 1.75 1.75v8.5A1.75 1.75 0 0 1 18.75 19H5.25a1.75 1.75 0 0 1-1.75-1.75V6.75Z"></path></svg>';
+    openDirectoryButton.addEventListener("click", () => openModelDirectory(format));
+    headingLabel.append(openDirectoryButton, title);
+    heading.append(headingLabel, count);
+    section.append(heading);
+
+    const list = document.createElement("div");
+    list.className = "downloaded-model-list";
+    if (!models.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state downloaded-model-empty";
+      empty.textContent = t("目前沒有已下載模型。");
+      list.append(empty);
+    } else {
+      models.forEach((model) => {
+        const item = document.createElement("article");
+        item.className = "downloaded-model-item";
+        const itemHeading = document.createElement("div");
+        itemHeading.className = "downloaded-model-item-heading";
+        const name = document.createElement("strong");
+        name.textContent = downloadedModelName(model.path);
+        const actions = document.createElement("div");
+        actions.className = "downloaded-model-item-actions";
+        const buttons = document.createElement("div");
+        buttons.className = "downloaded-model-item-buttons";
+        if (format === "GGUF" && model.conversion_cached) {
+          const clearCacheButton = document.createElement("button");
+          clearCacheButton.className = "button secondary compact downloaded-model-conversion-delete";
+          clearCacheButton.type = "button";
+          clearCacheButton.textContent = t("清除快取");
+          clearCacheButton.title = formatBytes(Number(model.conversion_cache_bytes || 0));
+          clearCacheButton.setAttribute("aria-label", `${t("清除快取")} ${name.textContent}`);
+          clearCacheButton.addEventListener("click", () => {
+            clearDownloadedModelConversionCache(model, clearCacheButton)
+              .catch((error) => showMessage(error.message, "error"));
+          });
+          buttons.append(clearCacheButton);
+        }
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "button danger compact downloaded-model-delete";
+        deleteButton.type = "button";
+        deleteButton.textContent = t("刪除");
+        deleteButton.setAttribute("aria-label", `${t("刪除")} ${name}`);
+        deleteButton.addEventListener("click", () => {
+          deleteDownloadedModel(format, model, deleteButton)
+            .catch((error) => showMessage(error.message, "error"));
+        });
+        buttons.append(deleteButton);
+        actions.append(buttons);
+        itemHeading.append(name, actions);
+        const metaRow = document.createElement("div");
+        metaRow.className = "downloaded-model-meta-row";
+        const meta = document.createElement("p");
+        meta.className = "muted";
+        meta.textContent = `${formatBytes(Number(model.size || 0))} · ${t("修改於")} ${formatTime(model.modified_at)}`;
+        metaRow.append(meta);
+        if (model.runtime_untested) {
+          const badge = document.createElement("span");
+          badge.className = "downloaded-model-badge";
+          badge.textContent = t("尚未測試");
+          metaRow.append(badge);
+        }
+        item.append(itemHeading, metaRow);
+        list.append(item);
+      });
+    }
+    section.append(list);
+    return section;
+  }
+
+  function renderDownloadedModels(models) {
+    const mainModels = models.filter((model) => {
+      const path = String(model.path || "").replace(/^gguf:/, "").replace(/\\/g, "/");
+      const filename = path.split("/").pop() || "";
+      return !/(^|[_.-])mmproj([_.-]|$)/i.test(filename)
+        && !path.split("/").some((segment) => segment.startsWith(".tanpopo-"));
+    });
+    const groups = {
+      MLX: mainModels.filter((model) => String(model.format).toLowerCase() === "mlx"),
+      GGUF: mainModels.filter((model) => String(model.format).toLowerCase() === "gguf")
+    };
+    Object.values(groups).forEach((items) => items.sort((left, right) =>
+      MODEL_NAME_COLLATOR.compare(String(left.path || ""), String(right.path || ""))
+    ));
+    byId("downloadedModels").replaceChildren(
+      downloadedModelGroup("MLX", groups.MLX),
+      downloadedModelGroup("GGUF", groups.GGUF)
+    );
+    updateDownloadedModelDirectoryButtons();
+  }
+
+  async function loadDownloadedModels(force = false) {
+    if (downloadedModelsLoaded && !force) return;
+    const button = byId("refreshDownloadedModelsButton");
+    button.disabled = true;
+    if (!downloadedModelsLoaded) {
+      const loading = document.createElement("p");
+      loading.className = "empty-state";
+      loading.textContent = t("模型清單讀取中…");
+      byId("downloadedModels").replaceChildren(loading);
+    }
+    try {
+      const payload = await api(`/api/models?runtime=${encodeURIComponent(MLX_RUNTIME)}`);
+      renderDownloadedModels(Array.isArray(payload.models) ? payload.models : []);
+      downloadedModelsLoaded = true;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function activateDownloadPane(paneID, updateHash = true) {
+    const tabs = [...document.querySelectorAll("[data-download-target]")];
+    tabs.forEach((tab) => {
+      const active = tab.dataset.downloadTarget === paneID;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+      byId(tab.dataset.downloadTarget).hidden = !active;
+    });
+    if (updateHash) {
+      history.replaceState(null, "", paneID === "downloadedModelsPane"
+        ? "#downloaded-models"
+        : "#download-center");
+    }
+    if (paneID === "downloadedModelsPane") {
+      loadDownloadedModels().catch((error) => showMessage(error.message, "error"));
+    }
   }
 
   function localizedCatalogText(value) {
@@ -324,16 +564,19 @@
       renderQuickModels(quickModelCatalog);
     }
   });
+  document.querySelectorAll("[data-download-target]").forEach((tab) => {
+    tab.addEventListener("click", () => activateDownloadPane(tab.dataset.downloadTarget));
+  });
+  byId("refreshDownloadedModelsButton").addEventListener("click", () => {
+    loadDownloadedModels(true).catch((error) => showMessage(error.message, "error"));
+  });
   byId("quickModelButton").addEventListener("click", () => {
     if (byId("quickModelPopover").hidden) openQuickModelPopover();
     else closeQuickModelPopover();
   });
   byId("openStorageButton").addEventListener("click", () => {
     const format = byId("downloadRuntime").value === MLX_RUNTIME ? "mlx" : "gguf";
-    const path = storageDirectories[format];
-    const bridge = nativeBridge();
-    if (!bridge || !path) return;
-    bridge.postMessage({ type: "open-model-directory", path });
+    openModelDirectory(format.toUpperCase());
   });
   byId("closeQuickModelButton").addEventListener("click", closeQuickModelPopover);
   document.addEventListener("click", (event) => {
@@ -346,5 +589,9 @@
     }
   });
   renderRuntimeFields();
+  activateDownloadPane(
+    window.location.hash === "#downloaded-models" ? "downloadedModelsPane" : "downloadCenterPane",
+    false
+  );
   initialize();
 })();

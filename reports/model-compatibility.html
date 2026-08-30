@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tanpopo 本機模型 Runtime 的 MLX、GGUF 與多模態相容性報告。">
+  <title>Tanpopo 模型相容性報告</title>
+  <link rel="stylesheet" href="report.css">
+  <script src="report-i18n.js" defer></script>
+</head>
+<body data-report="compatibility">
+  <header class="site-header">
+    <div class="brand-row">
+      <a class="brand" href="../" aria-label="Tanpopo 公開測試報告首頁">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Tanpopo · Local Model Control</span>
+      </a>
+      <div class="report-tools">
+        <nav class="report-nav" aria-label="報告導覽">
+          <a href="model-compatibility.html" aria-current="page">模型相容性</a>
+          <a href="performance-comparison.html">效能測試</a>
+        </nav>
+        <div class="language-switcher" role="group" aria-label="報告語言">
+          <button type="button" data-report-language="auto">AUTO</button>
+          <button type="button" data-report-language="zh-Hant">繁中</button>
+          <button type="button" data-report-language="en">English</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Compatibility report · 2026.08.30</p>
+        <h1>模型相容性報告</h1>
+        <p class="lede">
+          整理 Tanpopo 目前在 Apple Silicon 上對原生 MLX、MLX 直讀 GGUF、
+          llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援邊界。
+        </p>
+      </div>
+      <aside class="hero-meta" aria-label="報告版本資訊">
+        <dl>
+          <div><dt>Runtime</dt><dd>1.5.0</dd></div>
+          <div><dt>mlx-swift-lm</dt><dd>3.31.4</dd></div>
+          <div><dt>MLX Swift</dt><dd>0.31.6</dd></div>
+          <div><dt>狀態</dt><dd>公開技術預覽</dd></div>
+        </dl>
+      </aside>
+    </section>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="compat-summary">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Scope</p>
+          <h2 id="compat-summary">目前支援範圍</h2>
+        </div>
+        <p>數量來自 Runtime 的能力登錄，不代表每個衍生 checkpoint 均已逐一實測。</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <strong class="metric-value">58</strong>
+          <span class="metric-label">原生 MLX LLM 類型</span>
+          <p class="metric-note">由 mlx-swift-lm 模型登錄表提供。</p>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value">18</strong>
+          <span class="metric-label">原生 MLX VLM 類型</span>
+          <p class="metric-note">仍需 checkpoint 具備相容 processor 與視覺權重。</p>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value">12</strong>
+          <span class="metric-label">可合成設定的 GGUF 架構</span>
+          <p class="metric-note">不依賴同目錄 Hugging Face <code>config.json</code>。</p>
+        </article>
+      </div>
+      <div class="callout">
+        <div>
+          <h3>本輪重新驗證：21 項程式回歸、3 組實體模型</h3>
+          <p>
+            2026-08-30 重新執行 <code>MLXGGUFCompatibilityTests</code>，21 項測試通過、0 失敗，
+            其中 3 項需額外實體模型環境的測試在一般回歸中略過；另以 4B、9B、27B 配對模型逐一完成
+            原生 MLX、MLX+GGUF 與 llama+GGUF 的載入、生成及固定 100 題品質驗證。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="runtime-matrix">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Runtime matrix</p>
+          <h2 id="runtime-matrix">格式與 Runtime 比較</h2>
+        </div>
+        <p>「MLX + GGUF」代表 Swift Runtime 解析 GGUF，並轉成 MLX 可執行的權重佈局。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>能力</th>
+              <th>原生 MLX</th>
+              <th>MLX + GGUF</th>
+              <th>llama + GGUF</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>主要權重格式</strong></td>
+              <td>Safetensors／MLX 量化</td>
+              <td>GGUF，載入時映射或轉換</td>
+              <td>GGUF 原生執行</td>
+            </tr>
+            <tr>
+              <td><strong>模型架構範圍</strong></td>
+              <td><span class="status supported">最廣 MLX 範圍</span></td>
+              <td><span class="status partial">12 種已登錄 GGUF 架構</span></td>
+              <td><span class="status reference">依內附 llama.cpp 版本</span></td>
+            </tr>
+            <tr>
+              <td><strong>多模態</strong></td>
+              <td>VLM checkpoint 與 processor</td>
+              <td>限已實作架構與配對 mmproj</td>
+              <td>限 llama.cpp 支援的 mmproj</td>
+            </tr>
+            <tr>
+              <td><strong>MMap</strong></td>
+              <td>可用；降低載入期間壓力</td>
+              <td>可用；需視 tensor 是否必須轉換</td>
+              <td>可用；由 llama.cpp 管理</td>
+            </tr>
+            <tr>
+              <td><strong>KV Cache Q4／Q8</strong></td>
+              <td><span class="status supported">支援</span></td>
+              <td><span class="status supported">支援</span></td>
+              <td><span class="status supported">支援</span></td>
+            </tr>
+            <tr>
+              <td><strong>fastGGUF</strong></td>
+              <td><span class="status reference">不適用</span></td>
+              <td><span class="status partial">實驗性；速度通過、品質未通過</span></td>
+              <td><span class="status reference">不適用</span></td>
+            </tr>
+            <tr>
+              <td><strong>DFlash</strong></td>
+              <td>Qwen3／Qwen3.5，需配對 MLX Draft</td>
+              <td><span class="status unsupported">GGUF Target 不啟用</span></td>
+              <td>需配對 DFlash Draft GGUF</td>
+            </tr>
+            <tr>
+              <td><strong>失敗診斷</strong></td>
+              <td>設定／processor／權重驗證</td>
+              <td>架構、量化、映射、形狀逐層驗證</td>
+              <td>llama.cpp 啟動與模型日誌</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="gguf-architectures">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">MLX GGUF</p>
+          <h2 id="gguf-architectures">GGUF 架構相容性</h2>
+        </div>
+        <p>專屬路徑會處理該架構特有的設定、norm、tokenizer 或逐層參數。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>架構</th>
+              <th>合成策略</th>
+              <th>文字模型</th>
+              <th>多模態備註</th>
+              <th>驗證狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Apertus</strong></td><td>專屬；逐層 xIELU</td><td>支援</td><td>本報告只驗證文字輸出</td><td><span class="status supported">70B 實機驗證</span></td></tr>
+            <tr><td><strong>Gemma</strong></td><td>通用文字設定</td><td>支援</td><td>依模型變體</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>Gemma 3</strong></td><td>專屬；四組 norm、SentencePiece</td><td>支援</td><td>文字 encoder 已驗證</td><td><span class="status supported">12B 實機驗證</span></td></tr>
+            <tr><td><strong>Gemma 4</strong></td><td>專屬；PLE、共享 K/V、逐層 FFN</td><td>支援</td><td>需配對 mmproj 才能處理影像</td><td><span class="status supported">E2B／E4B 實機驗證</span></td></tr>
+            <tr><td><strong>Llama</strong></td><td>標準文字設定</td><td>支援</td><td>依配對 projector</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>MiMo</strong></td><td>通用文字設定</td><td>支援</td><td>未宣告</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>MiniCPM</strong></td><td>通用文字設定</td><td>支援</td><td>視實際變體</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>Mistral</strong></td><td>通用文字設定</td><td>支援</td><td>視實際變體</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>Qwen 2</strong></td><td>標準文字設定</td><td>支援</td><td>文字路徑</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>Qwen 3</strong></td><td>標準文字設定</td><td>支援</td><td>文字路徑</td><td><span class="status partial">載入時驗證</span></td></tr>
+            <tr><td><strong>Qwen 3.5</strong></td><td>專屬；混合層與 tokenizer</td><td>支援</td><td>可搭配相容 mmproj</td><td><span class="status supported">4B／9B／27B 實機驗證</span></td></tr>
+            <tr><td><strong>SmolLM 3</strong></td><td>通用文字設定</td><td>支援</td><td>未宣告</td><td><span class="status partial">載入時驗證</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="quantization-support">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Tensor formats</p>
+          <h2 id="quantization-support">GGUF tensor 支援</h2>
+        </div>
+        <p>來源量化能否原樣保留，會直接影響載入時間、記憶體與數值差異。</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>浮點來源統一 BF16</h3>
+          <p>F32、F16、BF16 tensor 會建立 BF16 運算權重；I8、I16、I32 則維持對應整數 tensor。</p>
+          <div class="tag-row"><span class="tag">保留小型參數精度</span><span class="tag">形狀仍須驗證</span></div>
+        </article>
+        <article class="feature-card">
+          <h3>Q8 保留 INT8 角色</h3>
+          <p>Q8_0 會轉成 MLX affine INT8；避免將 GGUF 中刻意保留較高精度的 tensor 無條件壓成 INT4。</p>
+          <div class="tag-row"><span class="tag">INT8</span><span class="tag">metadata 驅動</span></div>
+        </article>
+        <article class="feature-card">
+          <h3>fastGGUF 關閉：Auto／INT8</h3>
+          <p>產品目前以 <code>auto + group 32</code> 載入低位元 GGUF，將 Q4 等來源重新量化為 MLX INT8；這是較保守的數值路徑，但不等於保真模式。</p>
+          <div class="tag-row"><span class="status partial">轉換成本最高</span><span class="tag">固定 group 32</span></div>
+        </article>
+        <article class="feature-card">
+          <h3>fastGGUF 開啟：Speed／INT4</h3>
+          <p><code>speed + group auto + recurrent controls</code> 讓低位元矩陣走 MLX INT4，全部相容時優先 group 64，並將量化的 recurrent 控制投影保留為 BF16。這是通用 tensor 角色策略，不依模型名稱；本輪表格數據為整合前基線，仍需重新量測。</p>
+          <div class="tag-row"><span class="status partial">品質閘門未通過</span><span class="tag">auto 64→32</span></div>
+        </article>
+        <article class="feature-card">
+          <h3>Quality 診斷路徑</h3>
+          <p>手動 <code>quality</code> 會以 FP32 參考權重執行，適合定位轉換誤差，不是 fastGGUF 開關的一部分，也不適合作為一般速度基準。</p>
+          <div class="tag-row"><span class="tag">FP32 reference</span><span class="tag">診斷用途</span></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="validated-models">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Physical validation</p>
+          <h2 id="validated-models">本機實測樣本</h2>
+        </div>
+        <p>本輪三組抽樣同時驗證「可載入」與「輸出品質」；兩者不可互相替代。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>模型</th><th>格式</th><th>規模</th><th>驗證項目</th><th>結果</th></tr></thead>
+          <tbody>
+            <tr><td>Qwen 3.5 4B</td><td>MLX／GGUF</td><td>4B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
+            <tr><td>Ornith 1.5 9B</td><td>MLX／GGUF</td><td>9B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
+            <tr><td>Qwen 3.8 27B</td><td>MLX／GGUF</td><td>27B</td><td>四模式載入、生成、MMLU 100 題</td><td><span class="status partial">載入通過；fast 品質失敗</span></td></tr>
+            <tr><td>Gemma 3 12B</td><td>GGUF</td><td>12B</td><td>SentencePiece、norm、固定輸出</td><td><span class="status supported">先前實機通過</span></td></tr>
+            <tr><td>Gemma 4 E2B／E4B</td><td>GGUF</td><td>MoE</td><td>PLE、共享 K/V、FFN 版型</td><td><span class="status supported">先前實機通過</span></td></tr>
+            <tr><td>Apertus 1.5 70B</td><td>GGUF Q4_K_M</td><td>70B</td><td>xIELU、MMap、chat EOS 停止</td><td><span class="status supported">先前實機通過</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="known-boundaries">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Known boundaries</p>
+          <h2 id="known-boundaries">目前邊界與判定原則</h2>
+        </div>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Muse-Glimmer</h3>
+          <p>GGUF 架構尚無對應的 mlx-swift-lm 模型實作；保留在「尚未測試」群組供手動嘗試，不宣告相容。</p>
+        </article>
+        <article class="feature-card">
+          <h3>影音／擴散 GGUF</h3>
+          <p>LTX Video、MiniMax H3 影音 checkpoint 與獨立 T5 encoder 並非文字 LLM，不會因副檔名為 GGUF 就列入文字模型名單。</p>
+        </article>
+        <article class="feature-card">
+          <h3>MMap 不是硬性記憶體上限</h3>
+          <p>它會嘗試讓檔案頁可回收並保留目標空間；需要重新量化的 tensor 仍可能產生常駐 MLX 權重。</p>
+        </article>
+        <article class="feature-card">
+          <h3>衍生 checkpoint 必須重新驗證</h3>
+          <p>即使 <code>model_type</code> 相同，新增 expert、processor 或非標準 tensor 名稱仍可能需要新的通用映射。</p>
+        </article>
+        <article class="feature-card">
+          <h3>可生成不代表品質可用</h3>
+          <p>本輪 fastGGUF 的三個樣本都能載入並完成 128-token 生成，但固定題庫全部未過品質閘門；相容性狀態必須同時記錄載入與數值品質。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Tanpopo model compatibility report · 2026-08-30</p>
+    <p><a href="performance-comparison.html">閱讀效能比較 →</a></p>
+  </footer>
+</body>
+</html>

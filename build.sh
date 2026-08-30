@@ -4,9 +4,9 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Tanpopo"
-APP_VERSION_FILE="${PROJECT_DIR}/VERSION"
-APP_VERSION="${TANPOPO_VERSION:-}"
-APP_BUILD="${TANPOPO_BUILD:-$(date +%H%M)}"
+TODAY_VERSION="$(TZ=Asia/Taipei date '+1.%y.%m%d')"
+APP_VERSION="${TANPOPO_VERSION:-${TODAY_VERSION}}"
+APP_BUILD="${TANPOPO_BUILD:-$(TZ=Asia/Taipei date '+%H%M')}"
 UPDATE_REPOSITORY="${TANPOPO_UPDATE_REPOSITORY:-VaderChen/Tanpopo}"
 BIN_DIR="${PROJECT_DIR}/bin"
 DIST_DIR="${PROJECT_DIR}/dist"
@@ -229,9 +229,9 @@ sanitize_version() {
 LLAMA_SOURCE_DIR="$(discover_llama_source)"
 
 require_file "go.mod"
-require_file "VERSION"
 require_file "src/cmd/llamaloader/main.go"
 require_file "website"
+require_file "reports"
 require_file "agent.sample.properties"
 require_file "README.md"
 require_file "run.command"
@@ -251,10 +251,11 @@ require_command "unzip"
 if [[ -z "${MLX_VERSION}" ]]; then
   MLX_VERSION="$(tr -d '[:space:]' < "${MLX_VERSION_FILE}")"
 fi
-if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="$(tr -d '[:space:]' < "${APP_VERSION_FILE}")"
-fi
 APP_VERSION="$(sanitize_version "${APP_VERSION}" "Tanpopo")"
+if [[ ! "${APP_VERSION}" =~ ^1\.[0-9]{2}\.[0-9]{4}$ ]]; then
+  echo "Tanpopo 版本號格式錯誤：${APP_VERSION}（應為 1.YY.MMDD）" >&2
+  exit 1
+fi
 if [[ ! "${APP_BUILD}" =~ ^[0-9]{4}$ ]]; then
   echo "Tanpopo build 編號格式錯誤：${APP_BUILD}（應為 HHmm）" >&2
   exit 1
@@ -494,8 +495,10 @@ printf '%s\n' "${MLX_VERSION}" > "${PACKAGE_DIR}/mlx-server/VERSION"
 copy_mlx_prebuilt_runtime
 
 cp -R "website" "${PACKAGE_DIR}/website"
+mkdir -p "${PACKAGE_DIR}/website/reports"
+cp -R "reports/." "${PACKAGE_DIR}/website/reports/"
 find "${PACKAGE_DIR}/website" -type f -name '*.bak' -delete
-cp "VERSION" "${PACKAGE_DIR}/VERSION"
+printf '%s\n' "${APP_VERSION}" > "${PACKAGE_DIR}/VERSION"
 cp "agent.sample.properties" "${PACKAGE_DIR}/agent.sample.properties"
 cp "README.md" "${PACKAGE_DIR}/README.md"
 cp "run.command" "${PACKAGE_DIR}/run.command"

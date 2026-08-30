@@ -59,6 +59,22 @@
     return indicator;
   }
 
+  function createReasoningSummary() {
+    const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.textContent = t("思考過程");
+    const progress = document.createElement("span");
+    progress.className = "chat-reasoning-progress";
+    progress.setAttribute("aria-hidden", "true");
+    for (let index = 0; index < 3; index += 1) {
+      const dot = document.createElement("i");
+      dot.textContent = ".";
+      progress.append(dot);
+    }
+    summary.append(label, progress);
+    return summary;
+  }
+
   function displayName(path) {
     const normalized = String(path || "").replace(/\\/g, "/").replace(/\/+$/, "");
     return normalized.split("/").pop() || "未命名模型";
@@ -97,9 +113,8 @@
         row.classList.add("has-reasoning");
         const thinking = document.createElement("details");
         thinking.className = "chat-reasoning";
-        thinking.open = true;
-        const summary = document.createElement("summary");
-        summary.textContent = t("思考過程");
+        thinking.open = false;
+        const summary = createReasoningSummary();
         const reasoningContent = document.createElement("div");
         reasoningContent.className = "chat-reasoning-content markdown-content";
         renderMarkdown(reasoningContent, reasoning);
@@ -134,12 +149,11 @@
     roleLabel.className = "chat-message-role";
     roleLabel.textContent = "Tanpopo";
     const indicator = createThinkingIndicator();
+    indicator.hidden = true;
     const thinking = document.createElement("details");
-    thinking.className = "chat-reasoning";
+    thinking.className = "chat-reasoning is-streaming";
     thinking.open = true;
-    thinking.hidden = true;
-    const summary = document.createElement("summary");
-    summary.textContent = t("思考過程");
+    const summary = createReasoningSummary();
     const reasoningContent = document.createElement("div");
     reasoningContent.className = "chat-reasoning-content markdown-content";
     thinking.append(summary, reasoningContent);
@@ -203,8 +217,10 @@
     const reasoning = mergeReasoning(snapshot.reasoning, split.reasoning);
     let content = split.content;
     if (complete && !content) content = t("模型未提供最終回答");
-    view.indicator.hidden = Boolean(reasoning || content || complete);
-    view.thinking.hidden = !reasoning;
+    view.indicator.hidden = true;
+    view.thinking.hidden = complete && !reasoning;
+    view.thinking.classList.toggle("is-streaming", !complete);
+    if (complete) view.thinking.open = false;
     view.message.hidden = !content;
     if (reasoning) renderMarkdown(view.reasoningContent, reasoning);
     if (content) renderMarkdown(view.message, content);

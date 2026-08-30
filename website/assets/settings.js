@@ -67,6 +67,17 @@
     byId("residentModeLabel").textContent = byId("residentMode").checked ? "啟用" : "關閉";
   }
 
+  function updateModelFeatureDefaultLabels() {
+    [
+      "defaultFastGGUFEnabled",
+      "defaultKVCacheQuantizationEnabled",
+      "defaultMMapEnabled",
+      "defaultDFlashEnabled"
+    ].forEach((inputID) => {
+      byId(`${inputID}Label`).textContent = byId(inputID).checked ? t("啟用") : t("關閉");
+    });
+  }
+
   function notifyNativeResidentMode(enabled) {
     try {
       window.webkit?.messageHandlers?.tanpopoNative?.postMessage({
@@ -93,6 +104,11 @@
     byId("residentMode").checked = Boolean(settings.resident_mode);
     updateResidentModeLabel();
     notifyNativeResidentMode(settings.resident_mode);
+    byId("defaultFastGGUFEnabled").checked = settings.default_fast_gguf_enabled !== false;
+    byId("defaultKVCacheQuantizationEnabled").checked = Boolean(settings.default_kv_cache_quantization_enabled);
+    byId("defaultMMapEnabled").checked = Boolean(settings.default_mmap_enabled);
+    byId("defaultDFlashEnabled").checked = Boolean(settings.default_dflash_enabled);
+    updateModelFeatureDefaultLabels();
     byId("hfEndpoint").value = settings.huggingface_endpoint || "";
     byId("defaultRevision").value = settings.default_revision || "main";
     byId("hfToken").value = "";
@@ -104,10 +120,23 @@
   function settingsPayload(scope) {
     const saveGeneral = scope === "general";
     const saveModelSource = scope === "model-source";
+    const saveRuntimeDefaults = scope === "runtime-defaults";
     return {
       model_directory: saveGeneral ? byId("modelDirectory").value.trim() : (settingsState.model_directory || byId("modelDirectory").value.trim()),
       mlx_model_directory: saveGeneral ? byId("mlxModelDirectory").value.trim() : (settingsState.mlx_model_directory || byId("mlxModelDirectory").value.trim()),
       resident_mode: saveGeneral || typeof settingsState.resident_mode !== "boolean" ? byId("residentMode").checked : settingsState.resident_mode,
+      default_fast_gguf_enabled: saveRuntimeDefaults || typeof settingsState.default_fast_gguf_enabled !== "boolean"
+        ? byId("defaultFastGGUFEnabled").checked
+        : settingsState.default_fast_gguf_enabled,
+      default_kv_cache_quantization_enabled: saveRuntimeDefaults || typeof settingsState.default_kv_cache_quantization_enabled !== "boolean"
+        ? byId("defaultKVCacheQuantizationEnabled").checked
+        : settingsState.default_kv_cache_quantization_enabled,
+      default_mmap_enabled: saveRuntimeDefaults || typeof settingsState.default_mmap_enabled !== "boolean"
+        ? byId("defaultMMapEnabled").checked
+        : settingsState.default_mmap_enabled,
+      default_dflash_enabled: saveRuntimeDefaults || typeof settingsState.default_dflash_enabled !== "boolean"
+        ? byId("defaultDFlashEnabled").checked
+        : settingsState.default_dflash_enabled,
       ui_language: saveGeneral ? byId("uiLanguage").value : (settingsState.ui_language || byId("uiLanguage").value),
       ui_theme: saveGeneral ? (document.querySelector('input[name="uiTheme"]:checked')?.value || "tanpopo") : (settingsState.ui_theme || "tanpopo"),
       huggingface_endpoint: saveModelSource ? byId("hfEndpoint").value.trim() : (settingsState.huggingface_endpoint || byId("hfEndpoint").value.trim()),
@@ -126,7 +155,13 @@
         await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
       } catch (error) {
         const rejectedField = error.message.match(/unknown field\s+"([^"]+)"/i)?.[1];
-        const rollingUpdateFields = new Set(["ui_theme"]);
+        const rollingUpdateFields = new Set([
+          "ui_theme",
+          "default_fast_gguf_enabled",
+          "default_kv_cache_quantization_enabled",
+          "default_mmap_enabled",
+          "default_dflash_enabled"
+        ]);
         if (!rejectedField || !rollingUpdateFields.has(rejectedField)) throw error;
         const compatiblePayload = { ...payload };
         delete compatiblePayload[rejectedField];
@@ -750,6 +785,31 @@
   byId("modelSourceForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     await saveSettings("model-source", byId("saveModelSourceButton"), byId("modelSourceMessage"), "模型來源已保存");
+  });
+
+  ["defaultFastGGUFEnabled", "defaultMMapEnabled"].forEach((inputID) => {
+    byId(inputID).addEventListener("change", updateModelFeatureDefaultLabels);
+  });
+  byId("defaultKVCacheQuantizationEnabled").addEventListener("change", () => {
+    if (byId("defaultKVCacheQuantizationEnabled").checked) {
+      byId("defaultDFlashEnabled").checked = false;
+    }
+    updateModelFeatureDefaultLabels();
+  });
+  byId("defaultDFlashEnabled").addEventListener("change", () => {
+    if (byId("defaultDFlashEnabled").checked) {
+      byId("defaultKVCacheQuantizationEnabled").checked = false;
+    }
+    updateModelFeatureDefaultLabels();
+  });
+  byId("runtimeDefaultsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSettings(
+      "runtime-defaults",
+      byId("saveRuntimeDefaultsButton"),
+      byId("runtimeDefaultsMessage"),
+      "功能預設已保存"
+    );
   });
 
   document.querySelectorAll("[data-netpass-settings-target]").forEach((button) => {

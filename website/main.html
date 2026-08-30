@@ -6,9 +6,9 @@
   <title>Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260830-41">
-  <script src="/assets/common.js?v=20260830-59" defer></script>
-  <script src="/assets/runtime.js?v=20260830-34" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260831-48">
+  <script src="/assets/common.js?v=20260831-67" defer></script>
+  <script src="/assets/runtime.js?v=20260831-3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -64,10 +64,10 @@
           </div>
           <dl class="status-list">
             <div><dt>Runtime</dt><dd id="runningRuntime">—</dd></div>
+            <div><dt>PID</dt><dd id="runningPID">—</dd></div>
             <div><dt>模型</dt><dd id="runningModel">—</dd></div>
             <div id="runningMMProjRow" hidden><dt>mmproj</dt><dd id="runningMMProj">—</dd></div>
             <div id="runningDraftRow"><dt>Draft</dt><dd id="runningDraft">—</dd></div>
-            <div><dt>PID</dt><dd id="runningPID">—</dd></div>
             <div class="api-url-row">
               <dt>API Base URL</dt>
               <dd class="api-url-cell">
@@ -100,7 +100,7 @@
             <div class="runtime-advanced-summary">
               <div class="runtime-advanced-copy">
                 <strong>進階設定</strong>
-                <p class="helper">設定 KV Cache 量化、MMap 與 DFlash。</p>
+                <p class="helper">設定快速GGUF模式、KV Cache 量化、MMap 與 DFlash。</p>
               </div>
               <button id="advancedSettingsButton" class="advanced-settings-button" type="button"
                 aria-label="進階設定" title="進階設定" aria-haspopup="dialog"
@@ -115,12 +115,23 @@
               <div class="runtime-advanced-heading">
                 <div>
                   <strong id="runtimeAdvancedTitle">進階設定</strong>
-                  <p>設定 KV Cache 量化、MMap 與 DFlash。</p>
+                  <p>設定快速GGUF模式、KV Cache 量化、MMap 與 DFlash。</p>
                 </div>
                 <button id="closeAdvancedSettingsButton" class="runtime-advanced-close" type="button"
                   aria-label="關閉">×</button>
               </div>
               <div class="runtime-advanced-options">
+                <div id="fastGGUFControl" class="runtime-feature-control">
+                  <div class="runtime-feature-copy">
+                    <strong>快速GGUF模式</strong>
+                    <p id="fastGGUFMeta" class="helper">以 INT4、自動 Group 與 recurrent 控制投影 BF16 提高 MLX + GGUF 生成速度；屬實驗模式，可能明顯影響精度。</p>
+                  </div>
+                  <label class="runtime-switch" for="fastGGUFToggle">
+                    <input id="fastGGUFToggle" type="checkbox" role="switch" aria-label="啟用快速GGUF模式" disabled>
+                    <span class="runtime-switch-track" aria-hidden="true"></span>
+                    <span class="runtime-switch-label">啟用</span>
+                  </label>
+                </div>
                 <div id="kvCacheQuantizationControl" class="runtime-feature-control">
                   <div class="runtime-feature-copy">
                     <strong>KV Cache 量化</strong>
@@ -183,6 +194,34 @@
     </section>
   </main>
 
+  <dialog id="modelConversionConfirmDialog" class="runtime-test-dialog conversion-confirm-dialog"
+    aria-labelledby="modelConversionConfirmTitle" aria-describedby="modelConversionConfirmDescription">
+    <article class="runtime-test-card">
+      <header class="runtime-test-heading">
+        <div>
+          <p class="section-kicker">MODEL CONVERSION</p>
+          <h3 id="modelConversionConfirmTitle">模型需要轉換</h3>
+        </div>
+      </header>
+      <div class="runtime-test-body conversion-confirm-body">
+        <p id="modelConversionConfirmDescription">
+          本次啟動找不到可重用的轉換快取。轉換完成後會永久保存權重，避免下次重新轉換。
+        </p>
+        <dl class="conversion-confirm-details">
+          <div><dt>模型</dt><dd id="modelConversionConfirmModel">—</dd></div>
+          <div><dt>預估新增硬碟容量</dt><dd id="modelConversionConfirmSize">—</dd></div>
+        </dl>
+        <p class="muted conversion-confirm-note">實際容量可能因權重形狀與檔案系統配置略有差異。</p>
+        <p class="muted conversion-confirm-note">選擇「不建立快取直接啟動」不會寫入永久快取；GGUF 權重仍會在記憶體中即時準備為 MLX 可執行格式，下次啟動會再次處理。</p>
+      </div>
+      <footer class="runtime-test-actions">
+        <button id="cancelModelConversionButton" class="button secondary" type="button">取消</button>
+        <button id="skipModelConversionCacheButton" class="button secondary" type="button">不建立快取直接啟動</button>
+        <button id="confirmModelConversionButton" class="button primary" type="button">轉換並啟動</button>
+      </footer>
+    </article>
+  </dialog>
+
   <dialog id="modelLoadingDialog" class="refresh-dialog model-loading-dialog"
     aria-labelledby="modelLoadingDialogTitle" aria-describedby="modelLoadingDialogDescription">
     <article class="refresh-dialog-card model-loading-card">
@@ -190,7 +229,18 @@
       <div class="refresh-dialog-copy">
         <p class="section-kicker">MODEL LOADING</p>
         <h3 id="modelLoadingDialogTitle">正在載入模型</h3>
-        <p id="modelLoadingDialogDescription">部分模型過大且可能需要轉換，請耐心等候。</p>
+        <p id="modelLoadingDialogModel" class="model-loading-name">模型：—</p>
+        <p id="modelLoadingDialogDescription">部分模型可能需要轉換，請耐心等候。</p>
+        <div id="modelLoadingProgress" class="model-loading-progress">
+          <div class="model-loading-progress-meta">
+            <span id="modelLoadingProgressStage">準備中…</span>
+            <strong id="modelLoadingProgressPercent">—</strong>
+          </div>
+          <div id="modelLoadingProgressTrack" class="progress-track model-loading-progress-track"
+            role="progressbar" aria-label="模型準備進度">
+            <div id="modelLoadingProgressBar" class="progress-bar model-loading-progress-bar indeterminate"></div>
+          </div>
+        </div>
       </div>
       <button id="closeModelLoadingDialog" class="model-loading-close" type="button"
         aria-label="收合提示" title="收合提示">×</button>

@@ -1,0 +1,5 @@
+strategy,profile,group_size,recurrent_promotion,accuracy_samples,correct,accuracy,invalid,agreement_native,agreement_llama,server_tokens_per_second,wall_tokens_per_second,cold_start_seconds,peak_process_rss_gib
+Native MLX,native,64,none,100,67,0.6700,1,1.0000,0.8600,73.445,67.540,7.206,2.394
+fastGGUF baseline,speed,64,none,100,41,0.4100,29,0.4700,0.4700,72.121,66.537,51.311,3.664
+fastGGUF recurrent controls,speed,64,controls,100,59,0.5900,3,0.7500,0.7700,73.630,65.871,51.618,3.301
+llama GGUF,llama,Q4_0,none,100,72,0.7200,1,0.8600,1.0000,52.358,51.556,0.820,3.098

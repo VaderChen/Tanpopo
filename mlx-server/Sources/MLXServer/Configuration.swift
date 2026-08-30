@@ -6,8 +6,16 @@ enum ModelKind: String, Sendable {
     case vision
 }
 
+/// fastGGUF 的 recurrent 混合精度策略。判斷依據是 GGUF tensor 的語意角色，
+/// 不綁定模型名稱；`controls` 僅將 decay／update 控制投影保留為 BF16。
+enum GGUFRecurrentPromotionPolicy: String, Sendable {
+    case disabled = "off"
+    case controls
+    case all
+}
+
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap-fastgguf-cache4"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -20,7 +28,9 @@ struct ServerConfiguration: Sendable {
     var maxKVSize: Int?
     var kvBits: Int?
     var kvGroupSize = 64
-    var quantizedKVStart = 0
+    // KV Cache 量化以節省長 Context 記憶體為主；先讓短 Context 維持 BF16，
+    // 避免在最常見的 decode 路徑過早支付量化／反量化成本。
+    var quantizedKVStart = 2048
     var kvScheme: String?
     var prefillStepSize = 512
     var temperature: Float = 0.6
@@ -32,8 +42,14 @@ struct ServerConfiguration: Sendable {
     var accessControlPath: String?
     var dflashDraftPath: String?
     var dflashBlockSize = 5
-    var ggufGroupSize = 64
-    var ggufProfile = GGUFQuantizationProfile.quality
+    // nil 代表依所有量化 tensor 的實際維度自動選擇：優先 64，不相容才降級 32。
+    // 這是資料驅動的全模型策略，不依賴模型名稱或固定樣本。
+    var ggufGroupSize: Int?
+    var ggufProfile = GGUFQuantizationProfile.automatic
+    var ggufRecurrentPromotion = GGUFRecurrentPromotionPolicy.disabled
+    var ggufCacheDirectory: String?
+    var ggufCacheEnabled = true
+    var inspectGGUFCache = false
     // Tanpopo 進階設定控制是否啟用，Profile 則提供記憶體保留目標。
     var memoryMappingEnabled = false
     var mmapReserveGB = 0
@@ -128,9 +144,14 @@ struct ServerConfiguration: Sendable {
                 result.dflashBlockSize = try parseInteger(
                     nextValue(for: option), option: option, range: 2...256)
             case "--gguf-group-size":
-                let value = try parseInteger(nextValue(for: option), option: option, range: 32...64)
+                let rawValue = try nextValue(for: option).lowercased()
+                if rawValue == "auto" {
+                    result.ggufGroupSize = nil
+                    break
+                }
+                let value = try parseInteger(rawValue, option: option, range: 32...64)
                 guard value == 32 || value == 64 else {
-                    throw ConfigurationError.invalidValue(option, String(value))
+                    throw ConfigurationError.invalidValue(option, rawValue)
                 }
                 result.ggufGroupSize = value
             case "--gguf-profile":
@@ -139,6 +160,23 @@ struct ServerConfiguration: Sendable {
                     throw ConfigurationError.invalidValue(option, value)
                 }
                 result.ggufProfile = profile
+            case "--gguf-recurrent-promotion":
+                let value = try nextValue(for: option).lowercased()
+                guard let policy = GGUFRecurrentPromotionPolicy(rawValue: value) else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.ggufRecurrentPromotion = policy
+            case "--gguf-cache-dir":
+                let value = try nextValue(for: option)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.ggufCacheDirectory = value
+            case "--no-gguf-cache":
+                result.ggufCacheEnabled = false
+            case "--inspect-gguf-cache":
+                result.inspectGGUFCache = true
             case "--mmap":
                 result.memoryMappingEnabled = true
             case "--no-mmap":
@@ -171,6 +209,9 @@ struct ServerConfiguration: Sendable {
         }
         if let dflashDraftPath = result.dflashDraftPath {
             result.dflashDraftPath = NSString(string: dflashDraftPath).expandingTildeInPath
+        }
+        if let ggufCacheDirectory = result.ggufCacheDirectory {
+            result.ggufCacheDirectory = NSString(string: ggufCacheDirectory).expandingTildeInPath
         }
         guard !result.modelPath.isEmpty else {
             throw ConfigurationError.missingModel
@@ -244,9 +285,15 @@ struct ServerConfiguration: Sendable {
       --port <Port>               監聽連接埠，預設 8080
       --model-type <類型>          auto、text 或 vision，預設 auto
       --mmproj <GGUF 檔案>         GGUF 多模態視覺投影檔
-      --gguf-group-size <32|64>    GGUF 權重量化群組大小，預設 64
-      --gguf-profile <quality|speed>
-                                   GGUF 轉換策略，預設 quality
+      --gguf-group-size <auto|32|64>
+                                   GGUF 權重量化群組大小，預設 auto（優先 64）
+      --gguf-profile <auto|quality|speed>
+                                   GGUF 轉換策略，預設 auto
+      --gguf-recurrent-promotion <off|controls|all>
+                                   recurrent tensor 混合精度策略，預設 off
+      --gguf-cache-dir <目錄>      GGUF 轉換後權重的永久快取目錄
+      --no-gguf-cache              不讀寫永久快取，僅在本次啟動轉換權重
+      --inspect-gguf-cache         只輸出本次轉換與快取預檢 JSON，不啟動服務
       --mmap                        以檔案映射載入支援的模型權重
       --no-mmap                     關閉模型權重檔案映射（預設）
       --mmap-reserve-gb <數值>      記憶體保留目標：0、4、8、16、24、32、48、64、96 或 128 GB
@@ -256,7 +303,7 @@ struct ServerConfiguration: Sendable {
       --kv-group-size <數量>       KV Cache 量化群組大小，預設 64
       --kv-scheme <affine4|affine8>
                                    KV Cache 壓縮格式，會覆蓋 --kv-bits 與 --kv-group-size
-      --quantized-kv-start <數量>  KV Cache 累積超過此 Token 數才開始量化，預設 0
+      --quantized-kv-start <數量>  KV Cache 累積超過此 Token 數才開始量化，預設 2048
       --prefill-step-size <數量>   Prompt 預填批次，預設 512
       --temperature <數值>         預設 0.6
       --top-p <數值>               預設 1.0

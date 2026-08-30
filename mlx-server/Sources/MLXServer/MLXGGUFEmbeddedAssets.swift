@@ -6,7 +6,9 @@ import Tokenizers
 
 enum MLXGGUFEmbeddedAssets {
     /// 專屬處理的架構；與 `configurationData` 的 switch 保持一致。
-    private static let dedicatedArchitectures = ["qwen35", "qwen3", "qwen2", "llama"]
+    private static let dedicatedArchitectures = [
+        "apertus", "gemma3", "gemma4", "qwen35", "qwen3", "qwen2", "llama"
+    ]
 
     /// 這個 Runtime 能從 GGUF metadata 直接組出設定的架構（正規化後的名稱）。
     static var supportedGGUFArchitectures: [String] {
@@ -22,23 +24,48 @@ enum MLXGGUFEmbeddedAssets {
             throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
         }
 
-        let configuration: [String: Any]
+        var configuration: [String: Any]
         switch normalizedArchitecture(architecture) {
+        case "apertus":
+            let tensorNames = try MLXGGUFLoader.tensorNames(from: weightURL)
+            configuration = try apertusConfiguration(
+                metadata: metadata,
+                prefix: architecture,
+                tensorNames: tensorNames
+            )
+        case "gemma3":
+            let tensorNames = try MLXGGUFLoader.tensorNames(from: weightURL)
+            configuration = try gemma3TextConfiguration(
+                metadata: metadata,
+                prefix: architecture,
+                tensorNames: tensorNames
+            )
+        case "gemma4":
+            let tensorNames = try MLXGGUFLoader.tensorNames(from: weightURL)
+            configuration = try gemma4TextConfiguration(
+                metadata: metadata,
+                prefix: architecture,
+                tensorNames: tensorNames
+            )
         case "qwen35":
-            let hasOutputWeight = try MLXGGUFLoader.inspect(from: weightURL)
-                .tensors
-                .contains { $0.name == "output.weight" }
-            // 優先沿用模型自己的 tie_word_embeddings 設定；只有 GGUF
-            // 沒有可用設定時，才以缺少 output.weight 作為保守 fallback。
-            let configuredTieWordEmbeddings = configuredTieWordEmbeddings(
+            let hasOutputWeight = try MLXGGUFLoader.tensorNames(from: weightURL)
+                .contains("output.weight")
+            // GGUF metadata 不一定保留 layer_types、gating 與完整 RoPE
+            // 語意；同目錄有 Hugging Face config 時以它為語意基準，
+            // 再由 Tensor contract 確認形狀一致。
+            let configuredTextConfiguration = configuredQwen35TextConfiguration(
                 in: weightURL.deletingLastPathComponent()
             )
+            let configuredTieWordEmbeddings = configuredTextConfiguration?[
+                "tie_word_embeddings"
+            ] as? Bool
             configuration = try qwen35Configuration(
                 metadata: metadata,
                 projectorMetadata: try mmprojURL.map {
                     try MLXGGUFLoader.metadata(from: $0)
                 },
                 isVision: mmprojURL != nil,
+                configuredTextConfiguration: configuredTextConfiguration,
                 configuredTieWordEmbeddings: configuredTieWordEmbeddings,
                 hasOutputWeight: hasOutputWeight
             )
@@ -68,6 +95,11 @@ enum MLXGGUFEmbeddedAssets {
             )
         }
 
+        configuration = addingTokenizerTokenIDs(
+            to: configuration,
+            metadata: metadata
+        )
+
         guard JSONSerialization.isValidJSONObject(configuration) else {
             throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
         }
@@ -76,6 +108,102 @@ enum MLXGGUFEmbeddedAssets {
         } catch {
             throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL)
         }
+    }
+
+    /// 將 GGUF tokenizer 的特殊 token ID 補入合成設定。
+    ///
+    /// `BaseConfiguration` 會以 `eos_token_id` 建立生成停止條件；若省略，即使模型
+    /// 已生成結束符號，Runtime 仍會把它當成一般文字繼續解碼。其餘 ID 一併保存，
+    /// 讓有讀取這些欄位的模型設定能沿用原始 tokenizer 語意。
+    static func addingTokenizerTokenIDs(
+        to configuration: [String: Any],
+        metadata: [String: MLXGGUFMetadataValue]
+    ) -> [String: Any] {
+        var result = configuration
+        let stopTokenIDs = generationStopTokenIDs(
+            configuration: configuration,
+            metadata: metadata
+        )
+        if stopTokenIDs.count == 1 {
+            result["eos_token_id"] = stopTokenIDs[0]
+        } else if !stopTokenIDs.isEmpty {
+            result["eos_token_id"] = stopTokenIDs
+        }
+
+        for (metadataKey, configurationKey) in [
+            ("tokenizer.ggml.bos_token_id", "bos_token_id"),
+            ("tokenizer.ggml.padding_token_id", "pad_token_id"),
+            ("tokenizer.ggml.unknown_token_id", "unk_token_id")
+        ] {
+            if let tokenID = integer(metadataKey, in: metadata) {
+                result[configurationKey] = tokenID
+            }
+        }
+        return result
+    }
+
+    /// GGUF 的 `eos_token_id` 有時只保留基礎 tokenizer 的 `</s>`，但 chat
+    /// template 實際以 `<|assistant_end|>`、`<|im_end|>` 或 `<end_of_turn>`
+    /// 結束回答。從模板中實際出現的控制 token 推導額外停止 ID，避免模型已結束
+    /// 回答卻繼續生成；普通字彙及只屬於 system/user 的結束符號不會被納入。
+    static func generationStopTokenIDs(
+        configuration: [String: Any],
+        metadata: [String: MLXGGUFMetadataValue]
+    ) -> [Int] {
+        var result = [Int]()
+        func append(_ tokenID: Int) {
+            guard tokenID >= 0, !result.contains(tokenID) else { return }
+            result.append(tokenID)
+        }
+
+        if let values = configuration["eos_token_id"] as? [Int] {
+            values.forEach(append)
+        } else if let value = configuration["eos_token_id"] as? Int {
+            append(value)
+        }
+        if let value = integer("tokenizer.ggml.eos_token_id", in: metadata) {
+            append(value)
+        }
+
+        guard let template = metadata["tokenizer.chat_template"]?.stringValue,
+              let tokens = metadata["tokenizer.ggml.tokens"]?.arrayValue else {
+            return result
+        }
+        let tokenTypes = metadata["tokenizer.ggml.token_type"]?.arrayValue
+        let stopMarkers = [
+            "assistant_end", "end_assistant", "end_of_turn", "end_of_message",
+            "eot_id", "eom_id", "im_end", "end_of_text"
+        ]
+        for (tokenID, value) in tokens.enumerated() {
+            // 一般字彙占大型 tokenizer 的絕大多數，先依 token type 排除，
+            // 再比對少量結束標記；只有候選控制 token 才搜尋 chat template。
+            // 避免對數十萬個普通 token 逐一執行 template.contains(token)。
+            if let tokenTypes,
+               tokenTypes.indices.contains(tokenID),
+               tokenTypes[tokenID].integerValue == 1 {
+                continue
+            }
+            guard let token = value.stringValue,
+                  !token.isEmpty,
+                  stopMarkers.contains(where: token.lowercased().contains),
+                  template.contains(token) else {
+                continue
+            }
+            append(tokenID)
+        }
+        return result
+    }
+
+    /// 是否認得這份 GGUF 的架構並能嘗試直接從 metadata 建立設定。
+    ///
+    /// 這裡只判斷架構，不提前吞掉設定合成錯誤。如此一來，已登記架構中的特殊變體
+    /// 會在真正載入時回報精確原因，而不會被誤判成缺少 `config.json`。
+    static func recognizesEmbeddedConfiguration(at weightURL: URL) -> Bool {
+        guard let metadata = try? MLXGGUFLoader.metadata(from: weightURL),
+              let architecture = metadata["general.architecture"]?.stringValue else {
+            return false
+        }
+        return supportedGGUFArchitectures.contains(normalizedArchitecture(architecture))
     }
 
     static func processorConfigurationData(
@@ -236,33 +364,24 @@ enum MLXGGUFEmbeddedAssets {
         metadata: [String: MLXGGUFMetadataValue],
         projectorMetadata: [String: MLXGGUFMetadataValue]?,
         isVision: Bool,
+        configuredTextConfiguration: [String: Any]?,
         configuredTieWordEmbeddings: Bool?,
         hasOutputWeight: Bool
     ) throws -> [String: Any] {
         var textConfiguration = try qwen35TextConfiguration(metadata: metadata)
+        if let configuredTextConfiguration {
+            // 外部 config 是模型作者定義的 Runtime 語意；GGUF
+            // metadata 仍擔任沒有 config 時的完整 fallback。
+            textConfiguration.merge(configuredTextConfiguration) { _, configured in
+                configured
+            }
+        }
         let tieWordEmbeddings = configuredTieWordEmbeddings ?? !hasOutputWeight
+        textConfiguration["model_type"] = "qwen3_5_text"
         textConfiguration["tie_word_embeddings"] = tieWordEmbeddings
         guard isVision, let projectorMetadata else {
-            return [
-                "model_type": "qwen3_5_text",
-                "architectures": ["Qwen3_5ForCausalLM"],
-                "tie_word_embeddings": tieWordEmbeddings,
-                "hidden_size": textConfiguration["hidden_size"]!,
-                "num_hidden_layers": textConfiguration["num_hidden_layers"]!,
-                "intermediate_size": textConfiguration["intermediate_size"]!,
-                "num_attention_heads": textConfiguration["num_attention_heads"]!,
-                "num_key_value_heads": textConfiguration["num_key_value_heads"]!,
-                "head_dim": textConfiguration["head_dim"]!,
-                "rms_norm_eps": textConfiguration["rms_norm_eps"]!,
-                "vocab_size": textConfiguration["vocab_size"]!,
-                "rope_parameters": textConfiguration["rope_parameters"]!,
-                "full_attention_interval": textConfiguration["full_attention_interval"]!,
-                "linear_num_value_heads": textConfiguration["linear_num_value_heads"]!,
-                "linear_num_key_heads": textConfiguration["linear_num_key_heads"]!,
-                "linear_key_head_dim": textConfiguration["linear_key_head_dim"]!,
-                "linear_value_head_dim": textConfiguration["linear_value_head_dim"]!,
-                "linear_conv_kernel_dim": textConfiguration["linear_conv_kernel_dim"]!
-            ]
+            textConfiguration["architectures"] = ["Qwen3_5ForCausalLM"]
+            return textConfiguration
         }
 
         let visionConfiguration = try qwen35VisionConfiguration(from: projectorMetadata)
@@ -289,20 +408,21 @@ enum MLXGGUFEmbeddedAssets {
         return result
     }
 
-    /// GGUF metadata 通常沒有 tie_word_embeddings；若同目錄提供 Hugging
-    /// Face config.json，則以它作為常規設定來源。找不到設定時由呼叫端
-    /// 以 GGUF 是否含 output.weight 執行 fallback 判斷。
-    private static func configuredTieWordEmbeddings(in directoryURL: URL) -> Bool? {
+    /// 讀取 Qwen3.5 的作者設定。多模態 config 取 `text_config`；
+    /// 純文字 config 則直接使用根層。
+    private static func configuredQwen35TextConfiguration(
+        in directoryURL: URL
+    ) -> [String: Any]? {
         let configurationURL = directoryURL.appendingPathComponent("config.json")
         guard let data = try? Data(contentsOf: configurationURL),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
 
-        if let textConfiguration = root["text_config"] as? [String: Any],
-           let value = textConfiguration["tie_word_embeddings"] as? Bool {
-            return value
+        if let textConfiguration = root["text_config"] as? [String: Any] {
+            return textConfiguration
         }
-        return root["tie_word_embeddings"] as? Bool
+        let modelType = root["model_type"] as? String
+        return modelType == "qwen3_5" || modelType == "qwen3_5_text" ? root : nil
     }
 
     private static func qwen35TextConfiguration(
@@ -426,6 +546,359 @@ enum MLXGGUFEmbeddedAssets {
         "smollm3": "smollm3"
     ]
 
+    private struct Gemma4FeedForwardLayout {
+        let intermediateSize: Int
+        let usesDoubleWideMLP: Bool
+    }
+
+    /// Gemma 3 的 GGUF 仍保留四組殘差正規化權重，不能走把 `ffn_norm`
+    /// 視為 attention 後正規化的通用映射。設定本身可完整由 metadata 還原。
+    static func gemma3TextConfiguration(
+        metadata: [String: MLXGGUFMetadataValue],
+        prefix: String,
+        tensorNames: [String]
+    ) throws -> [String: Any] {
+        guard let hiddenSize = integer("\(prefix).embedding_length", in: metadata),
+              let hiddenLayers = integer("\(prefix).block_count", in: metadata),
+              let intermediateSize = integer("\(prefix).feed_forward_length", in: metadata),
+              let attentionHeads = integer("\(prefix).attention.head_count", in: metadata),
+              let vocabularySize = metadata["tokenizer.ggml.tokens"]?.arrayValue?.count,
+              hiddenSize > 0,
+              hiddenLayers > 0,
+              intermediateSize > 0,
+              attentionHeads > 0,
+              vocabularySize > 0 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+
+        let unmappedNames = MLXGGUFWeightNameNormalizer.unmappedNames(
+            tensorNames,
+            modelType: "gemma3_text"
+        )
+        guard unmappedNames.isEmpty else {
+            throw MLXGGUFLoaderError.unmappedWeights(
+                architecture: "gemma3",
+                names: Array(unmappedNames.prefix(8))
+            )
+        }
+
+        let headDim = integer("\(prefix).attention.key_length", in: metadata)
+            ?? hiddenSize / attentionHeads
+        var configuration: [String: Any] = [
+            "model_type": "gemma3_text",
+            "architectures": ["Gemma3ForCausalLM"],
+            "hidden_size": hiddenSize,
+            "num_hidden_layers": hiddenLayers,
+            "intermediate_size": intermediateSize,
+            "num_attention_heads": attentionHeads,
+            "num_key_value_heads": integer(
+                "\(prefix).attention.head_count_kv",
+                in: metadata
+            ) ?? attentionHeads,
+            "head_dim": headDim,
+            "rms_norm_eps": float(
+                "\(prefix).attention.layer_norm_rms_epsilon",
+                in: metadata
+            ) ?? 1e-6,
+            "vocab_size": vocabularySize,
+            "rope_theta": float("\(prefix).rope.freq_base", in: metadata) ?? 1_000_000,
+            "rope_local_base_freq": float(
+                "\(prefix).rope.freq_base_swa",
+                in: metadata
+            ) ?? 10_000,
+            "rope_traditional": false,
+            "query_pre_attn_scalar": float(
+                "\(prefix).attention.query_pre_attn_scalar",
+                in: metadata
+            ) ?? Float(headDim),
+            "sliding_window": integer(
+                "\(prefix).attention.sliding_window",
+                in: metadata
+            ) ?? 1_024,
+            "sliding_window_pattern": integer(
+                "\(prefix).attention.sliding_window_pattern",
+                in: metadata
+            ) ?? 6,
+            "max_position_embeddings": integer("\(prefix).context_length", in: metadata)
+                ?? 131_072
+        ]
+        if let factor = float("\(prefix).rope.scaling.factor", in: metadata) {
+            configuration["rope_scaling"] = [
+                "factor": factor,
+                "rope_type": metadata["\(prefix).rope.scaling.type"]?.stringValue ?? "linear"
+            ]
+        }
+        return configuration
+    }
+
+    /// Apertus 的 attention／FFN norm 名稱與標準 Llama 佈局不同，MLP 也使用
+    /// xIELU 而沒有 gate projection；因此以專屬映射保留原生模型的拓樸。
+    static func apertusConfiguration(
+        metadata: [String: MLXGGUFMetadataValue],
+        prefix: String,
+        tensorNames: [String]
+    ) throws -> [String: Any] {
+        guard let hiddenSize = integer("\(prefix).embedding_length", in: metadata),
+              let hiddenLayers = integer("\(prefix).block_count", in: metadata),
+              let intermediateSize = integer("\(prefix).feed_forward_length", in: metadata),
+              let attentionHeads = integer("\(prefix).attention.head_count", in: metadata),
+              let vocabularySize = integer("\(prefix).vocab_size", in: metadata)
+                ?? metadata["tokenizer.ggml.tokens"]?.arrayValue?.count,
+              hiddenSize > 0,
+              hiddenLayers > 0,
+              intermediateSize > 0,
+              attentionHeads > 0,
+              vocabularySize > 0 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+
+        let xieluKeys = ["alpha_p", "alpha_n", "beta", "eps"]
+        for key in xieluKeys {
+            guard let values = arrayOfFloats("xielu.\(key)", in: metadata),
+                  values.count == hiddenLayers else {
+                throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                    architecture: "apertus",
+                    reason: "缺少完整的逐層 xIELU \(key) 參數"
+                )
+            }
+        }
+
+        let unmappedNames = MLXGGUFWeightNameNormalizer.unmappedNames(
+            tensorNames,
+            modelType: "apertus"
+        )
+        guard unmappedNames.isEmpty else {
+            throw MLXGGUFLoaderError.unmappedWeights(
+                architecture: "apertus",
+                names: Array(unmappedNames.prefix(8))
+            )
+        }
+
+        var configuration: [String: Any] = [
+            "model_type": "apertus",
+            "architectures": ["ApertusForCausalLM"],
+            "hidden_size": hiddenSize,
+            "num_hidden_layers": hiddenLayers,
+            "intermediate_size": intermediateSize,
+            "num_attention_heads": attentionHeads,
+            "num_key_value_heads": integer(
+                "\(prefix).attention.head_count_kv",
+                in: metadata
+            ) ?? attentionHeads,
+            "rms_norm_eps": float(
+                "\(prefix).attention.layer_norm_rms_epsilon",
+                in: metadata
+            ) ?? 1e-5,
+            "vocab_size": vocabularySize,
+            "tie_word_embeddings": !tensorNames.contains("output.weight"),
+            "max_position_embeddings": integer("\(prefix).context_length", in: metadata)
+                ?? 262_144,
+            "rope_theta": float("\(prefix).rope.freq_base", in: metadata) ?? 1_000_000,
+            "rope_traditional": false
+        ]
+        if let factor = float("\(prefix).rope.scaling.factor", in: metadata) {
+            configuration["rope_scaling"] = [
+                "factor": factor,
+                "rope_type": metadata["\(prefix).rope.scaling.type"]?.stringValue ?? "linear"
+            ]
+        }
+        return configuration
+    }
+
+    /// 從 llama.cpp 寫入的 Gemma 4 GGUF metadata 還原文字模型設定。
+    ///
+    /// Gemma 4 E2B/E4B 不只是尺寸不同：它們包含 PLE、尾端共享 K/V，E2B 的共享
+    /// 層還會把 MLP 寬度加倍。因此不能用單一固定 config，也不能把逐層陣列硬取第一
+    /// 個值。此處只接受目前 `Gemma4TextModel` 能精確表達的兩種 FFN 版型：全層同寬，
+    /// 或從第一個共享 K/V 層開始恰好加倍；其他版型會留下可診斷的錯誤。
+    static func gemma4TextConfiguration(
+        metadata: [String: MLXGGUFMetadataValue],
+        prefix: String,
+        tensorNames: [String]
+    ) throws -> [String: Any] {
+        guard let hiddenSize = integer("\(prefix).embedding_length", in: metadata),
+              let hiddenLayers = integer("\(prefix).block_count", in: metadata),
+              let attentionHeads = integer("\(prefix).attention.head_count", in: metadata),
+              let vocabularySize = metadata["tokenizer.ggml.tokens"]?.arrayValue?.count,
+              let slidingHeadDim = integer(
+                  "\(prefix).attention.key_length_swa",
+                  in: metadata
+              ),
+              let globalHeadDim = integer("\(prefix).attention.key_length", in: metadata),
+              let hiddenSizePerLayerInput = integer(
+                  "\(prefix).embedding_length_per_layer_input",
+                  in: metadata
+              ),
+              let sharedKVLayers = integer(
+                  "\(prefix).attention.shared_kv_layers",
+                  in: metadata
+              ),
+              hiddenSize > 0,
+              hiddenLayers > 0,
+              attentionHeads > 0,
+              vocabularySize > 0,
+              slidingHeadDim > 0,
+              globalHeadDim > 0,
+              hiddenSizePerLayerInput >= 0,
+              sharedKVLayers >= 0,
+              sharedKVLayers < hiddenLayers else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+
+        let expertWeightNames = tensorNames.filter {
+            $0.contains(".ffn_gate_inp.")
+                || $0.contains(".ffn_gate_exps.")
+                || $0.contains(".ffn_up_exps.")
+                || $0.contains(".ffn_down_exps.")
+        }
+        guard expertWeightNames.isEmpty else {
+            throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                architecture: "gemma4",
+                reason: "目前 MLX 文字模型尚未提供 GGUF MoE expert 權重布局"
+            )
+        }
+
+        let layerTypes = try gemma4LayerTypes(
+            metadata: metadata,
+            prefix: prefix,
+            hiddenLayers: hiddenLayers
+        )
+        let feedForwardLayout = try gemma4FeedForwardLayout(
+            metadata: metadata,
+            prefix: prefix,
+            hiddenLayers: hiddenLayers,
+            sharedKVLayers: sharedKVLayers
+        )
+        let unmappedNames = MLXGGUFWeightNameNormalizer.unmappedNames(
+            tensorNames,
+            modelType: "gemma4_text"
+        )
+        guard unmappedNames.isEmpty else {
+            throw MLXGGUFLoaderError.unmappedWeights(
+                architecture: "gemma4",
+                names: Array(unmappedNames.prefix(8))
+            )
+        }
+
+        let fullRotaryDimensions = integer("\(prefix).rope.dimension_count", in: metadata)
+            ?? globalHeadDim
+        let fullPartialRotaryFactor = Float(fullRotaryDimensions) / Float(globalHeadDim)
+        guard fullPartialRotaryFactor > 0, fullPartialRotaryFactor <= 1 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+
+        let kvHeads = integer("\(prefix).attention.head_count_kv", in: metadata)
+            ?? attentionHeads
+        let hasValueProjection = tensorNames.contains {
+            $0.hasPrefix("blk.") && $0.contains(".attn_v.")
+        }
+        let hasOutputWeight = tensorNames.contains("output.weight")
+        return [
+            "model_type": "gemma4_text",
+            "architectures": ["Gemma4ForCausalLM"],
+            "hidden_size": hiddenSize,
+            "num_hidden_layers": hiddenLayers,
+            "intermediate_size": feedForwardLayout.intermediateSize,
+            "num_attention_heads": attentionHeads,
+            "num_key_value_heads": kvHeads,
+            "head_dim": slidingHeadDim,
+            "global_head_dim": globalHeadDim,
+            "rms_norm_eps": float(
+                "\(prefix).attention.layer_norm_rms_epsilon",
+                in: metadata
+            ) ?? 1e-6,
+            "vocab_size": vocabularySize,
+            "vocab_size_per_layer_input": vocabularySize,
+            "num_kv_shared_layers": sharedKVLayers,
+            "hidden_size_per_layer_input": hiddenSizePerLayerInput,
+            "sliding_window": integer("\(prefix).attention.sliding_window", in: metadata)
+                ?? 512,
+            "max_position_embeddings": integer("\(prefix).context_length", in: metadata)
+                ?? 131_072,
+            "attention_k_eq_v": !hasValueProjection,
+            "final_logit_softcapping": float(
+                "\(prefix).final_logit_softcapping",
+                in: metadata
+            ) ?? 30,
+            "use_double_wide_mlp": feedForwardLayout.usesDoubleWideMLP,
+            "layer_types": layerTypes,
+            "tie_word_embeddings": !hasOutputWeight,
+            "rope_parameters": [
+                "sliding_attention": [
+                    "rope_theta": float("\(prefix).rope.freq_base_swa", in: metadata)
+                        ?? 10_000,
+                    "rope_type": "default"
+                ],
+                "full_attention": [
+                    "rope_theta": float("\(prefix).rope.freq_base", in: metadata)
+                        ?? 1_000_000,
+                    "partial_rotary_factor": fullPartialRotaryFactor,
+                    "rope_type": "proportional"
+                ]
+            ]
+        ]
+    }
+
+    private static func gemma4LayerTypes(
+        metadata: [String: MLXGGUFMetadataValue],
+        prefix: String,
+        hiddenLayers: Int
+    ) throws -> [String] {
+        guard let pattern = arrayOfBooleans(
+            "\(prefix).attention.sliding_window_pattern",
+            in: metadata
+        ), pattern.count == hiddenLayers else {
+            throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                architecture: "gemma4",
+                reason: "缺少完整的逐層 sliding_window_pattern"
+            )
+        }
+        return pattern.map { $0 ? "sliding_attention" : "full_attention" }
+    }
+
+    private static func gemma4FeedForwardLayout(
+        metadata: [String: MLXGGUFMetadataValue],
+        prefix: String,
+        hiddenLayers: Int,
+        sharedKVLayers: Int
+    ) throws -> Gemma4FeedForwardLayout {
+        let key = "\(prefix).feed_forward_length"
+        let values: [Int]
+        if let scalar = metadata[key]?.integerValue {
+            values = Array(repeating: scalar, count: hiddenLayers)
+        } else if let array = arrayOfIntegers(key, in: metadata), array.count == hiddenLayers {
+            values = array
+        } else {
+            throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                architecture: "gemma4",
+                reason: "feed_forward_length 不是純量或完整的逐層陣列"
+            )
+        }
+        guard let baseSize = values.first, baseSize > 0, values.allSatisfy({ $0 > 0 }) else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        if values.allSatisfy({ $0 == baseSize }) {
+            return Gemma4FeedForwardLayout(
+                intermediateSize: baseSize,
+                usesDoubleWideMLP: false
+            )
+        }
+
+        let firstSharedLayer = hiddenLayers - sharedKVLayers
+        guard sharedKVLayers > 0,
+              values[..<firstSharedLayer].allSatisfy({ $0 == baseSize }),
+              values[firstSharedLayer...].allSatisfy({ $0 == baseSize * 2 }) else {
+            throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                architecture: "gemma4",
+                reason: "逐層 FFN 尺寸無法由目前的共享 K/V 雙寬 MLP 規則表示"
+            )
+        }
+        return Gemma4FeedForwardLayout(
+            intermediateSize: baseSize,
+            usesDoubleWideMLP: true
+        )
+    }
+
     /// 為沒有專屬處理的架構產生標準稠密 Transformer 設定。
     ///
     /// 四道門檻缺一不可：目錄裡沒有使用者自備的 `config.json`（有的話一律以它為
@@ -498,15 +971,27 @@ enum MLXGGUFEmbeddedAssets {
         from metadata: [String: MLXGGUFMetadataValue]
     ) throws -> Config {
         guard let tokens = metadata["tokenizer.ggml.tokens"]?.arrayValue?.compactMap(\.stringValue),
-              let merges = metadata["tokenizer.ggml.merges"]?.arrayValue?.compactMap(\.stringValue),
               !tokens.isEmpty else {
             throw MLXGGUFLoaderError.invalidSize
         }
+        let merges = metadata["tokenizer.ggml.merges"]?.arrayValue?.compactMap(\.stringValue)
+            ?? []
+        let scores = metadata["tokenizer.ggml.scores"]?.arrayValue?.compactMap(\.floatValue)
+            ?? []
         let tokenTypes = metadata["tokenizer.ggml.token_type"]?.arrayValue ?? []
+        let tokenizerModel = normalizedArchitecture(
+            metadata["tokenizer.ggml.model"]?.stringValue ?? ""
+        )
+        let isGemma4Tokenizer = tokenizerModel == "gemma4"
+        let isSentencePieceTokenizer = tokenizerModel == "llama"
+            && merges.isEmpty
+            && scores.count == tokens.count
         let specialIDs = Set([
             integer("tokenizer.ggml.bos_token_id", in: metadata),
             integer("tokenizer.ggml.eos_token_id", in: metadata),
-            integer("tokenizer.ggml.padding_token_id", in: metadata)
+            integer("tokenizer.ggml.padding_token_id", in: metadata),
+            integer("tokenizer.ggml.unknown_token_id", in: metadata),
+            integer("tokenizer.ggml.mask_token_id", in: metadata)
         ].compactMap { $0 })
         let vocabulary = tokens.enumerated().reduce(into: [String: Config]()) { result, item in
             guard tokenTypes[safe: item.offset]?.integerValue == 1 else { return }
@@ -526,8 +1011,27 @@ enum MLXGGUFEmbeddedAssets {
                 "lstrip": Config(false),
                 "rstrip": Config(false),
                 "normalized": Config(false),
-                "special": Config(isEmbeddedSpecialToken(tokens[index]))
+                "special": Config(
+                    isGemma4Tokenizer
+                        || specialIDs.contains(index)
+                        || isEmbeddedSpecialToken(tokens[index])
+                )
             ])
+        }
+        if isGemma4Tokenizer {
+            return gemma4TokenizerData(
+                vocabulary: vocabulary,
+                merges: merges,
+                addedTokens: addedTokens
+            )
+        }
+        if isSentencePieceTokenizer {
+            return sentencePieceTokenizerData(
+                tokens: tokens,
+                scores: scores,
+                addedTokens: addedTokens,
+                unknownTokenID: integer("tokenizer.ggml.unknown_token_id", in: metadata) ?? 0
+            )
         }
         let preTokenizer = Config([
             "type": Config("Sequence"),
@@ -578,6 +1082,153 @@ enum MLXGGUFEmbeddedAssets {
         ])
     }
 
+    /// Gemma 4 使用 SentencePiece 風格的空白標記與 byte fallback。若套用 Qwen 的
+    /// ByteLevel decoder，遇到 `▁` 或一般 Unicode token 時，上游 decoder 會因查不到
+    /// byte 對照而崩潰；因此依 GGUF 的 `tokenizer.ggml.model` 選擇正確管線。
+    private static func gemma4TokenizerData(
+        vocabulary: [String: Config],
+        merges: [String],
+        addedTokens: [Config]
+    ) -> Config {
+        let replaceSpace = Config([
+            "type": Config("Replace"),
+            "pattern": Config(["String": Config(" ")]),
+            "content": Config("▁")
+        ])
+        let splitSpace = Config([
+            "type": Config("Split"),
+            "pattern": Config(["String": Config(" ")]),
+            "behavior": Config("MergedWithPrevious"),
+            "invert": Config(false)
+        ])
+        let templateProcessing = Config([
+            "type": Config("TemplateProcessing"),
+            "single": Config([
+                Config(["Sequence": Config(["id": Config("A"), "type_id": Config(0)])])
+            ]),
+            "pair": Config([
+                Config(["Sequence": Config(["id": Config("A"), "type_id": Config(0)])]),
+                Config(["Sequence": Config(["id": Config("B"), "type_id": Config(1)])])
+            ]),
+            "special_tokens": Config([String: Config]())
+        ])
+        let decoder = Config([
+            "type": Config("Sequence"),
+            "decoders": Config([
+                Config([
+                    "type": Config("Replace"),
+                    "pattern": Config(["String": Config("▁")]),
+                    "content": Config(" ")
+                ]),
+                Config(["type": Config("ByteFallback")]),
+                Config(["type": Config("Fuse")])
+            ])
+        ])
+        return Config([
+            "version": Config("1.0"),
+            "added_tokens": Config(addedTokens),
+            "normalizer": replaceSpace,
+            "pre_tokenizer": splitSpace,
+            "post_processor": templateProcessing,
+            "decoder": decoder,
+            "model": Config([
+                "type": Config("BPE"),
+                "dropout": Config("nil"),
+                "unk_token": Config("<unk>"),
+                "continuing_subword_prefix": Config("nil"),
+                "end_of_word_suffix": Config("nil"),
+                "fuse_unk": Config(true),
+                "byte_fallback": Config(true),
+                "ignore_merges": Config(false),
+                "vocab": Config(vocabulary),
+                "merges": Config(merges.map { Config($0) })
+            ])
+        ])
+    }
+
+    /// llama.cpp 的 `tokenizer.ggml.model = llama` 會以 SentencePiece token 與分數
+    /// 保存詞表，不一定包含 BPE merges。此時改走 Unigram，避免把合法 GGUF 誤判成
+    /// 缺少 tokenizer；空白與 byte fallback 解碼則沿用 SentencePiece 管線。
+    private static func sentencePieceTokenizerData(
+        tokens: [String],
+        scores: [Float],
+        addedTokens: [Config],
+        unknownTokenID: Int
+    ) -> Config {
+        // Swift 的 String／NSString 會把 Unicode 正規等價字串視為同一個 key；大型
+        // SentencePiece 詞表可能同時保留 composed 與 decomposed token，直接交給
+        // 上游 UnigramTokenizer 會在建 Dictionary 時觸發 duplicate-key crash。
+        // 只替後續等價項目加上不會出現在輸入裡的 private-use marker，解碼時再移除，
+        // 因而保留原始 token ID、權重 vocab 對齊與可讀輸出。
+        let duplicateMarker = "\u{F0000}"
+        var uniqueTokens = [String]()
+        uniqueTokens.reserveCapacity(tokens.count)
+        var occupied = Set<String>()
+        for token in tokens {
+            var candidate = token
+            while !occupied.insert(candidate).inserted {
+                candidate += duplicateMarker
+            }
+            uniqueTokens.append(candidate)
+        }
+        let vocabulary = zip(uniqueTokens, scores).map { token, score in
+            Config([Config(token), Config(score)])
+        }
+        let replaceSpace = Config([
+            "type": Config("Replace"),
+            "pattern": Config(["String": Config(" ")]),
+            "content": Config("▁")
+        ])
+        let splitSpace = Config([
+            "type": Config("Split"),
+            "pattern": Config(["String": Config(" ")]),
+            "behavior": Config("MergedWithPrevious"),
+            "invert": Config(false)
+        ])
+        let templateProcessing = Config([
+            "type": Config("TemplateProcessing"),
+            "single": Config([
+                Config(["Sequence": Config(["id": Config("A"), "type_id": Config(0)])])
+            ]),
+            "pair": Config([
+                Config(["Sequence": Config(["id": Config("A"), "type_id": Config(0)])]),
+                Config(["Sequence": Config(["id": Config("B"), "type_id": Config(1)])])
+            ]),
+            "special_tokens": Config([String: Config]())
+        ])
+        let decoder = Config([
+            "type": Config("Sequence"),
+            "decoders": Config([
+                Config([
+                    "type": Config("Replace"),
+                    "pattern": Config(["String": Config("▁")]),
+                    "content": Config(" ")
+                ]),
+                Config([
+                    "type": Config("Replace"),
+                    "pattern": Config(["String": Config(duplicateMarker)]),
+                    "content": Config("")
+                ]),
+                Config(["type": Config("ByteFallback")]),
+                Config(["type": Config("Fuse")])
+            ])
+        ])
+        return Config([
+            "version": Config("1.0"),
+            "added_tokens": Config(addedTokens),
+            "normalizer": replaceSpace,
+            "pre_tokenizer": splitSpace,
+            "post_processor": templateProcessing,
+            "decoder": decoder,
+            "model": Config([
+                "type": Config("Unigram"),
+                "vocab": Config(vocabulary),
+                "unk_id": Config(unknownTokenID),
+                "byte_fallback": Config(true)
+            ])
+        ])
+    }
+
     private static func isEmbeddedSpecialToken(_ token: String) -> Bool {
         token == "<|endoftext|>"
             || token.hasPrefix("<|im_")
@@ -607,9 +1258,24 @@ enum MLXGGUFEmbeddedAssets {
             else { return nil }
             return Config(token)
         }
+        let tokenizerModel = normalizedArchitecture(
+            metadata["tokenizer.ggml.model"]?.stringValue ?? ""
+        )
+        let isGemma4 = tokenizerModel == "gemma4"
+        let isSentencePiece = tokenizerModel == "llama"
+            && metadata["tokenizer.ggml.merges"] == nil
+            && metadata["tokenizer.ggml.scores"]?.arrayValue != nil
         var values: [String: Config] = [
-            "tokenizer_class": Config("Qwen2Tokenizer"),
-            "add_bos_token": Config(false),
+            "tokenizer_class": Config(
+                isSentencePiece
+                    ? "XLMRobertaTokenizer"
+                    : isGemma4 ? "GemmaTokenizer" : "Qwen2Tokenizer"
+            ),
+            "add_bos_token": Config(
+                isGemma4 || isSentencePiece
+                    ? metadata["tokenizer.ggml.add_bos_token"]?.booleanValue ?? true
+                    : false
+            ),
             "add_eos_token": Config(false),
             "add_prefix_space": Config(false),
             "clean_up_tokenization_spaces": Config(false),
@@ -618,6 +1284,16 @@ enum MLXGGUFEmbeddedAssets {
             "model_max_length": Config(262_144),
             "additional_special_tokens": Config(specialTokens)
         ]
+        if isGemma4 || isSentencePiece {
+            values["bos_token"] = tokenString(integer("tokenizer.ggml.bos_token_id", in: metadata))
+            values["unk_token"] = tokenString(
+                integer("tokenizer.ggml.unknown_token_id", in: metadata)
+            )
+            values["mask_token"] = tokenString(
+                integer("tokenizer.ggml.mask_token_id", in: metadata)
+            )
+            values["padding_side"] = Config("left")
+        }
         if let chatTemplate = metadata["tokenizer.chat_template"]?.stringValue {
             values["chat_template"] = Config(chatTemplate)
         }
@@ -677,7 +1353,18 @@ enum MLXGGUFEmbeddedAssets {
         _ key: String,
         in metadata: [String: MLXGGUFMetadataValue]
     ) -> [Int]? {
-        metadata[key]?.arrayValue?.compactMap(\.integerValue)
+        guard let values = metadata[key]?.arrayValue else { return nil }
+        let integers = values.compactMap(\.integerValue)
+        return integers.count == values.count ? integers : nil
+    }
+
+    private static func arrayOfBooleans(
+        _ key: String,
+        in metadata: [String: MLXGGUFMetadataValue]
+    ) -> [Bool]? {
+        guard let values = metadata[key]?.arrayValue else { return nil }
+        let booleans = values.compactMap(\.booleanValue)
+        return booleans.count == values.count ? booleans : nil
     }
 
     private static func arrayOfFloats(

@@ -18,6 +18,7 @@ public enum ModelWeightLoadingMode: Sendable {
 /// ModelFactory 流程，不必為每種模型複製 Factory 實作。
 public enum ModelWeightLoadingContext {
     @TaskLocal public static var mode: ModelWeightLoadingMode = .eager
+    @TaskLocal public static var progressHandler: (@Sendable (Int64, Int64) -> Void)? = nil
 }
 
 public enum MemoryMappedTensorError: LocalizedError, Sendable {
@@ -284,8 +285,8 @@ public enum MemoryMappedTensorArray {
     }
 }
 
-enum MemoryMappedSafetensors {
-    static func loadArraysAndMetadata(from url: URL) throws -> (
+public enum MemoryMappedSafetensors {
+    public static func loadArraysAndMetadata(from url: URL) throws -> (
         [String: MLXArray], [String: String]
     ) {
         let name = url.lastPathComponent

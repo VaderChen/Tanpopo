@@ -6,9 +6,9 @@
   <title>系統設定 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-44">
-  <script src="/assets/common.js?v=20260829-46" defer></script>
-  <script src="/assets/settings.js?v=20260829-30" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260831-48">
+  <script src="/assets/common.js?v=20260831-67" defer></script>
+  <script src="/assets/settings.js?v=20260831-32" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -194,7 +194,7 @@
             </form>
           </section>
 
-          <section id="settingsModelSourcePane" class="settings-pane" role="tabpanel" aria-labelledby="settingsModelSourceTab" tabindex="0" hidden>
+          <section id="settingsModelSourcePane" class="settings-pane settings-pane-stack" role="tabpanel" aria-labelledby="settingsModelSourceTab" tabindex="0" hidden>
             <form id="modelSourceForm" class="panel form-panel settings-form">
               <div class="form-group">
                 <div class="form-group-title">
@@ -225,6 +225,64 @@
               <div class="settings-actions">
                 <span id="modelSourceMessage" class="form-message"></span>
                 <button id="saveModelSourceButton" class="button primary" type="submit">儲存模型來源</button>
+              </div>
+            </form>
+            <form id="runtimeDefaultsForm" class="panel form-panel settings-form">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>模型功能預設</h3>
+                  <p>控制選擇模型時套用的初始功能；進階設定仍可針對本次啟動手動調整。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="settings-switch-row" for="defaultFastGGUFEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>快速GGUF模式預設開啟</strong>
+                      <span class="helper">選擇 mlx-server 的 GGUF 模型時自動開啟，原生 MLX 與 llama-server 不受影響。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="defaultFastGGUFEnabled" type="checkbox" role="switch" aria-label="啟用快速GGUF模式預設">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="defaultFastGGUFEnabledLabel">啟用</span>
+                    </span>
+                  </label>
+                  <label class="settings-switch-row" for="defaultKVCacheQuantizationEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>KV Cache 量化預設開啟</strong>
+                      <span class="helper">選擇模型時自動開啟；量化格式仍由啟動參數決定，且不會與 DFlash 同時啟用。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="defaultKVCacheQuantizationEnabled" type="checkbox" role="switch" aria-label="啟用 KV Cache 量化預設">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="defaultKVCacheQuantizationEnabledLabel">關閉</span>
+                    </span>
+                  </label>
+                  <label class="settings-switch-row" for="defaultMMapEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>MMap 預設開啟</strong>
+                      <span class="helper">選擇模型時自動開啟權重檔案映射；實際效果取決於模型格式與儲存裝置。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="defaultMMapEnabled" type="checkbox" role="switch" aria-label="啟用 MMap 預設">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="defaultMMapEnabledLabel">關閉</span>
+                    </span>
+                  </label>
+                  <label class="settings-switch-row" for="defaultDFlashEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>DFlash 預設開啟</strong>
+                      <span class="helper">僅在模型支援且找到配對 Draft 模型時自動開啟；不會與 KV Cache 量化同時啟用。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="defaultDFlashEnabled" type="checkbox" role="switch" aria-label="啟用 DFlash 預設">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="defaultDFlashEnabledLabel">關閉</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <span id="runtimeDefaultsMessage" class="form-message"></span>
+                <button id="saveRuntimeDefaultsButton" class="button primary" type="submit">儲存功能預設</button>
               </div>
             </form>
           </section>
@@ -561,6 +619,15 @@
                     <div>
                       <dt>GitHub 專案</dt>
                       <dd><a id="githubRepositoryLink" class="about-link" href="#" target="_blank" rel="noopener noreferrer">讀取中…</a></dd>
+                    </div>
+                    <div>
+                      <dt>技術報告</dt>
+                      <dd>
+                        <ul class="about-report-links">
+                          <li><a class="about-link" href="/reports/model-compatibility.html" target="_blank" rel="noopener noreferrer">模型相容性報告</a></li>
+                          <li><a class="about-link" href="/reports/performance-comparison.html" target="_blank" rel="noopener noreferrer">效能與精確度報告</a></li>
+                        </ul>
+                      </dd>
                     </div>
                     <div class="about-management-row">
                       <dt>管理頁面網址</dt>

@@ -94,6 +94,13 @@ private func normalizedOpenAIBaseURL(_ url: URL?) -> URL? {
     return components.url
 }
 
+private func isLoopbackWebURL(_ url: URL) -> Bool {
+    guard let host = url.host?.lowercased() else { return false }
+    if host == "localhost" || host == "::1" { return true }
+    let components = host.split(separator: ".", omittingEmptySubsequences: false)
+    return components.count == 4 && components.first == "127"
+}
+
 private enum LaunchError: LocalizedError {
     case missingValue(String)
     case unknownOption(String)
@@ -281,7 +288,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             residentMode = enabled
             updateStatusItem()
         case "open-model-directory":
-            guard let rawPath = object["path"] as? String else { return }
+            guard isLoopbackWebURL(options.url),
+                  let rawPath = object["path"] as? String else { return }
             openModelDirectory(rawPath)
         case "runtime-api-url":
             guard let rawURL = object["url"] as? String else { return }
@@ -393,7 +401,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let versionItem = NSMenuItem(title: "版本 \(options.version)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
-        menu.addItem(versionItem)
 
         let apiTitle = runtimeAPIURL?.absoluteString ?? "尚未提供"
         let copyAPIItem = NSMenuItem(
@@ -414,6 +421,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         githubItem.isEnabled = options.githubURL != nil
         menu.addItem(githubItem)
         menu.addItem(.separator())
+        menu.addItem(versionItem)
 
         let quitItem = NSMenuItem(
             title: "結束 \(options.title)",

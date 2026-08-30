@@ -13,23 +13,25 @@ import (
 	"LlamaLoader/src/domain"
 )
 
-const runtimeStateVersion = 3
+const runtimeStateVersion = 5
 
 // persistedRuntimeState 只保存重建模型服務所需的相對模型名稱與參數 ID，
 // 不保存 Runtime 二進位檔或模型根目錄等本機絕對路徑。
 type persistedRuntimeState struct {
-	Version             int       `json:"version"`
-	DesiredRunning      bool      `json:"desired_running"`
-	Runtime             string    `json:"runtime"`
-	Model               string    `json:"model,omitempty"`
-	MMProj              string    `json:"mmproj,omitempty"`
-	DraftModel          string    `json:"draft_model,omitempty"`
-	DFlashEnabled       bool      `json:"dflash_enabled"`
-	MMapEnabled         bool      `json:"mmap_enabled"`
-	KVCacheQuantization string    `json:"kv_cache_quantization,omitempty"`
-	StartupCommandID    string    `json:"startup_command_id,omitempty"`
-	StartupCommandName  string    `json:"startup_command_name,omitempty"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	Version                 int       `json:"version"`
+	DesiredRunning          bool      `json:"desired_running"`
+	Runtime                 string    `json:"runtime"`
+	Model                   string    `json:"model,omitempty"`
+	MMProj                  string    `json:"mmproj,omitempty"`
+	DraftModel              string    `json:"draft_model,omitempty"`
+	DFlashEnabled           bool      `json:"dflash_enabled"`
+	MMapEnabled             bool      `json:"mmap_enabled"`
+	FastGGUF                bool      `json:"fast_gguf"`
+	SkipGGUFConversionCache bool      `json:"skip_gguf_conversion_cache"`
+	KVCacheQuantization     string    `json:"kv_cache_quantization,omitempty"`
+	StartupCommandID        string    `json:"startup_command_id,omitempty"`
+	StartupCommandName      string    `json:"startup_command_name,omitempty"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 type runtimeStateStore struct {
@@ -139,6 +141,9 @@ func normalizeRuntimeState(state persistedRuntimeState) persistedRuntimeState {
 	state.KVCacheQuantization = strings.ToLower(strings.TrimSpace(state.KVCacheQuantization))
 	if state.Runtime == domain.RuntimeMLXServer {
 		state.MMProj = ""
+	} else {
+		state.FastGGUF = false
+		state.SkipGGUFConversionCache = false
 	}
 	if !state.DFlashEnabled {
 		state.DraftModel = ""

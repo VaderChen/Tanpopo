@@ -1,6 +1,13 @@
 // swift-tools-version: 6.0
 
 import PackageDescription
+import Foundation
+
+// POC 以隔離 Target 重現 MLX Core 最新版 GGUF Q4/Q8 打包邏輯。
+// mlx-swift 0.31.6 的 SwiftPM 建置會排除 GGUF backend，因此先用此
+// Reference Packer 驗證位元佈局，不直接接管正式 Runtime。
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let mlxCoreRoot = packageRoot + "/.build/checkouts/mlx-swift/Source/Cmlx"
 
 let package = Package(
     name: "TanpopoMLXServer",
@@ -28,9 +35,26 @@ let package = Package(
         )
     ],
     targets: [
+        .target(
+            name: "MLXCoreGGUFBridge",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift")
+            ],
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .define("TANPOPO_MLX_GGUF_BRIDGE_POC"),
+                .unsafeFlags([
+                    "-I", mlxCoreRoot + "/mlx",
+                    "-I", mlxCoreRoot + "/mlx-c",
+                    "-I", mlxCoreRoot + "/json/single_include/nlohmann",
+                    "-I", mlxCoreRoot + "/fmt/include"
+                ])
+            ]
+        ),
         .executableTarget(
             name: "MLXServer",
             dependencies: [
+                "MLXCoreGGUFBridge",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
@@ -43,6 +67,11 @@ let package = Package(
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio")
             ]
+        ),
+        .testTarget(
+            name: "MLXServerTests",
+            dependencies: ["MLXServer"]
         )
-    ]
+    ],
+    cxxLanguageStandard: .gnucxx20
 )
