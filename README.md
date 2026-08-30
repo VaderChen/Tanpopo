@@ -55,7 +55,7 @@ TANPOPO_UI=shell ./run.command  # 強制 Shell
 TANPOPO_UI=gui ./run.command    # 支援平台強制開啟原生視窗
 ```
 
-Tanpopo 的 APP 版本採用 `1.YY.MMDD build HHmm`，例如 `1.26.0829 build 1430`。根目錄 `VERSION` 僅保存供 GitHub Release 比對的 `1.YY.MMDD`，`build HHmm` 由建置或啟動腳本依建置時間自動寫入執行檔與部署資訊。程式啟動後會立即查詢 GitHub 最新正式 Release，之後每小時重新檢查；同一個介面工作階段對同一新版只通知一次。「系統設定 → 關於」會揭露目前 APP 版本、檢查時間及可點擊的 [GitHub 專案網址](https://github.com/VaderChen/Tanpopo)，也可按「檢查更新」強制重新查詢。更新偵測只比較 `1.YY.MMDD`，且不把草稿或 prerelease 當成最新版。
+Tanpopo 的 APP 版本採用 `1.YY.MMDD build HHmm`，例如 `1.26.0829 build 1430`。根目錄 `VERSION` 僅保存供 GitHub Release 比對的 `1.YY.MMDD`，`build HHmm` 由建置或啟動腳本依建置時間自動寫入執行檔與部署資訊。`pack.command` 未指定 `TANPOPO_VERSION` 時，會依 `Asia/Taipei` 驗證 `VERSION` 是否為當日版號，避免跨日重封裝仍沿用前一天日期；若要重製歷史版本，必須明確指定 `TANPOPO_VERSION`。程式啟動後會立即查詢 GitHub 最新正式 Release，之後每小時重新檢查；同一個介面工作階段對同一新版只通知一次。「系統設定 → 關於」會揭露目前 APP 版本、檢查時間及可點擊的 [GitHub 專案網址](https://github.com/VaderChen/Tanpopo)，也可按「檢查更新」強制重新查詢。更新偵測只比較 `1.YY.MMDD`，且不把草稿或 prerelease 當成最新版。
 
 如需強制重編兩個模型 Runtime，可執行：
 

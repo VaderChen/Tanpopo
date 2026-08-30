@@ -54,7 +54,7 @@ TANPOPO_UI=shell ./run.command  # 전경 Shell 모드 강제
 TANPOPO_UI=gui ./run.command    # 지원 환경에서 네이티브 UI 강제
 ```
 
-앱 버전은 `1.YY.MMDD build HHmm` 형식(예: `1.26.0829 build 1430`)을 사용합니다. 루트 `VERSION` 파일에는 GitHub Release 비교용 `1.YY.MMDD`만 저장하며, 빌드 시각으로 만든 `build HHmm`은 빌드/실행 스크립트가 실행 파일에 삽입합니다. Tanpopo는 시작 직후와 이후 매시간 GitHub의 최신 정식 Release를 확인하고, 같은 UI 세션에서는 같은 새 버전을 한 번만 알립니다. **시스템 설정 → 정보**에서 현재 및 최신 버전, 마지막 확인 시각, 수동 확인 버튼, 클릭 가능한 [GitHub 저장소 URL](https://github.com/VaderChen/Tanpopo)을 볼 수 있습니다. 업데이트 확인은 `1.YY.MMDD`만 비교하며 Draft와 prerelease는 최신 버전으로 취급하지 않습니다.
+앱 버전은 `1.YY.MMDD build HHmm` 형식(예: `1.26.0829 build 1430`)을 사용합니다. 루트 `VERSION` 파일에는 GitHub Release 비교용 `1.YY.MMDD`만 저장하며, 빌드 시각으로 만든 `build HHmm`은 빌드/실행 스크립트가 실행 파일에 삽입합니다. `TANPOPO_VERSION`을 명시하지 않으면 `pack.command`가 `VERSION`을 `Asia/Taipei` 기준 오늘 날짜와 비교하여 날짜가 바뀐 뒤에도 전날 버전을 그대로 패키징하는 일을 막습니다. 과거 릴리스를 의도적으로 다시 만들 때만 `TANPOPO_VERSION`을 지정하십시오. Tanpopo는 시작 직후와 이후 매시간 GitHub의 최신 정식 Release를 확인하고, 같은 UI 세션에서는 같은 새 버전을 한 번만 알립니다. **시스템 설정 → 정보**에서 현재 및 최신 버전, 마지막 확인 시각, 수동 확인 버튼, 클릭 가능한 [GitHub 저장소 URL](https://github.com/VaderChen/Tanpopo)을 볼 수 있습니다. 업데이트 확인은 `1.YY.MMDD`만 비교하며 Draft와 prerelease는 최신 버전으로 취급하지 않습니다.
 
 ## 모델 Runtime
 

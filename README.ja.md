@@ -54,7 +54,7 @@ TANPOPO_UI=shell ./run.command  # Shell モードを強制
 TANPOPO_UI=gui ./run.command    # 対応環境でネイティブ UI を強制
 ```
 
-アプリのバージョンは `1.YY.MMDD build HHmm` 形式（例：`1.26.0829 build 1430`）です。ルートの `VERSION` には GitHub Release の比較に使う `1.YY.MMDD` のみを記録し、ビルド時刻から生成した `build HHmm` はビルド／起動スクリプトが実行ファイルへ埋め込みます。Tanpopo は起動直後と、その後 1 時間ごとに GitHub の最新正式 Release を確認し、同じ UI セッションでは同じ新バージョンを一度だけ通知します。「システム設定 → このアプリについて」では現在・最新バージョン、最終確認時刻、手動確認ボタン、クリック可能な [GitHub リポジトリ URL](https://github.com/VaderChen/Tanpopo) を表示します。更新確認では `1.YY.MMDD` のみを比較し、Draft と prerelease は最新版として扱いません。
+アプリのバージョンは `1.YY.MMDD build HHmm` 形式（例：`1.26.0829 build 1430`）です。ルートの `VERSION` には GitHub Release の比較に使う `1.YY.MMDD` のみを記録し、ビルド時刻から生成した `build HHmm` はビルド／起動スクリプトが実行ファイルへ埋め込みます。`TANPOPO_VERSION` を明示しない場合、`pack.command` は `VERSION` が `Asia/Taipei` の当日版号か検証し、日付をまたいだ再パッケージで前日の版号を誤用しないようにします。過去版を意図して再作成する場合のみ `TANPOPO_VERSION` を指定してください。Tanpopo は起動直後と、その後 1 時間ごとに GitHub の最新正式 Release を確認し、同じ UI セッションでは同じ新バージョンを一度だけ通知します。「システム設定 → このアプリについて」では現在・最新バージョン、最終確認時刻、手動確認ボタン、クリック可能な [GitHub リポジトリ URL](https://github.com/VaderChen/Tanpopo) を表示します。更新確認では `1.YY.MMDD` のみを比較し、Draft と prerelease は最新版として扱いません。
 
 ## モデル Runtime
 

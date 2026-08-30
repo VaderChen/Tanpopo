@@ -52,7 +52,7 @@ TANPOPO_UI=shell ./run.command  # Force foreground shell mode
 TANPOPO_UI=gui ./run.command    # Force the native UI where supported
 ```
 
-The application version uses `1.YY.MMDD build HHmm`, for example `1.26.0829 build 1430`. The root `VERSION` file stores only the `1.YY.MMDD` release version used for GitHub comparisons; build and launch scripts inject `build HHmm` from the build time. Tanpopo checks the latest stable GitHub Release once at startup and then hourly; the same UI session reports each new version only once. **System settings → About** shows the current and latest versions, last check time, a manual check button, and a clickable [GitHub repository URL](https://github.com/VaderChen/Tanpopo). Update checks compare only `1.YY.MMDD`; drafts and prereleases are not treated as the latest version.
+The application version uses `1.YY.MMDD build HHmm`, for example `1.26.0829 build 1430`. The root `VERSION` file stores only the `1.YY.MMDD` release version used for GitHub comparisons; build and launch scripts inject `build HHmm` from the build time. Unless `TANPOPO_VERSION` is explicitly set, `pack.command` validates `VERSION` against the current `Asia/Taipei` date so a package cannot silently reuse the previous day's version; set `TANPOPO_VERSION` only when intentionally rebuilding a historical release. Tanpopo checks the latest stable GitHub Release once at startup and then hourly; the same UI session reports each new version only once. **System settings → About** shows the current and latest versions, last check time, a manual check button, and a clickable [GitHub repository URL](https://github.com/VaderChen/Tanpopo). Update checks compare only `1.YY.MMDD`; drafts and prereleases are not treated as the latest version.
 
 ## Model runtimes
 
