@@ -38,7 +38,7 @@ func DefaultSettings() domain.Settings {
 		ModelDirectory:          filepath.Join(homeDirectory, "services", "models"),
 		MLXModelDirectory:       filepath.Join(homeDirectory, "services", "mlx-models"),
 		DefaultFastGGUFEnabled:  true,
-		DefaultFastGGUFStrategy: domain.FastGGUFStrategyDefault,
+		DefaultFastGGUFStrategy: domain.FastGGUFStrategyMode1,
 		DefaultKVCacheEnabled:   false,
 		DefaultMMapEnabled:      false,
 		DefaultDFlashEnabled:    false,
@@ -265,14 +265,16 @@ func normalizeUITheme(value string) string {
 	}
 }
 
+// normalizeFastGGUFStrategy 同時接受新舊設定值。beta1 實測精度與速度都不如
+// beta2，已捨棄並併入 Mode 1；舊的 default 對應保守的 Mode 2。
 func normalizeFastGGUFStrategy(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case domain.FastGGUFStrategyBeta1:
-		return domain.FastGGUFStrategyBeta1
-	case domain.FastGGUFStrategyBeta2:
-		return domain.FastGGUFStrategyBeta2
+	case domain.FastGGUFStrategyMode2, domain.FastGGUFStrategyLegacyDefault:
+		return domain.FastGGUFStrategyMode2
+	case domain.FastGGUFStrategyMode3:
+		return domain.FastGGUFStrategyMode3
 	default:
-		return domain.FastGGUFStrategyDefault
+		return domain.FastGGUFStrategyMode1
 	}
 }
 
@@ -295,9 +297,11 @@ func ValidateSettings(value domain.Settings) error {
 		return errors.New("KV Cache 量化與 DFlash 不可同時設為預設開啟")
 	}
 	switch value.DefaultFastGGUFStrategy {
-	case domain.FastGGUFStrategyDefault, domain.FastGGUFStrategyBeta1, domain.FastGGUFStrategyBeta2:
+	case domain.FastGGUFStrategyMode1, domain.FastGGUFStrategyMode2,
+		domain.FastGGUFStrategyMode3, domain.FastGGUFStrategyLegacyDefault,
+		domain.FastGGUFStrategyLegacyBeta1, domain.FastGGUFStrategyLegacyBeta2:
 	default:
-		return errors.New("default_fast_gguf_strategy 只支援 default、beta1 或 beta2")
+		return errors.New("default_fast_gguf_strategy 只支援 mode1、mode2 或 mode3")
 	}
 	switch value.UILanguage {
 	case "auto", "zh-Hant", "en", "ja", "ko":

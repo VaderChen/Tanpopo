@@ -492,7 +492,12 @@ tbody tr:hover td {
   grid-template-columns: minmax(110px, 150px) minmax(190px, 1fr) 86px;
   gap: 14px;
   align-items: center;
+  min-height: 42px;
   font-size: 0.9rem;
+}
+
+.bar-row > span:first-child {
+  line-height: 1.35;
 }
 
 .bar-track {
@@ -519,6 +524,10 @@ tbody tr:hover td {
 
 .bar.llama {
   background: var(--amber);
+}
+
+.bar.mode3 {
+  background: #8f5c91;
 }
 
 .bar-value {
@@ -559,6 +568,10 @@ tbody tr:hover td {
 
 .legend .llama {
   background: var(--amber);
+}
+
+.legend .mode3 {
+  background: #8f5c91;
 }
 
 .failed {
@@ -668,6 +681,7 @@ tbody tr:hover td {
 
   .bar-row {
     grid-template-columns: 1fr 68px;
+    min-height: 0;
   }
 
   .bar-track {

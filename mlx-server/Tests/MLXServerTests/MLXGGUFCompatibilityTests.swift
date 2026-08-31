@@ -270,15 +270,14 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         }
     }
 
-    /// Q4_K 只在明確選用 speed-passthrough（Beta）時無損沿用；
-    /// auto 與 speed 都保守重新量化為 INT8。
-    func testQ4KUsesPreservedBlockOnlyUnderPassthroughProfile() {
-        let passthrough = GGUFStoragePolicy.support(for: "Q4_K", profile: .speedPassthrough)
+    /// Q4_K 只在 Mode 1 無損沿用；auto 與 Mode 2 都保守重新量化為 INT8。
+    func testQ4KUsesPreservedBlockOnlyUnderMode1() {
+        let passthrough = GGUFStoragePolicy.support(for: "Q4_K", profile: .mode1)
         XCTAssertEqual(passthrough?.storageType, .int4)
         XCTAssertEqual(passthrough?.materialization, .quantized4)
         XCTAssertEqual(passthrough?.preservesSourceQuantization, true)
 
-        for profile in [GGUFQuantizationProfile.automatic, .speed] {
+        for profile in [GGUFQuantizationProfile.automatic, .mode2] {
             let support = GGUFStoragePolicy.support(for: "Q4_K", profile: profile)
             XCTAssertEqual(support?.storageType, .int8, profile.rawValue)
             XCTAssertEqual(support?.materialization, .requantized8, profile.rawValue)
@@ -722,7 +721,7 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         let strategy = try MLXGGUFLoader.quantizationStrategy(
             for: tensors,
             requestedGroupSize: nil,
-            profile: .speed
+            profile: .mode2
         )
 
         XCTAssertEqual(strategy.groupSize, 64)
@@ -764,16 +763,16 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
             "Q1_0", "Q2_0", "Q2_K", "Q3_K", "Q5_K", "Q6_K",
             "IQ4_NL", "IQ3_S", "IQ4_XS",
         ] {
-            let support = GGUFStoragePolicy.support(for: sourceType, profile: .speed)
+            let support = GGUFStoragePolicy.support(for: sourceType, profile: .mode2)
             XCTAssertEqual(support?.storageType, .int8, sourceType)
             XCTAssertEqual(support?.materialization, .requantized8, sourceType)
         }
 
-        let directQ4 = GGUFStoragePolicy.support(for: "Q4_0", profile: .speed)
+        let directQ4 = GGUFStoragePolicy.support(for: "Q4_0", profile: .mode2)
         XCTAssertEqual(directQ4?.storageType, .int4)
         XCTAssertEqual(directQ4?.materialization, .quantized4)
 
-        let repackedMXFP4 = GGUFStoragePolicy.support(for: "MXFP4", profile: .speed)
+        let repackedMXFP4 = GGUFStoragePolicy.support(for: "MXFP4", profile: .mode2)
         XCTAssertEqual(repackedMXFP4?.storageType, .int4)
         XCTAssertEqual(repackedMXFP4?.materialization, .quantizedMXFP4)
         XCTAssertEqual(repackedMXFP4?.preservesSourceQuantization, true)

@@ -76,11 +76,11 @@
       </div>
       <div class="callout">
         <div>
-          <h3>本輪重新驗證：32 項程式回歸與固定題集</h3>
+          <h3>本輪重新驗證：33 項程式回歸與固定題集</h3>
           <p>
-            本次 Swift 測試共 32 項，其中 29 項通過、0 失敗，另 3 項需額外實體模型環境而略過；
-            Ornith 1.5 9B 完成原生 MLX 與三種 MLX+GGUF 策略的固定 100 題及資源量測，
-            Qwen 3.5 4B Q4_0 另以 20 題確認修改前後逐題結果一致。
+            本次 Swift 測試共 33 項，其中 30 項通過、0 失敗，另 3 項需額外實體模型環境而略過；
+            4B、9B、27B 三組配對模型均完成原生 MLX、llama.cpp+GGUF 與三種 Fast GGUF 模式的固定 100 題、
+            生成速度、轉換快取及程序 RAM 量測。
           </p>
         </div>
       </div>
@@ -125,7 +125,7 @@
             </tr>
             <tr>
               <td><strong>MMap</strong></td>
-              <td>可用；降低載入期間壓力</td>
+              <td><span class="status reference">目前尚未支援</span></td>
               <td>可用；需視 tensor 是否必須轉換</td>
               <td>可用；由 llama.cpp 管理</td>
             </tr>
@@ -215,19 +215,19 @@
           <div class="tag-row"><span class="tag">INT8</span><span class="tag">metadata 驅動</span></div>
         </article>
         <article class="feature-card">
-          <h3>MLX + 預設快速轉換：Speed／Auto</h3>
-          <p><code>speed + auto + recurrent controls</code> 將 K-Quant 重新量化為 MLX INT8；auto 固定使用 group 64。這是本輪三種 GGUF 量測路徑之一，不等於無損模式。</p>
-          <div class="tag-row"><span class="status partial">較高轉換成本</span><span class="tag">auto = group 64</span></div>
+          <h3>Mode 1：均衡．預設</h3>
+          <p><code>mode1</code> 依 GGUF block metadata 沿用可表示的 K-Quant 來源 4-bit block；沿用 tensor 固定 group 32，其餘張量自動使用 group 64。</p>
+          <div class="tag-row"><span class="status supported">預設模式</span><span class="tag">source-aware</span></div>
         </article>
         <article class="feature-card">
-          <h3>來源 block 沿用：Speed Passthrough</h3>
-          <p><code>speed-passthrough</code> 依 GGUF block metadata 沿用可表示的來源 4-bit block；其他張量仍按明確指定的 group 32 或 64 處理。這是通用 tensor 策略，不依模型名稱。</p>
-          <div class="tag-row"><span class="status partial">Beta 1／Beta 2 實測</span><span class="tag">source-aware</span></div>
+          <h3>Mode 2：較高精度</h3>
+          <p><code>mode2</code> 將低位元來源重新量化為 MLX INT8，策略自動使用 group 64；浮點與小型參數仍依原有型別規則處理。</p>
+          <div class="tag-row"><span class="status partial">INT8</span><span class="tag">group 64</span></div>
         </article>
         <article class="feature-card">
-          <h3>Quality 診斷路徑</h3>
-          <p>手動 <code>quality</code> 會以 FP32 參考權重執行，適合定位轉換誤差，不是 fastGGUF 開關的一部分，也不適合作為一般速度基準。</p>
-          <div class="tag-row"><span class="tag">FP32 reference</span><span class="tag">診斷用途</span></div>
+          <h3>Mode 3：最快</h3>
+          <p><code>mode3</code> 將低位元來源重新量化為 MLX INT4，策略固定使用 group 32，不受外部 group size 設定覆寫。</p>
+          <div class="tag-row"><span class="status partial">INT4</span><span class="tag">group 32</span></div>
         </article>
         <article class="feature-card">
           <h3>永久 .fgguf 快取</h3>
@@ -243,15 +243,15 @@
           <p class="eyebrow">Physical validation</p>
           <h2 id="validated-models">本機實測樣本</h2>
         </div>
-        <p>表中分開標示本輪量測與先前實機紀錄；可載入與輸出品質是不同驗證項目。</p>
+        <p>本輪五種模式結果依序為原生 MLX、llama.cpp+GGUF、Mode 1、Mode 2、Mode 3；可載入與輸出品質是不同驗證項目。</p>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>模型</th><th>格式</th><th>規模</th><th>驗證項目</th><th>結果</th></tr></thead>
           <tbody>
-            <tr><td>Qwen 3.5 4B</td><td>GGUF Q4_0</td><td>4B</td><td>本輪修改前後回歸，固定 20 題</td><td><span class="status supported">15／20；逐題結果一致</span></td></tr>
-            <tr><td>Ornith 1.5 9B</td><td>MLX／GGUF Q4_K_M</td><td>9B</td><td>原生 MLX 與三種 MLX+GGUF 策略，固定 100 題</td><td><span class="status supported">79／100、69／100、68／100、67／99</span></td></tr>
-            <tr><td>Qwen 3.8 27B</td><td>MLX／GGUF</td><td>27B</td><td>先前固定 100 題紀錄；本輪未重測</td><td><span class="status reference">89／100、87／100、87／100</span></td></tr>
+            <tr><td>Qwen 3.5 4B</td><td>MLX／GGUF Q4_0</td><td>4B</td><td>五種模式，固定 100 題</td><td><span class="status supported">68／100、73／100、72／100、72／100、70／98</span></td></tr>
+            <tr><td>Ornith 1.5 9B</td><td>MLX／GGUF Q4_K_M</td><td>9B</td><td>五種模式，固定 100 題</td><td><span class="status supported">78／99、78／100、78／100、78／100、77／100</span></td></tr>
+            <tr><td>Qwen 3.8 27B</td><td>MLX／GGUF 混合量化</td><td>27B</td><td>五種模式，固定 100 題</td><td><span class="status supported">89／100、87／100、87／100、88／100、82／100</span></td></tr>
             <tr><td>Gemma 3 12B</td><td>GGUF</td><td>12B</td><td>SentencePiece、norm、固定輸出</td><td><span class="status supported">先前實機通過</span></td></tr>
             <tr><td>Gemma 4 E2B／E4B</td><td>GGUF</td><td>MoE</td><td>PLE、共享 K/V、FFN 版型</td><td><span class="status supported">先前實機通過</span></td></tr>
             <tr><td>Apertus 1.5 70B</td><td>GGUF Q4_K_M</td><td>70B</td><td>xIELU、MMap、chat EOS 停止</td><td><span class="status supported">先前實機通過</span></td></tr>
@@ -278,7 +278,7 @@
         </article>
         <article class="feature-card">
           <h3>MMap 不是硬性記憶體上限</h3>
-          <p>它會嘗試讓檔案頁可回收並保留目標空間；需要重新量化的 tensor 仍可能產生常駐 MLX 權重。</p>
+          <p>使用 MMap 技術降低 RAM 用量，原生 MLX 目前尚未支援；需要重新量化的 tensor 仍可能產生常駐 MLX 權重。</p>
         </article>
         <article class="feature-card">
           <h3>衍生 checkpoint 必須重新驗證</h3>

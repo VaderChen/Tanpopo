@@ -183,8 +183,8 @@ while IFS= read -r record; do
   expected="$(jq -r '.answer' <<<"${record}")"
   content="$(jq -r '.choices[0].message.content' "${response}")"
   finish_reason="$(jq -r '.choices[0].finish_reason // "unknown"' "${response}")"
-  # 已出現 A～D 的回覆照常評分。只有在輸出因 Token 上限截斷且
-  # 尚未產生可解析答案時，才將該題標示為不可評分，不當作錯答。
+  # Token 上限截斷代表答案未完整生成；無論截斷前是否已出現 A～D，
+  # 一律標示為不可評分，避免把未完成輸出算成正確或錯誤。
   predicted="$(perl -CS -e '
     $text = join("", <>);
     if ($text =~ /(?:^|[^A-Za-z])([ABCD])(?:[^A-Za-z]|$)/s) { print $1 }
@@ -194,7 +194,7 @@ while IFS= read -r record; do
     INVALID=$((INVALID + 1))
   fi
   evaluable=1
-  if [[ "${predicted}" == "?" && "${finish_reason}" == "length" ]]; then
+  if [[ "${finish_reason}" == "length" ]]; then
     evaluable=0
     LENGTH_EXCLUDED=$((LENGTH_EXCLUDED + 1))
   fi

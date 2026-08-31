@@ -6,9 +6,17 @@ const (
 	RuntimeLlamaServer = "llama-server"
 	RuntimeMLXServer   = "mlx-server"
 
-	FastGGUFStrategyDefault = "default"
-	FastGGUFStrategyBeta1   = "beta1"
-	FastGGUFStrategyBeta2   = "beta2"
+	// Mode 1：K-quant super-block 沿用來源 4-bit block，速度約 +36%，為預設。
+	// Mode 2：低位元來源重新量化為 INT8／group 64，保守路徑。
+	FastGGUFStrategyMode1 = "mode1"
+	FastGGUFStrategyMode2 = "mode2"
+	// Mode 3：一律重新量化為 INT4／group 64，頻寬最低。
+	FastGGUFStrategyMode3 = "mode3"
+
+	// 舊設定值：default 對應保守路徑；beta1／beta2 都併入 Mode 1。
+	FastGGUFStrategyLegacyDefault = "default"
+	FastGGUFStrategyLegacyBeta1   = "beta1"
+	FastGGUFStrategyLegacyBeta2   = "beta2"
 
 	KVCacheQuantizationNone = ""
 	KVCacheQuantizationQ8   = "q8"

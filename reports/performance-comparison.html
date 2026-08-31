@@ -33,16 +33,16 @@
         <p class="eyebrow">Performance &amp; accuracy report · <time data-report-date></time></p>
         <h1>MLX 與 GGUF 轉換的<br>載入速度及運算精確度</h1>
         <p class="lede">
-          以同一份 Ornith 1.5 9B Q4_K_M 比較 MLX + 預設快速轉換、MLX + Beta 1 與 MLX + Beta 2 三種
-          策略，並以原生 MLX 作為品質與速度基準。速度、磁碟與 RAM 都必須和固定 100 題品質一起判讀。
+          以 4B、9B、27B 三組配對模型比較原生 MLX、llama.cpp+GGUF 與三種 MLX+GGUF 轉換策略。
+          報告如實列出生成速度、固定 100 題結果、轉換快取與程序 RAM，不納入載入效率。
         </p>
       </div>
       <aside class="hero-meta" aria-label="測試摘要">
         <dl>
-          <div><dt>完整策略模型</dt><dd>1 組</dd></div>
-          <div><dt>執行模式</dt><dd>4 種</dd></div>
-          <div><dt>速度正式量測</dt><dd>12 次</dd></div>
-          <div><dt>精度正式問答</dt><dd>400 次</dd></div>
+          <div><dt>配對模型</dt><dd>3 組</dd></div>
+          <div><dt>每組執行模式</dt><dd>5 種</dd></div>
+          <div><dt>速度正式量測</dt><dd>45 次</dd></div>
+          <div><dt>精度正式問答</dt><dd>1,500 次</dd></div>
         </dl>
       </aside>
     </section>
@@ -55,7 +55,7 @@
           <p class="eyebrow">Test environment</p>
           <h2 id="test-environment">測試環境</h2>
         </div>
-        <p>四種模式在同一台主機串行執行；同一時間只啟動一個 mlx-server。</p>
+        <p>15 組配置在同一台主機串行執行；同一時間只啟動一個模型 Runtime。</p>
       </div>
       <div class="environment-grid">
         <article class="environment-card">
@@ -87,8 +87,8 @@
         </article>
       </div>
       <p class="caption" style="margin-top: 18px;">
-        測試前以 <code>uptime</code> 與 <code>ps</code> 確認沒有其他 mlx-server／llama-server；正式速度量測前 load average
-        已降至 1.97，原生 MLX 結果也與先前乾淨基準一致。正式吞吐採三次中位數降低偶發背景負載影響。
+        測試前以 <code>uptime</code>、<code>ps</code> 與系統 CPU 取樣確認沒有其他 mlx-server／llama-server；CPU idle 維持
+        80.5%～83.8%，系統未回報溫控或效能限制。27B llama.cpp+GGUF 的波動結果在相同條件下重測，正式吞吐採三次中位數。
       </p>
     </section>
 
@@ -98,21 +98,23 @@
           <p class="eyebrow">Actual product parameters</p>
           <h2 id="generic-strategy">MLX+GGUF 三策略</h2>
         </div>
-        <p>Group 自動策略固定使用 64，除非明確指定才使用 Group 32；策略判定依來源 block 與 tensor metadata，不依模型名稱。</p>
+        <p>Group 完全由模式與來源 tensor metadata 自動決定，不依模型名稱，也不需手動指定。</p>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>模式</th><th>參數</th><th>主要權重</th><th>定位</th></tr></thead>
           <tbody>
             <tr><td><strong>原生MLX檔案未轉換</strong></td><td>原生 checkpoint</td><td>Affine 4-bit／group 64</td><td>速度與品質基準</td></tr>
-            <tr><td><strong>MLX + 預設快速轉換</strong></td><td><code>speed + auto + controls</code></td><td>K-Quant 重新量化為 INT8；auto 固定 group 64</td><td>INT8 轉換路徑</td></tr>
-            <tr><td><strong>MLX + Beta 1</strong></td><td><code>speed-passthrough + group 32 + controls</code></td><td>Q4_K 沿用來源 4-bit block；其餘張量 group 32</td><td>全域 Group 32 對照</td></tr>
-            <tr><td><strong>MLX + Beta 2</strong></td><td><code>speed-passthrough + group 64 + controls</code></td><td>Q4_K 沿用來源 4-bit block；其餘張量 group 64</td><td>混合 Group 對照</td></tr>
+            <tr><td><strong>llama.cpp+GGUF</strong></td><td>llama.cpp 原生 GGUF</td><td>直接使用來源 GGUF 量化</td><td>GGUF Runtime 對照</td></tr>
+            <tr><td><strong>MLX + Fast GGUF Mode 1</strong></td><td><code>mode1 + controls</code></td><td>K-Quant 沿用來源 4-bit block；其他張量 group 64</td><td>均衡．預設</td></tr>
+            <tr><td><strong>MLX + Fast GGUF Mode 2</strong></td><td><code>mode2 + controls</code></td><td>低位元來源重新量化為 INT8／group 64</td><td>較高精度</td></tr>
+            <tr><td><strong>MLX + Fast GGUF Mode 3</strong></td><td><code>mode3 + controls</code></td><td>低位元來源重新量化為 INT4／group 32</td><td>最快</td></tr>
           </tbody>
         </table>
       </div>
       <p class="caption" style="margin-top: 14px;">
-        Q4_K 沿用時每個 32 元素 sub-block 的 group 由格式決定；Beta 1／Beta 2 的差異只作用於其他需要重新量化的張量。
+        Mode 1 沿用的 K-Quant tensor 由來源格式保留 32 元素 sub-block；Mode 2 自動使用 group 64，Mode 3 固定使用 group 32。
+        三種模式均使用相同 recurrent controls，且各自建立獨立快取。
       </p>
     </section>
 
@@ -126,27 +128,56 @@
       </div>
       <div class="legend" aria-label="圖例">
         <span><i></i>原生MLX檔案未轉換</span>
-        <span><i class="mlx-gguf"></i>MLX + 預設快速轉換</span>
-        <span><i class="fast-off"></i>MLX + Beta 1</span>
-        <span><i class="llama"></i>MLX + Beta 2</span>
+        <span><i class="llama"></i>llama.cpp+GGUF</span>
+        <span><i class="mlx-gguf"></i>MLX + Fast GGUF Mode 1</span>
+        <span><i class="fast-off"></i>MLX + Fast GGUF Mode 2</span>
+        <span><i class="mode3"></i>MLX + Fast GGUF Mode 3</span>
       </div>
-      <div class="chart" role="img" aria-label="Ornith 1.5 9B 在四種模式的生成速度長條圖">
+      <div class="chart" role="img" aria-label="4B、9B、27B 三組模型在五種模式的生成速度長條圖">
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:81.609;--scale:1.15%;"></div></div><span class="bar-value">81.6 tok/s</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:57.164;--scale:1.15%;"></div></div><span class="bar-value">57.2 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:71.376;--scale:1.15%;"></div></div><span class="bar-value">71.4 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:71.301;--scale:1.15%;"></div></div><span class="bar-value">71.3 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:75.137;--scale:1.15%;"></div></div><span class="bar-value">75.1 tok/s</span></div>
+        </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
-          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:48.863;--scale:1.9%;"></div></div><span class="bar-value">48.9 tok/s</span></div>
-          <div class="bar-row"><span>MLX + 預設快速轉換</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:27.720;--scale:1.9%;"></div></div><span class="bar-value">27.7 tok/s</span></div>
-          <div class="bar-row"><span>MLX + Beta 1</span><div class="bar-track"><div class="bar fast-off" style="--value:36.794;--scale:1.9%;"></div></div><span class="bar-value">36.8 tok/s</span></div>
-          <div class="bar-row"><span>MLX + Beta 2</span><div class="bar-track"><div class="bar llama" style="--value:37.678;--scale:1.9%;"></div></div><span class="bar-value">37.7 tok/s</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:48.438;--scale:1.15%;"></div></div><span class="bar-value">48.4 tok/s</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:34.963;--scale:1.15%;"></div></div><span class="bar-value">35.0 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:37.279;--scale:1.15%;"></div></div><span class="bar-value">37.3 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:27.335;--scale:1.15%;"></div></div><span class="bar-value">27.3 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:43.177;--scale:1.15%;"></div></div><span class="bar-value">43.2 tok/s</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:15.088;--scale:1.15%;"></div></div><span class="bar-value">15.1 tok/s</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:10.184;--scale:1.15%;"></div></div><span class="bar-value">10.2 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:9.142;--scale:1.15%;"></div></div><span class="bar-value">9.1 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:8.343;--scale:1.15%;"></div></div><span class="bar-value">8.3 tok/s</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:13.482;--scale:1.15%;"></div></div><span class="bar-value">13.5 tok/s</span></div>
         </div>
       </div>
       <div class="table-wrap" style="margin-top: 24px;">
         <table class="performance-table">
-          <thead><tr><th>模型</th><th>模式</th><th class="number">中位 tok/s</th><th class="number">端到端 tok/s</th><th class="number">比較基準 (MLX)</th><th class="number">比較 MLX + 預設快速轉換</th></tr></thead>
+          <thead><tr><th>模型</th><th>模式</th><th class="number">中位 tok/s</th><th class="number">端到端 tok/s</th><th class="number">比較基準 (MLX)</th><th class="number">比較 llama.cpp+GGUF</th></tr></thead>
           <tbody>
-            <tr class="highlight-row"><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">48.863</td><td class="number">44.726</td><td class="number">–</td><td class="number">1.76×</td></tr>
-            <tr><td>MLX + 預設快速轉換</td><td class="number">27.720</td><td class="number">26.278</td><td class="number">56.7%</td><td class="number">–</td></tr>
-            <tr><td>MLX + Beta 1</td><td class="number">36.794</td><td class="number">34.381</td><td class="number">75.3%</td><td class="number">1.33×</td></tr>
-            <tr><td>MLX + Beta 2</td><td class="number best">37.678</td><td class="number">35.164</td><td class="number">77.1%</td><td class="number">1.36×</td></tr>
+            <tr class="highlight-row"><td rowspan="5"><strong>Qwen 3.5 4B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">81.609</td><td class="number">74.953</td><td class="number">–</td><td class="number">1.43×</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">57.164</td><td class="number">56.126</td><td class="number">70.0%</td><td class="number">–</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">71.376</td><td class="number">66.355</td><td class="number">87.5%</td><td class="number">1.25×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">71.301</td><td class="number">66.303</td><td class="number">87.4%</td><td class="number">1.25×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number best">75.137</td><td class="number">69.575</td><td class="number">92.1%</td><td class="number">1.31×</td></tr>
+            <tr class="highlight-row"><td rowspan="5"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">48.438</td><td class="number">44.358</td><td class="number">–</td><td class="number">1.39×</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">34.963</td><td class="number">34.270</td><td class="number">72.2%</td><td class="number">–</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">37.279</td><td class="number">34.806</td><td class="number">77.0%</td><td class="number">1.07×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">27.335</td><td class="number">25.926</td><td class="number">56.4%</td><td class="number">0.78×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number best">43.177</td><td class="number">39.935</td><td class="number">89.1%</td><td class="number">1.23×</td></tr>
+            <tr class="highlight-row"><td rowspan="5"><strong>Qwen 3.8 27B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">15.088</td><td class="number">13.844</td><td class="number">–</td><td class="number">1.48×</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">10.184</td><td class="number">9.978</td><td class="number">67.5%</td><td class="number">–</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">9.142</td><td class="number">8.647</td><td class="number">60.6%</td><td class="number">0.90×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">8.343</td><td class="number">7.924</td><td class="number">55.3%</td><td class="number">0.82×</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number best">13.482</td><td class="number">12.480</td><td class="number">89.4%</td><td class="number">1.32×</td></tr>
           </tbody>
         </table>
       </div>
@@ -161,22 +192,60 @@
           <p class="eyebrow">Fixed-set quality evaluation</p>
           <h2 id="accuracy-test">精確度與有效答案</h2>
         </div>
-        <p>MMLU 固定 100 題；四種模式使用完全相同題目。</p>
+        <p>MMLU 固定 100 題；每個模型的五種模式使用完全相同題目。</p>
       </div>
-      <div class="chart" role="img" aria-label="Ornith 1.5 9B 在四種模式的 MMLU 精確度長條圖">
+      <div class="legend" aria-label="圖例">
+        <span><i></i>原生MLX檔案未轉換</span>
+        <span><i class="llama"></i>llama.cpp+GGUF</span>
+        <span><i class="mlx-gguf"></i>MLX + Fast GGUF Mode 1</span>
+        <span><i class="fast-off"></i>MLX + Fast GGUF Mode 2</span>
+        <span><i class="mode3"></i>MLX + Fast GGUF Mode 3</span>
+      </div>
+      <div class="chart" role="img" aria-label="4B、9B、27B 三組模型在五種模式的 MMLU 精確度長條圖">
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.5 4B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:68;--scale:1.08%;"></div></div><span class="bar-value">68.0%</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:73;--scale:1.08%;"></div></div><span class="bar-value">73.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:72;--scale:1.08%;"></div></div><span class="bar-value">72.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:72;--scale:1.08%;"></div></div><span class="bar-value">72.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:71.43;--scale:1.08%;"></div></div><span class="bar-value">71.4%</span></div>
+        </div>
         <div class="chart-group">
           <div class="chart-group-title"><span>Ornith 1.5 9B</span><span>越高越好</span></div>
-          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:79;--scale:1%;"></div></div><span class="bar-value">79%</span></div>
-          <div class="bar-row"><span>MLX + 預設快速轉換</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:69;--scale:1%;"></div></div><span class="bar-value">69%</span></div>
-          <div class="bar-row"><span>MLX + Beta 1</span><div class="bar-track"><div class="bar fast-off" style="--value:68;--scale:1%;"></div></div><span class="bar-value">68%</span></div>
-          <div class="bar-row"><span>MLX + Beta 2</span><div class="bar-track"><div class="bar llama" style="--value:67.68;--scale:1%;"></div></div><span class="bar-value">67.7%</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:78.79;--scale:1.08%;"></div></div><span class="bar-value">78.8%</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:78;--scale:1.08%;"></div></div><span class="bar-value">78.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:78;--scale:1.08%;"></div></div><span class="bar-value">78.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:78;--scale:1.08%;"></div></div><span class="bar-value">78.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:77;--scale:1.08%;"></div></div><span class="bar-value">77.0%</span></div>
+        </div>
+        <div class="chart-group">
+          <div class="chart-group-title"><span>Qwen 3.8 27B</span><span>越高越好</span></div>
+          <div class="bar-row"><span>原生MLX檔案未轉換</span><div class="bar-track"><div class="bar" style="--value:89;--scale:1.08%;"></div></div><span class="bar-value">89.0%</span></div>
+          <div class="bar-row"><span>llama.cpp+GGUF</span><div class="bar-track"><div class="bar llama" style="--value:87;--scale:1.08%;"></div></div><span class="bar-value">87.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 1</span><div class="bar-track"><div class="bar mlx-gguf" style="--value:87;--scale:1.08%;"></div></div><span class="bar-value">87.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 2</span><div class="bar-track"><div class="bar fast-off" style="--value:88;--scale:1.08%;"></div></div><span class="bar-value">88.0%</span></div>
+          <div class="bar-row"><span>MLX + Fast GGUF Mode 3</span><div class="bar-track"><div class="bar mode3" style="--value:82;--scale:1.08%;"></div></div><span class="bar-value">82.0%</span></div>
         </div>
       </div>
       <div class="table-wrap" style="margin-top: 24px;">
         <table>
-          <thead><tr><th>模型</th><th class="number">原生MLX檔案未轉換</th><th class="number">MLX + 預設快速轉換</th><th class="number">MLX + Beta 1</th><th class="number">MLX + Beta 2</th><th>可評分題數</th></tr></thead>
+          <thead><tr><th>模型</th><th>模式</th><th class="number">原樣結果</th><th class="number">排除截斷</th><th class="number">共同未截斷題組</th><th class="number">無法解析</th></tr></thead>
           <tbody>
-            <tr><td><strong>Ornith 1.5 9B</strong></td><td class="number best">79／100</td><td class="number">69／100</td><td class="number">68／100</td><td class="number">67／99</td><td>100／100／100／99</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.5 4B</strong></td><td>原生MLX檔案未轉換</td><td class="number">68／100</td><td class="number">68／100</td><td class="number">66／98</td><td class="number">0</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number best">73／100</td><td class="number best">73／100</td><td class="number best">71／98</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">72／100</td><td class="number">72／100</td><td class="number">70／98</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">72／100</td><td class="number">72／100</td><td class="number">70／98</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">70／100</td><td class="number">70／98</td><td class="number">70／98</td><td class="number">1</td></tr>
+            <tr><td rowspan="5"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">79／100</td><td class="number best">78／99</td><td class="number best">78／99</td><td class="number">0</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">78／100</td><td class="number">78／100</td><td class="number">77／99</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">78／100</td><td class="number">78／100</td><td class="number">77／99</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">78／100</td><td class="number">78／100</td><td class="number">77／99</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">77／100</td><td class="number">77／100</td><td class="number">76／99</td><td class="number">0</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.8 27B</strong></td><td>原生MLX檔案未轉換</td><td class="number best">89／100</td><td class="number best">89／100</td><td class="number best">89／100</td><td class="number">0</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">87／100</td><td class="number">87／100</td><td class="number">87／100</td><td class="number">0</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">87／100</td><td class="number">87／100</td><td class="number">87／100</td><td class="number">1</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">88／100</td><td class="number">88／100</td><td class="number">88／100</td><td class="number">1</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">82／100</td><td class="number">82／100</td><td class="number">82／100</td><td class="number">4</td></tr>
           </tbody>
         </table>
       </div>
@@ -184,9 +253,9 @@
         <div>
           <h3>計分與排除規則</h3>
           <p>
-            已產生 A～D 的回覆一律正常計分；只有
-            <code>finish_reason=length</code> 且尚未出現可解析答案時才排除分母，模型自行停止卻未作答仍算錯。
-            本輪只有 Beta 2 的 1 題符合排除條件，其餘 399 次問答均納入精確度計算。
+            所有 <code>finish_reason=length</code> 均視為截斷並排除分母，即使截斷前已出現可解析選項也不計分；
+            模型自行停止卻未作答仍算錯。本輪 1,500 次問答共有 3 次截斷，排除截斷後共 1,497 次可評分。
+            「共同未截斷題組」只比較同一模型下五種模式都未截斷的題目。
           </p>
         </div>
       </div>
@@ -204,15 +273,26 @@
         <table>
           <thead><tr><th>模型</th><th>模式</th><th class="number">原始模型</th><th class="number">轉換快取</th><th class="number">RAM 峰值</th><th class="number">RAM 平均</th><th>觀察</th></tr></thead>
           <tbody>
-            <tr><td rowspan="4"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number">4.711 GiB</td><td class="number">–</td><td class="number">4.897 GiB</td><td class="number">4.897 GiB</td><td>無轉換快取</td></tr>
-            <tr><td>MLX + 預設快速轉換</td><td class="number">5.383 GiB</td><td class="number">8.682 GiB</td><td class="number best">1.218 GiB</td><td class="number best">1.062 GiB</td><td>RAM 最低，快取最大</td></tr>
-            <tr><td>MLX + Beta 1</td><td class="number">5.383 GiB</td><td class="number">5.848 GiB</td><td class="number">1.967 GiB</td><td class="number">1.952 GiB</td><td>各方面表現均衡</td></tr>
-            <tr><td>MLX + Beta 2</td><td class="number">5.383 GiB</td><td class="number best">5.759 GiB</td><td class="number">1.766 GiB</td><td class="number">1.745 GiB</td><td>GGUF 策略中快取最小</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.5 4B</strong></td><td>原生MLX檔案未轉換</td><td class="number">2.851 GiB</td><td class="number">–</td><td class="number">2.394 GiB</td><td class="number">2.393 GiB</td><td>無轉換快取</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">2.406 GiB</td><td class="number">–</td><td class="number">3.058 GiB</td><td class="number">3.017 GiB</td><td>直接執行來源 GGUF</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">2.406 GiB</td><td class="number">2.539 GiB</td><td class="number best">0.769 GiB</td><td class="number best">0.681 GiB</td><td>RAM 最低</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">2.406 GiB</td><td class="number">2.539 GiB</td><td class="number">0.782 GiB</td><td class="number">0.688 GiB</td><td>Mode 1 接近</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">2.406 GiB</td><td class="number best">2.293 GiB</td><td class="number">1.241 GiB</td><td class="number">1.064 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
+            <tr><td rowspan="5"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number">4.711 GiB</td><td class="number">–</td><td class="number">4.882 GiB</td><td class="number">4.881 GiB</td><td>無轉換快取</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">5.383 GiB</td><td class="number">–</td><td class="number">5.850 GiB</td><td class="number">5.809 GiB</td><td>直接執行來源 GGUF</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">5.383 GiB</td><td class="number">5.759 GiB</td><td class="number">1.752 GiB</td><td class="number">1.750 GiB</td><td>各方面表現均衡</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">5.383 GiB</td><td class="number">8.682 GiB</td><td class="number best">1.254 GiB</td><td class="number best">1.253 GiB</td><td>RAM 最低、快取最大</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">5.383 GiB</td><td class="number best">4.871 GiB</td><td class="number">2.055 GiB</td><td class="number">2.020 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.8 27B</strong></td><td>原生MLX檔案未轉換</td><td class="number">14.977 GiB</td><td class="number">–</td><td class="number">14.291 GiB</td><td class="number">14.291 GiB</td><td>無轉換快取</td></tr>
+            <tr><td>llama.cpp+GGUF</td><td class="number">15.334 GiB</td><td class="number">–</td><td class="number">16.377 GiB</td><td class="number">16.260 GiB</td><td>直接執行來源 GGUF</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">15.334 GiB</td><td class="number">22.708 GiB</td><td class="number">5.844 GiB</td><td class="number">5.400 GiB</td><td>來源 4-bit block 與其他張量混用</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">15.334 GiB</td><td class="number">25.972 GiB</td><td class="number best">5.216 GiB</td><td class="number best">4.102 GiB</td><td>RAM 平均最低、快取最大</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">15.334 GiB</td><td class="number best">14.603 GiB</td><td class="number">6.377 GiB</td><td class="number">4.323 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
           </tbody>
         </table>
       </div>
       <p class="caption" style="margin-top: 14px;">
-        使用 MMap 技術降低 RAM 用量，原生 MLX 目前尚未支援。
+        使用 MMap 技術降低 RAM 用量，原生 MLX 目前尚未支援。表中為程序 RSS，因此不等於邏輯權重總量或整台主機的統一記憶體使用量。
       </p>
     </section>
 
@@ -222,13 +302,13 @@
           <p class="eyebrow">Experimental follow-up</p>
           <h2 id="poc-note">Recurrent controls 量測範圍</h2>
         </div>
-        <p>本輪三種 GGUF 策略均使用相同的 recurrent controls 設定，避免額外變因。</p>
+        <p>本輪三種 Fast GGUF 模式均使用相同的 recurrent controls 設定，避免額外變因。</p>
       </div>
       <div class="callout">
         <div>
           <h3>固定 controls 設定</h3>
           <p>
-            MLX + 預設快速轉換、MLX + Beta 1 與 MLX + Beta 2 均傳入 <code>--gguf-recurrent-promotion controls</code>；
+            MLX + Fast GGUF Mode 1、Mode 2 與 Mode 3 均傳入 <code>--gguf-recurrent-promotion controls</code>；
             本節只記錄測試條件，不把 recurrent promotion 的效果和三種儲存策略混為同一項比較。
           </p>
         </div>
@@ -259,7 +339,7 @@
             <li>固定 100 題、seed 0</li>
             <li>每個模型與模式使用完全相同題目</li>
             <li>關閉 thinking；輸出上限 512 tokens、單題逾時 600～900 秒</li>
-            <li>只接受獨立 A、B、C、D；length 且尚無答案才排除</li>
+            <li>只接受獨立 A、B、C、D；所有 <code>finish_reason=length</code> 均排除</li>
           </ul>
         </article>
         <article class="feature-card">
@@ -267,7 +347,8 @@
           <ul class="method-list">
             <li>原生 MLX 與 MLX+GGUF 均使用相同 Release build</li>
             <li>MLX+GGUF 明確傳入 <code>--mmap</code>；原生MLX檔案未轉換模式未傳入</li>
-            <li>MLX+GGUF 速度量測使用已完成的永久快取</li>
+            <li>三種 Fast GGUF 模式各自使用已完成的永久快取</li>
+            <li>Group 由 Mode 1／2／3 自動決定，未手動指定</li>
             <li>KV cache 上限 4096 tokens</li>
             <li>未啟用 DFlash 與 KV Cache 量化</li>
           </ul>
@@ -275,8 +356,9 @@
         <article class="feature-card">
           <h3>解讀限制</h3>
           <ul class="method-list">
-            <li>本輪完整四策略比較為單一模型樣本，不代表所有 GGUF 的固定結果</li>
-            <li>Qwen 3.5 4B Q4_0 另以 20 題確認改動前後逐題一致</li>
+            <li>本輪涵蓋 4B Q4_0、9B Q4_K_M 與 27B 混合量化來源</li>
+            <li>每個模型均完成五種模式、固定 100 題與三次正式速度量測</li>
+            <li>本報告不量測載入效率；磁碟只列原始模型與永久轉換快取</li>
             <li>程序 RSS 不等於系統統一記憶體總量</li>
             <li>Runtime 或 Metal 更新後應重新測試</li>
           </ul>
@@ -285,6 +367,8 @@
       <p class="small-note" style="margin-top: 20px;">
         策略量測彙總：<a href="gguf-strategy-results.csv">gguf-strategy-results.csv</a> ·
         精度彙總：<a href="accuracy-summary.csv">accuracy-summary.csv</a> ·
+        每題結果：<a href="accuracy-results.csv">accuracy-results.csv</a> ·
+        速度與資源原始彙總：<a href="benchmark-results.csv">benchmark-results.csv</a> ·
         重現腳本：<a href="run-benchmark.sh">run-benchmark.sh</a>、
         <a href="run-accuracy-benchmark.sh">run-accuracy-benchmark.sh</a>
       </p>
@@ -299,20 +383,20 @@
       </div>
       <div class="feature-grid">
         <article class="feature-card">
-          <h3>原生 MLX 基準</h3>
-          <p>本輪原生 MLX 為 48.863 tok/s、79／100，並占用 4.711 GiB 模型磁碟與 4.897 GiB 程序 RAM。</p>
+          <h3>Qwen 3.5 4B</h3>
+          <p>五種模式排除截斷後為 68.0%～73.0%；原生 MLX 為 81.609 tok/s，三種 Fast GGUF 為 71.301～75.137 tok/s。</p>
         </article>
         <article class="feature-card">
-          <h3>三種 GGUF 結果</h3>
-          <p>MLX + 預設快速轉換、MLX + Beta 1、MLX + Beta 2 分別為 27.720、36.794、37.678 tok/s；正確題數為 69／100、68／100、67／99。</p>
+          <h3>Ornith 1.5 9B</h3>
+          <p>五種模式排除截斷後為 77.0%～78.8%；原生 MLX 為 48.438 tok/s，三種 Fast GGUF 為 27.335～43.177 tok/s。</p>
         </article>
         <article class="feature-card">
-          <h3>來源量化差異</h3>
-          <p>MLX + 預設快速轉換將 K-Quant 重新量化為 INT8；MLX + Beta 1／MLX + Beta 2 沿用 Q4_K 來源 block，其他張量分別使用 Group 32／64。</p>
+          <h3>Qwen 3.8 27B</h3>
+          <p>五種模式排除截斷後為 82.0%～89.0%；原生 MLX 為 15.088 tok/s，三種 Fast GGUF 為 8.343～13.482 tok/s。</p>
         </article>
         <article class="feature-card">
           <h3>適用範圍</h3>
-          <p>結果只代表本次模型、Runtime 與測試條件；其他架構、量化格式或 checkpoint 需另行量測。</p>
+          <p>三組模型的速度、精確度、快取與 RAM 分布並不相同；結果只代表本次模型、Runtime 與測試條件，其他架構、量化格式或 checkpoint 需另行量測。</p>
         </article>
       </div>
     </section>

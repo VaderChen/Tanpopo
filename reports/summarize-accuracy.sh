@@ -34,7 +34,8 @@ awk -F, '
     required[3] = "case_id"
     required[4] = "predicted"
     required[5] = "correct"
-    for (requiredIndex = 1; requiredIndex <= 5; requiredIndex++) {
+    required[6] = "expected"
+    for (requiredIndex = 1; requiredIndex <= 6; requiredIndex++) {
       if (!(required[requiredIndex] in column)) {
         print "精度 CSV 缺少欄位：" required[requiredIndex] > "/dev/stderr"
         exit 2
@@ -47,14 +48,17 @@ awk -F, '
     model = field("model", "")
     variant = field("variant", "")
     caseID = field("case_id", "")
+    expected = field("expected", "?")
     prediction = field("predicted", "?")
     correct = field("correct", 0) + 0
     finishReason = field("finish_reason", "unknown")
     evaluable = field("evaluable", 1) + 0
     responseSeconds = field("response_seconds", 0) + 0
     key = model SUBSEP variant
+    rawCorrect = prediction == expected ? 1 : 0
 
     total[key]++
+    rawPassed[key] += rawCorrect
     responseTotal[key] += responseSeconds
     if (evaluable) {
       evaluated[key]++
@@ -64,19 +68,52 @@ awk -F, '
     if (!evaluable && finishReason == "length") lengthExcluded[key]++
 
     caseKey = model SUBSEP variant SUBSEP caseID
+    modelCaseKey = model SUBSEP caseID
     predictionByCase[caseKey] = prediction
     evaluableByCase[caseKey] = evaluable
+    rawCorrectByCase[caseKey] = rawCorrect
+    caseSeen[modelCaseKey] = 1
     variantSeen[model SUBSEP variant] = 1
   }
   END {
-    print "model,variant,total,evaluated,correct,accuracy,invalid,length_excluded,retention_vs_native,agreement_with_native,agreement_with_llama,delta_vs_native_pp,delta_vs_llama_pp,average_response_seconds"
+    # 同一模型的所有 variant 都未因 length 截斷，才納入共同題集。
+    for (modelCaseKey in caseSeen) {
+      split(modelCaseKey, modelCaseParts, SUBSEP)
+      commonModel = modelCaseParts[1]
+      commonCaseID = modelCaseParts[2]
+      allEvaluable = 1
+      for (candidate in variantSeen) {
+        split(candidate, candidateParts, SUBSEP)
+        if (candidateParts[1] == commonModel) {
+          candidateCaseKey = commonModel SUBSEP candidateParts[2] SUBSEP commonCaseID
+          if (!(candidateCaseKey in evaluableByCase) || !evaluableByCase[candidateCaseKey]) {
+            allEvaluable = 0
+          }
+        }
+      }
+      if (allEvaluable) commonCase[modelCaseKey] = 1
+    }
+
+    print "model,variant,total,raw_correct,raw_accuracy,evaluated,correct,accuracy,common_evaluated,common_correct,common_accuracy,invalid,length_excluded,retention_vs_native,agreement_with_native,agreement_with_llama,delta_vs_native_pp,delta_vs_llama_pp,average_response_seconds"
     for (mv in variantSeen) {
       split(mv, parts, SUBSEP)
       model = parts[1]
       variant = parts[2]
       key = model SUBSEP variant
       accuracy = evaluated[key] > 0 ? passed[key] / evaluated[key] : 0
+      rawAccuracy = total[key] > 0 ? rawPassed[key] / total[key] : 0
       averageSeconds = total[key] > 0 ? responseTotal[key] / total[key] : 0
+      commonEvaluated = 0
+      commonPassed = 0
+      for (modelCaseKey in commonCase) {
+        split(modelCaseKey, modelCaseParts, SUBSEP)
+        if (modelCaseParts[1] == model) {
+          commonCaseKey = model SUBSEP variant SUBSEP modelCaseParts[2]
+          commonEvaluated++
+          commonPassed += rawCorrectByCase[commonCaseKey]
+        }
+      }
+      commonAccuracy = commonEvaluated > 0 ? commonPassed / commonEvaluated : 0
       nativeVariant = ""
       llamaVariant = ""
       for (candidate in variantSeen) {
@@ -153,9 +190,10 @@ awk -F, '
       }
       if (isLlama(variant)) llamaAgreement = 1
       outputVariant = isNative(variant) ? "native" : (isLlama(variant) ? "llama-reference" : variant)
-      printf "%s,%s,%d,%d,%d,%.4f,%d,%d,%.4f,%.4f,%.4f,%.2f,%.2f,%.3f\n", \
-        model, outputVariant, total[key], evaluated[key] + 0, passed[key] + 0, accuracy, \
-        invalid[key] + 0, lengthExcluded[key] + 0, retention, nativeAgreement, \
+      printf "%s,%s,%d,%d,%.4f,%d,%d,%.4f,%d,%d,%.4f,%d,%d,%.4f,%.4f,%.4f,%.2f,%.2f,%.3f\n", \
+        model, outputVariant, total[key], rawPassed[key] + 0, rawAccuracy, \
+        evaluated[key] + 0, passed[key] + 0, accuracy, commonEvaluated, commonPassed, \
+        commonAccuracy, invalid[key] + 0, lengthExcluded[key] + 0, retention, nativeAgreement, \
         llamaAgreement, nativeDelta, llamaDelta, averageSeconds
     }
   }

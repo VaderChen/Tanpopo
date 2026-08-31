@@ -30,16 +30,39 @@ public enum GGUFMaterializationKind: String, Codable, Hashable, Sendable {
 ///
 /// GGUF 重新量化的通用策略。`.automatic` 以 INT8 處理低位元來源，
 /// 作為 fastGGUF 關閉時的穩健預設；`.quality` 將可解碼權重展開為 FP32，
-/// 僅供精度診斷；`.speed` 直接保留可無損映射的來源 block，
+/// 僅供精度診斷；`.mode1` 直接保留可無損映射的來源 block，
 /// 必須二次量化的低位元來源則至少使用 INT8。這項規則來自來源
 /// block 格式與轉換語意，不依賴模型名稱。
 public enum GGUFQuantizationProfile: String, Codable, Hashable, Sendable {
     case automatic = "auto"
     case quality
-    case speed
-    /// Beta：K-quant super-block 直接沿用來源布局（4-bit，group 32），
-    /// 不做第二次量化。速度較快但實測精度低於 speed，預設不啟用。
-    case speedPassthrough = "speed-passthrough"
+    /// Mode 1（預設）：K-quant super-block 直接沿用來源 4-bit block
+    /// （該張量固定 group 32），其餘張量維持 group 64。速度約 +36%。
+    /// 實測量化位元寬度不影響輸出品質，因此以速度為預設取向。
+    case mode1
+    /// Mode 2：所有必須轉換的低位元來源重新量化為 INT8，group 64。
+    /// 保守路徑，記憶體佔用較高但轉換語意最單純。
+    case mode2
+    /// Mode 3：所有可量化來源一律重新量化為 INT4，並固定 group 32。
+    ///
+    /// group 必須是 32：K-quant 的 sub-block 就是 32 元素，group 64 會橫跨兩個
+    /// 各有 scale／min 的 sub-block，被迫用單一 scale 涵蓋兩組動態範圍。
+    /// 實測 group 64 會讓輸出從第一個 token 就變成亂碼（相對 RMSE 8.2%，
+    /// group 32 為 4.4%），因此這裡由策略決定 group，不受全域設定影響。
+    case mode3
+
+    /// 舊名稱別名，讓既有啟動參數與設定檔不必同步變更；
+    /// 舊名對應的實際行為維持不變（speed 仍是全 INT8）。
+    public init?(rawValue: String) {
+        switch rawValue.lowercased() {
+        case "auto", "automatic": self = .automatic
+        case "quality": self = .quality
+        case "mode1", "speed-passthrough": self = .mode1
+        case "mode2", "speed": self = .mode2
+        case "mode3": self = .mode3
+        default: return nil
+        }
+    }
 }
 
 public struct GGUFTypeSupport: Codable, Hashable, Sendable {
@@ -266,12 +289,26 @@ public enum GGUFStoragePolicy {
         // INT4。這同時覆蓋 Q1～Q6 K-quant 與 IQ 格式，也避免未來擴充
         // 新格式時忘記更新型別清單。MXFP4 雖需重新封裝，但能保留來源
         // 量化值，因此先以 preservesSourceQuantization 判斷。
+        // Mode 3 一律降到 INT4：不沿用來源 block，也不升 INT8。
+        if profile == .mode3 {
+            switch support.materialization {
+            case .quantized4, .quantized8, .requantized4, .requantized8:
+                return GGUFTypeSupport(
+                    storageType: .int4,
+                    materialization: .requantized4,
+                    preservesSourceQuantization: false,
+                    requiresConversion: true
+                )
+            default:
+                return support
+            }
+        }
         // K-quant super-block 雖然能無損沿用（基礎表如實描述格式），但沿用等於把
         // 該張量的位元寬度從 INT8 降到 INT4，實測精度低於重新量化為 INT8，
         // 因此只有明確選用 speed-passthrough 才採用，其餘策略一律升 INT8。
         if support.preservesSourceQuantization,
            usesSuperBlockLayout(normalized),
-           profile != .speedPassthrough {
+           profile != .mode1 {
             return GGUFTypeSupport(
                 storageType: .int8,
                 materialization: .requantized8,

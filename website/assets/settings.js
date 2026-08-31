@@ -105,9 +105,15 @@
     updateResidentModeLabel();
     notifyNativeResidentMode(settings.resident_mode);
     byId("defaultFastGGUFEnabled").checked = settings.default_fast_gguf_enabled !== false;
-    byId("defaultFastGGUFStrategy").value = ["default", "beta1", "beta2"].includes(settings.default_fast_gguf_strategy)
-      ? settings.default_fast_gguf_strategy
-      : "default";
+    // 舊設定值仍可能存有 default／beta1／beta2：default 對應保守的 Mode 2，
+    // 已捨棄的 beta1／beta2 併入 Mode 1，與後端的正規化一致。
+    byId("defaultFastGGUFStrategy").value =
+      settings.default_fast_gguf_strategy === "mode2" ||
+      settings.default_fast_gguf_strategy === "default"
+        ? "mode2"
+        : settings.default_fast_gguf_strategy === "mode3"
+          ? "mode3"
+          : "mode1";
     byId("defaultKVCacheQuantizationEnabled").checked = Boolean(settings.default_kv_cache_quantization_enabled);
     byId("defaultMMapEnabled").checked = Boolean(settings.default_mmap_enabled);
     byId("defaultDFlashEnabled").checked = Boolean(settings.default_dflash_enabled);

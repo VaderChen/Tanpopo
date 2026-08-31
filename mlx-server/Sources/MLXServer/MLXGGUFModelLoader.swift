@@ -1090,7 +1090,11 @@ enum MLXGGUFLoader {
         // 無損沿用來源 block 的張量各自固定 group 32（由 quantizedArrays 決定），
         // 其餘張量沿用這裡的全域選擇。兩者可以並存——重排流程已改為由實際 shape
         // 反推每個張量的 packing，不再假設全模型共用同一個 group。
-        let resolvedGroupSize = requestedGroupSize ?? 64
+        //
+        // Mode 3 是例外：INT4 必須對齊 K-quant 的 32 元素 sub-block，group 64
+        // 實測會產生亂碼，因此由策略固定為 32，不採用全域預設。
+        let defaultGroupSize = profile == .mode3 ? 32 : 64
+        let resolvedGroupSize = requestedGroupSize ?? defaultGroupSize
         if let invalid = firstIncompatibleTensor(groupSize: resolvedGroupSize) {
             throw MLXGGUFLoaderError.invalidTensor(invalid.name)
         }
@@ -3761,7 +3765,6 @@ enum MLXGGUFModelLoader {
                 .map { "\($0.key):\($0.value)" }
                 .joined(separator: ",")
             let visited = visitedPaths
-            let skipped = skippedPaths
             lock.unlock()
             fputs(
                 "GGUF quantized layers [\(summary)] total=\(quantizedWeightPrefixes.count)\n",

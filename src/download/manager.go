@@ -63,6 +63,28 @@ type repositoryInfo struct {
 	Siblings []struct {
 		Filename string `json:"rfilename"`
 	} `json:"siblings"`
+	CardData struct {
+		BaseModel baseModelReference `json:"base_model"`
+	} `json:"cardData"`
+}
+
+// baseModelReference 對應 Hugging Face model card 的 base_model 欄位，
+// 它可能是單一字串或字串陣列，格式不符時視為未標註。
+type baseModelReference []string
+
+func (reference *baseModelReference) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*reference = []string{single}
+		return nil
+	}
+	var multiple []string
+	if err := json.Unmarshal(data, &multiple); err == nil {
+		*reference = multiple
+		return nil
+	}
+	*reference = nil
+	return nil
 }
 
 type modelConfiguration struct {
@@ -170,6 +192,58 @@ func (m *Manager) StartWithCompanions(ctx context.Context, request Request) (Bat
 			continue
 		}
 		result.Jobs = append(result.Jobs, job)
+	}
+
+	// GGUF 打包 repo 常常只有權重，config.json 與 chat_template.jinja 留在原始
+	// 模型 repo。缺少時依 model card 的 base_model 追過去取回；取不到只發出
+	// 警告，不影響主檔下載。
+	if missing := missingRuntimeAssets(companions); len(missing) > 0 && discoveryErr == nil {
+		baseRepository := baseModelRepository(targetInfo)
+		if baseRepository != "" {
+			assetRequest := request
+			assetRequest.Repository = baseRepository
+			assetRequest.Revision = "main"
+			baseInfo, infoErr := m.fetchRepositoryInfo(ctx, assetRequest)
+			if infoErr != nil {
+				result.Warnings = append(result.Warnings,
+					"來源模型 "+baseRepository+" 的語意檔案檢查失敗: "+infoErr.Error())
+			} else {
+				available := make(map[string]string, len(baseInfo.Siblings))
+				for _, sibling := range baseInfo.Siblings {
+					filename := strings.TrimSpace(strings.ReplaceAll(sibling.Filename, "\\", "/"))
+					if strings.Count(filename, "/") == 0 {
+						available[strings.ToLower(filename)] = filename
+					}
+				}
+				for _, name := range missing {
+					filename, ok := available[name]
+					if !ok {
+						continue
+					}
+					fileRequest := assetRequest
+					fileRequest.Filename = filename
+					destination, joinErr := SafeJoin(fileRequest.ModelDirectory, localDestination(fileRequest))
+					if joinErr != nil {
+						result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %v", filename, joinErr))
+						continue
+					}
+					if !fileRequest.Overwrite {
+						if info, statErr := os.Stat(destination); statErr == nil && info.Mode().IsRegular() {
+							result.Skipped = append(result.Skipped, filename)
+							continue
+						}
+					}
+					job, startErr := m.startValidated(ctx, fileRequest, destination)
+					if startErr != nil {
+						result.Warnings = append(result.Warnings,
+							fmt.Sprintf("%s/%s: %v", baseRepository, filename, startErr))
+						continue
+					}
+					result.Detected = append(result.Detected, baseRepository+"/"+filename)
+					result.Jobs = append(result.Jobs, job)
+				}
+			}
+		}
 	}
 
 	if !containsDFlashFilename(companions) && discoveryErr == nil {
@@ -910,14 +984,26 @@ func selectCompanionFilenames(mainFilename string, info repositoryInfo) []string
 
 	mmprojCandidates := make([]string, 0)
 	dflashCandidates := make([]string, 0)
+	templateCandidates := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, sibling := range info.Siblings {
 		filename := strings.TrimSpace(strings.ReplaceAll(sibling.Filename, "\\", "/"))
-		if filename == "" || filename == mainFilename || !strings.EqualFold(path.Ext(filename), ".gguf") || seen[filename] {
+		if filename == "" || filename == mainFilename || seen[filename] {
 			continue
 		}
 		seen[filename] = true
 		base := strings.ToLower(path.Base(filename))
+		// GGUF 內嵌 metadata 不一定完整表達模型語意：chat template 是打包者
+		// 提供的版本，未必與模型作者一致；config.json 則帶有 layer_types、
+		// gating 與 RoPE 等 GGUF 無法完整保留的欄位。repo 若附了這些檔案就
+		// 一併取回，mlx-server 會優先使用目錄檔案作為語意基準。
+		if base == chatTemplateFilename || base == modelConfigurationFilename {
+			templateCandidates = append(templateCandidates, filename)
+			continue
+		}
+		if !strings.EqualFold(path.Ext(filename), ".gguf") {
+			continue
+		}
 		switch {
 		case strings.Contains(base, "mmproj"):
 			mmprojCandidates = append(mmprojCandidates, filename)
@@ -926,14 +1012,90 @@ func selectCompanionFilenames(mainFilename string, info repositoryInfo) []string
 		}
 	}
 
-	selected := make([]string, 0, 2)
+	selected := make([]string, 0, 4)
 	if filename := chooseBestCompanion(mainFilename, mmprojCandidates); filename != "" {
 		selected = append(selected, filename)
 	}
 	if filename := chooseBestCompanion(mainFilename, dflashCandidates); filename != "" {
 		selected = append(selected, filename)
 	}
+	for _, name := range []string{chatTemplateFilename, modelConfigurationFilename} {
+		matching := make([]string, 0, len(templateCandidates))
+		for _, candidate := range templateCandidates {
+			if strings.EqualFold(path.Base(candidate), name) {
+				matching = append(matching, candidate)
+			}
+		}
+		if filename := chooseChatTemplate(mainFilename, matching); filename != "" {
+			selected = append(selected, filename)
+		}
+	}
 	return selected
+}
+
+const (
+	chatTemplateFilename       = "chat_template.jinja"
+	modelConfigurationFilename = "config.json"
+)
+
+// chooseChatTemplate 以「與主檔同目錄」優先，其次取路徑最淺的一份。
+// 這類語意檔案通常只有一份且放在 repo 根目錄，不適用檔名相似度比對。
+func chooseChatTemplate(mainFilename string, candidates []string) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+	mainDirectory := path.Dir(mainFilename)
+	best := ""
+	bestDepth := -1
+	for _, candidate := range candidates {
+		if path.Dir(candidate) == mainDirectory {
+			return candidate
+		}
+		depth := strings.Count(candidate, "/")
+		if bestDepth < 0 || depth < bestDepth {
+			best = candidate
+			bestDepth = depth
+		}
+	}
+	return best
+}
+
+// runtimeAssetFilenames 是 GGUF metadata 無法完整表達模型語意的檔案。
+// config.json 帶有 layer_types、gating 與完整 RoPE 設定，chat_template.jinja
+// 決定 prompt 如何展開；兩者缺席時 mlx-server 只能從 metadata 推導，
+// 實測會產生與原生不同的行為。
+var runtimeAssetFilenames = []string{modelConfigurationFilename, chatTemplateFilename}
+
+// missingRuntimeAssets 回傳同 repo 沒有配對到的語意檔案。
+func missingRuntimeAssets(companions []string) []string {
+	present := make(map[string]bool, len(companions))
+	for _, companion := range companions {
+		present[strings.ToLower(path.Base(companion))] = true
+	}
+	missing := make([]string, 0, len(runtimeAssetFilenames))
+	for _, name := range runtimeAssetFilenames {
+		if !present[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// baseModelRepository 取出 model card 標註的來源模型 repo。
+// GGUF 打包 repo 常常只有權重，語意檔案留在原始模型 repo。
+func baseModelRepository(info repositoryInfo) string {
+	for _, reference := range info.CardData.BaseModel {
+		reference = strings.TrimSpace(reference)
+		reference = strings.TrimPrefix(reference, "https://huggingface.co/")
+		reference = strings.Trim(reference, "/")
+		if reference == "" || strings.EqualFold(reference, info.ID) {
+			continue
+		}
+		if strings.Count(reference, "/") == 1 {
+			return reference
+		}
+	}
+	return ""
 }
 
 func chooseBestCompanion(mainFilename string, candidates []string) string {

@@ -15,7 +15,7 @@ func TestWithManagedMLXGGUFOptimizationUsesQualityDefaults(t *testing.T) {
 		[]string{"--temperature", "0.2", "--gguf-profile", "auto", "--gguf-group-size=64"},
 		true,
 		false,
-		domain.FastGGUFStrategyDefault,
+		domain.FastGGUFStrategyMode1,
 	)
 	want := []string{
 		"--temperature", "0.2",
@@ -29,9 +29,9 @@ func TestWithManagedMLXGGUFOptimizationUsesQualityDefaults(t *testing.T) {
 }
 
 func TestWithManagedMLXGGUFOptimizationUsesDefaultFastStrategy(t *testing.T) {
-	got := withManagedMLXGGUFOptimization(nil, true, true, domain.FastGGUFStrategyDefault)
+	got := withManagedMLXGGUFOptimization(nil, true, true, domain.FastGGUFStrategyMode1)
 	want := []string{
-		"--gguf-profile", "speed",
+		"--gguf-profile", "mode1",
 		"--gguf-group-size", "auto",
 		"--gguf-recurrent-promotion", "controls",
 	}
@@ -40,25 +40,32 @@ func TestWithManagedMLXGGUFOptimizationUsesDefaultFastStrategy(t *testing.T) {
 	}
 }
 
-func TestWithManagedMLXGGUFOptimizationUsesBetaStrategies(t *testing.T) {
+// Mode 2 是保守路徑；舊的 default 值必須沿用同一行為，
+// 而已捨棄的 beta1／beta2 一律併入預設的 Mode 1。
+func TestWithManagedMLXGGUFOptimizationResolvesStrategies(t *testing.T) {
 	tests := []struct {
 		name     string
 		strategy string
-		group    string
+		profile  string
 	}{
-		{name: "Beta 1", strategy: domain.FastGGUFStrategyBeta1, group: "32"},
-		{name: "Beta 2", strategy: domain.FastGGUFStrategyBeta2, group: "64"},
+		{name: "Mode 1", strategy: domain.FastGGUFStrategyMode1, profile: "mode1"},
+		{name: "Mode 2", strategy: domain.FastGGUFStrategyMode2, profile: "mode2"},
+		{name: "舊 default 對應 Mode 2", strategy: domain.FastGGUFStrategyLegacyDefault, profile: "mode2"},
+		{name: "舊 beta1 併入 Mode 1", strategy: domain.FastGGUFStrategyLegacyBeta1, profile: "mode1"},
+		{name: "舊 beta2 併入 Mode 1", strategy: domain.FastGGUFStrategyLegacyBeta2, profile: "mode1"},
+		{name: "Mode 3", strategy: domain.FastGGUFStrategyMode3, profile: "mode3"},
+		{name: "未知值退回 Mode 1", strategy: "unknown", profile: "mode1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := withManagedMLXGGUFOptimization(nil, true, true, test.strategy)
 			want := []string{
-				"--gguf-profile", "speed-passthrough",
-				"--gguf-group-size", test.group,
+				"--gguf-profile", test.profile,
+				"--gguf-group-size", "auto",
 				"--gguf-recurrent-promotion", "controls",
 			}
 			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("%s 快速 GGUF 策略不符：got %v want %v", test.name, got, want)
+				t.Fatalf("%s 策略不符：got %v want %v", test.name, got, want)
 			}
 		})
 	}
@@ -67,14 +74,14 @@ func TestWithManagedMLXGGUFOptimizationUsesBetaStrategies(t *testing.T) {
 func TestWithManagedMLXGGUFOptimizationStripsFlagsForNativeMLX(t *testing.T) {
 	got := withManagedMLXGGUFOptimization(
 		[]string{
-			"--gguf-profile=speed",
+			"--gguf-profile=mode1",
 			"--gguf-group-size", "64",
 			"--gguf-recurrent-promotion=controls",
 			"--thinking",
 		},
 		false,
 		false,
-		domain.FastGGUFStrategyDefault,
+		domain.FastGGUFStrategyMode1,
 	)
 	want := []string{"--thinking"}
 	if !reflect.DeepEqual(got, want) {

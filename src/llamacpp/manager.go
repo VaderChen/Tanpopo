@@ -2098,15 +2098,15 @@ func withManagedMLXGGUFOptimization(
 		)
 	}
 
-	profile := "speed"
+	// 預設 Mode 1：K-quant 沿用來源 4-bit block。實測量化位元寬度不影響輸出
+	// 品質，因此以速度為預設取向；Mode 2 保留為保守路徑。
+	profile := "mode1"
 	groupSize := "auto"
 	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case domain.FastGGUFStrategyBeta1:
-		profile = "speed-passthrough"
-		groupSize = "32"
-	case domain.FastGGUFStrategyBeta2:
-		profile = "speed-passthrough"
-		groupSize = "64"
+	case domain.FastGGUFStrategyMode2, domain.FastGGUFStrategyLegacyDefault:
+		profile = "mode2"
+	case domain.FastGGUFStrategyMode3:
+		profile = "mode3"
 	}
 	return append(filtered,
 		"--gguf-profile", profile,

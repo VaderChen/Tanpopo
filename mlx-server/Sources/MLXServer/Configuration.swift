@@ -305,10 +305,13 @@ struct ServerConfiguration: Sendable {
       --gguf-group-size <auto|32|64>
                                    GGUF 權重量化群組大小；auto 固定解析為 64，
                                    Group 32 僅在明確指定時使用
-      --gguf-profile <auto|quality|speed|speed-passthrough>
-                                   GGUF 轉換策略，預設 auto。speed-passthrough 為
-                                   Beta：K-quant 直接沿用來源 4-bit block（group 32），
-                                   較快但精度低於 speed
+      --gguf-profile <auto|quality|mode1|mode2|mode3>
+                                   GGUF 轉換策略，預設 auto。
+                                   mode1：K-quant 沿用來源 4-bit block（該張量 group 32），
+                                          速度約 +36%
+                                   mode2：低位元來源重新量化為 INT8／group 64，保守路徑
+                                   mode3：一律重新量化為 INT4／group 32，頻寬最低
+                                   （舊名 speed 對應 mode2、speed-passthrough 對應 mode1）
       --gguf-recurrent-promotion <off|controls|all>
                                    recurrent tensor 混合精度策略，預設 off
       --gguf-cache-dir <目錄>      GGUF 轉換後權重的永久快取目錄
