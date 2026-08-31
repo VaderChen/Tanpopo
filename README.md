@@ -15,7 +15,7 @@
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
-- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 規則自動選擇 INT4、INT8、BF16、Group 與 recurrent controls，並以永久 `.fgguf` 快取避免重複轉換。這套通用策略對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
+- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並以永久 `.fgguf` 快取避免重複轉換。系統設定可選擇「預設、Beta 1、Beta 2」三種快速策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
 - 執行狀態頁依所選 Runtime 提供模型下拉清單，不接受任意模型路徑。mlx-server 模型依 GGUF／MLX 分群；Runtime 尚未明確回報支援的語言模型會保留在可選取的「尚未測試（N）」群組，啟動後由 Runtime 實際驗證相容性。
 - KV Cache、MMap、DFlash 採全流程整合：涵蓋系統功能預設、啟動 Profile、執行開關、相容性預檢、Runtime 參數、狀態保存與錯誤回報。實際可用性仍依 Runtime 與模型能力決定；DFlash 必須有相容的 Target／Draft，並與 KV Cache 量化互斥。
 - 執行狀態頁將 DFlash 與 MMap 收納於「進階設定」泡泡；兩者仍為獨立開關，不會隨功能增加而持續拉長頁面。
@@ -26,7 +26,7 @@
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
 - 按下「載入並啟動」會立即顯示模型載入提示，提醒大型模型可能需要轉換並耐心等候；Runtime 執行後可按「測試」送出實際生成請求，測試期間立即顯示動畫視窗，完成後列出輸入／輸出 Token、生成速度與測試時間，失敗或載入逾時也會回報明確原因。主頁重新整理期間另有小型進度視窗，避免畫面等待時沒有回饋。
 - 成功啟動後會保存 Runtime、Profile、模型、mmproj、DFlash 與 MMap 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
-- 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning 或 `<think>` 區段時，會與最終回答分開顯示。思考過程在生成期間預設展開並顯示三點動畫，完成後自動收合；同時顯示輸入／輸出 Token 與每秒輸出 Token 數。
+- 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning、`<think>` 區段或 `<|channel|>` 思考通道時，會與最終回答分開顯示。思考過程在生成期間預設展開並顯示三點動畫，完成後自動收合；同時顯示輸入／輸出 Token 與每秒輸出 Token 數。
 - 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
 - 介面提供蒲公英、晴空藍、櫻花粉與深夜紫四種配色，其中深夜紫為深色主題；切換後立即預覽並保存。
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
@@ -42,7 +42,7 @@
 ## 公開測試報告
 
 - [模型相容性報告](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：整理原生 MLX、MLX 直讀 GGUF、llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援範圍及相容性邊界。
-- [效能與精確度報告](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以三組配對模型比較原生 MLX、Fast GGUF 關閉、Fast GGUF 開啟及 llama+GGUF；每個模式固定取樣 100 題，快速策略至少須保留同模型純 MLX 精確度的 90%，並同時揭露生成速度、有效答案、測試環境與重測條件。
+- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以同一模型比較「原生MLX檔案未轉換、MLX + 預設快速轉換、MLX + Beta 1、MLX + Beta 2」，如實列出固定 100 題結果、生成速度、原始模型與轉換快取磁碟占用，以及程序 RAM 峰值與平均值。
 
 兩份 HTML 均可切換 `AUTO`、繁體中文與英文。報告數據是標示日期、硬體、Runtime 版本與樣本下的可重現測試快照，不代表所有模型或裝置都會得到相同結果，也不構成 Fast GGUF 的相容性、速度或精度保證。
 
@@ -143,13 +143,19 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 整個應用不呼叫 Python、`mlx_lm.server`、pip 或虛擬環境；Go 管理服務與 Swift MLX Runtime 都是原生執行檔。部署主機不需要安裝 Python。
 
-啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。Qwen3.5 GGUF 若同目錄只有一份配對的 `mmproj`，mlx-server 會自動掛載；缺少或存在多份時會明確拒絕猜測。
+啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。GGUF 同目錄若有且只有一份可配對的 `mmproj`，mlx-server 會自動掛載；完全沒有 `mmproj` 時則當作純文字 LLM 載入，存在多份候選時不會猜測配對。
 
-**快速GGUF模式（Fast GGUF）**是 mlx-server 的通用 GGUF 最佳化入口，選擇 GGUF 時預設開啟。它不依賴模型檔名，而是檢查 tensor 型別與形狀，讓浮點權重以 BF16 運算、Q8 保留 INT8，其餘支援的低位元矩陣依來源型別轉成 INT4；直接保留 GGUF 32 元素 block 時使用 group 32，需要重新量化的 tensor 才在相容時優先 group 64，recurrent controls 則保留較高精度。可透過 `--gguf-group-size auto|32|64` 與 `--gguf-profile auto|quality|speed` 覆寫；`quality` 會讓 Q5_K／Q6_K 改用 INT8。
+**快速GGUF模式（Fast GGUF）**是 mlx-server 的通用 GGUF 最佳化入口，選擇 GGUF 時預設開啟。系統設定的獨立「快速 GGUF 策略」卡片同時保存預設開關與策略選擇：
+
+- **預設**：`speed + group auto + recurrent controls`。Group auto 固定解析為 64；K-Quant 重新量化為 INT8。
+- **Beta 1**：`speed-passthrough + group 32 + recurrent controls`。可表示的 Q4_K 直接沿用來源 4-bit sub-block，其他張量使用 Group 32。
+- **Beta 2**：`speed-passthrough + group 64 + recurrent controls`。Q4_K 沿用方式與 Beta 1 相同，其他張量使用 Group 64。
+
+關閉快速GGUF模式時改走 `auto + group auto + recurrent off` 的一般 GGUF 轉換。所有策略都只依 tensor dtype、shape、來源 block 與架構 metadata 判定，不依模型檔名寫特例；Q4_K 沿用區段的 32 元素 Group 是來源格式本身的 sub-block，不代表全域改用 Group 32。`--gguf-profile quality` 會使用 FP32 參考權重，只適合誤差診斷，不是一般效能模式。
 
 Fast GGUF 的設計可套用於多數 mlx-server 能解析的 GGUF，不需要為每個模型寫特例；但它不是相容性或精度保證。模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂修改都可能影響結果，因此「尚未測試」模型仍可能啟動失敗、沒有速度收益或產生品質差異。遇到異常時可關閉快速GGUF模式比較，並以實際生成與精度測試決定是否採用。GGUF Target 使用一般 MLX 生成；DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft，以維持精確回退語意。
 
-GGUF 轉換後的永久權重快取使用 Tanpopo 內部 `.fgguf` 容器，並直接儲存在原始 GGUF 的同一目錄：逐 tensor 判斷是否採 LZFSE 無損壓縮，沒有足夠容量收益的 tensor 保持 raw 與 MMap 對齊。此格式不是標準 GGUF，也不供其他 Runtime 交換使用；完整位元組配置、索引、壓縮門檻與相容策略請參考 [FGGUF 轉換快取格式](mlx-server/FGGUF-FORMAT.md)。既有 schema 2 safetensors 快取仍可由管理介面辨識與清除。已下載模型頁可用「清除快取」只移除該 GGUF 的所有轉換設定檔，原始模型不受影響；mlx-server 選擇 GGUF 時預設啟用快速GGUF模式，也可在系統設定的「模型功能預設」卡片關閉此預設行為。
+GGUF 轉換後的永久權重快取使用 Tanpopo 內部 `.fgguf` 容器，並直接儲存在原始 GGUF 的同一目錄：逐 tensor 判斷是否採 LZFSE 無損壓縮，沒有足夠容量收益的 tensor 保持 raw 與 MMap 對齊。此格式不是標準 GGUF，也不供其他 Runtime 交換使用；完整位元組配置、索引、壓縮門檻與相容策略請參考 [FGGUF 轉換快取格式](mlx-server/FGGUF-FORMAT.md)。既有 schema 2 safetensors 快取仍可由管理介面辨識與清除。已下載模型頁可用「清除快取」只移除該 GGUF 的所有轉換設定檔，原始模型不受影響；快速模式開關與三策略位於系統設定的獨立「快速 GGUF 策略」卡片。
 
 API 提供 OpenAI／llama-server 常用相容端點：
 

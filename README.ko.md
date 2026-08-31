@@ -8,7 +8,7 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 
 - 하나의 관리 화면에서 모델 Runtime 시작, 중지, 상태 복원 및 로그 확인.
 - 하위 폴더를 포함한 GGUF 파일과 완전한 MLX 모델 폴더 자동 탐색. Apple Silicon의 `mlx-server`는 safetensors로 미리 변환하지 않고 지원되는 GGUF를 직접 불러올 수 있습니다.
-- **Fast GGUF 모드**는 `mlx-server`에서 GGUF를 선택할 때 기본으로 켜지며, 모델 이름에 의존하지 않는 tensor 규칙으로 INT4, INT8, BF16, group size, recurrent controls를 선택하고 변환된 가중치를 `.fgguf`로 영구 저장합니다. mlx-server가 해석할 수 있는 대부분의 GGUF에 도움이 되지만 모든 아키텍처, 양자화 형식, 사용자 정의 checkpoint의 로드, 가속 또는 동일한 정밀도를 보장하지는 않습니다.
+- **Fast GGUF 모드**는 `mlx-server`에서 GGUF를 선택할 때 기본으로 켜지며, 모델 이름에 의존하지 않는 tensor 규칙으로 INT4, INT8, BF16, group size를 선택하고 변환된 가중치를 `.fgguf`로 영구 저장합니다. 시스템 설정에서 기본, Beta 1, Beta 2의 세 가지 빠른 전략을 선택할 수 있습니다. mlx-server가 해석할 수 있는 대부분의 GGUF에 도움이 되지만 모든 아키텍처, 양자화 형식, 사용자 정의 checkpoint의 로드, 가속 또는 동일한 정밀도를 보장하지는 않습니다.
 - mlx-server 모델을 GGUF와 MLX로 구분합니다. Runtime이 아직 호환성을 명시하지 않은 언어 모델도 선택 가능한 **미테스트(N)** 그룹에 남기고, 시작 시 실제 로드로 호환성을 확인합니다.
 - Hugging Face의 공개, gated, private repository에서 GGUF 또는 MLX 모델 다운로드.
 - 별도 JSON 목록에서 자주 사용하는 GGUF 및 MLX 모델을 빠르게 선택합니다. 각 형식은 8B급, 30B급, 70B 이상으로 분류하고 그룹 안에서는 모델 이름을 알파벳순으로 표시합니다. Runtime, repository, revision, GGUF 파일 이름을 자동 입력하며 모델 항목은 JavaScript에 하드코딩하지 않습니다.
@@ -18,7 +18,7 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 - DFlash 지원 여부를 감지하고 활성화 전에 호환되는 Draft 모델 존재 여부 확인. 별도의 MMap 스위치는 llama-server와 Apple Silicon mlx-server를 모두 지원하며 파일 기반 페이지로 모델 로딩 시 메모리 부담을 줄입니다.
 - KV Cache, MMap, DFlash는 기능 기본값, 시작 Profile, 실행 스위치, 호환성 사전 검사, Runtime 인자, 상태 저장, 오류 보고까지 전체 과정에 통합됩니다. 실제 사용 가능 여부는 Runtime과 모델에 따라 달라지며, DFlash에는 호환 Target/Draft가 필요하고 KV Cache 양자화와 동시에 사용할 수 없습니다.
 - 고정된 모델 목록 대신 Hugging Face metadata와 모델 설정을 검증하여 같은 repository 또는 별도 repository의 DFlash Draft를 자동 검색 및 다운로드.
-- Markdown, 수식, reasoning 분리 표시를 지원하는 임시 로컬 대화. 사고 과정은 생성 중 기본으로 펼쳐지고 점 세 개 애니메이션을 표시한 뒤 생성이 끝나면 자동으로 접힙니다. Token 수와 초당 출력 Token 수도 표시합니다.
+- Markdown, 수식, reasoning API 필드, `<think>`, `<|channel|>` 사고 채널 분리 표시를 지원하는 임시 로컬 대화. 사고 과정은 생성 중 기본으로 펼쳐지고 점 세 개 애니메이션을 표시한 뒤 생성이 끝나면 자동으로 접힙니다. Token 수와 초당 출력 Token 수도 표시합니다.
 - 모델 시작 시 대형 모델은 변환이 필요할 수 있음을 알리는 로딩 대화 상자를 즉시 표시합니다. 실행 중인 모델 테스트에는 애니메이션 대화 상자를 사용하고, 완료 후 입력/출력 Token, 생성 속도, 경과 시간 또는 로딩/연결 오류를 보여 줍니다. 메인 화면 새로 고침에는 별도의 작은 진행 대화 상자를 사용합니다.
 - MLX가 생성하는 Token을 즉시 전달하는 OpenAI 호환 SSE. 클라이언트 연결 종료 또는 Cancel 시 해당 생성 Task를 바로 취소.
 - 모델 API에 접근 키, IP 허용 목록, 둘 다 또는 제한 없음을 선택 가능.
@@ -33,7 +33,7 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 ## 공개 테스트 보고서
 
 - [모델 호환성 보고서](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): 네이티브 MLX, MLX의 GGUF 로드, llama.cpp GGUF, 멀티모달 프로젝션, KV Cache 양자화 및 추측 디코딩의 지원 범위와 호환성 경계를 정리합니다.
-- [성능 및 정확도 보고서](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): 세 쌍의 모델로 네이티브 MLX, Fast GGUF 끔, Fast GGUF 켬, llama+GGUF를 비교하고 생성 속도, 고정 데이터셋 정확도, 테스트 환경 및 재측정 조건을 공개합니다.
+- [MLX 및 GGUF 변환의 로딩 속도와 연산 정확도](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): 같은 모델에서 변환하지 않은 네이티브 MLX, MLX + 기본 빠른 변환, MLX + Beta 1, MLX + Beta 2를 비교하고 고정 100문항 결과, 생성 속도, 원본 모델과 변환 캐시 용량, 프로세스 RAM 최고값과 평균값을 그대로 공개합니다.
 
 두 HTML 보고서는 `AUTO`, 번체 중국어, 영어를 전환할 수 있습니다. 결과는 명시된 날짜, 하드웨어, Runtime 버전 및 샘플에서 재현 가능한 스냅샷이며, 모든 모델이나 장치에서 같은 결과를 보장하거나 Fast GGUF의 호환성, 속도 또는 정확도를 보장하지 않습니다.
 
@@ -81,7 +81,13 @@ MMap은 실행 상태 페이지의 ‘고급 설정’ 팝오버에 있는 독�
 
 `mlx-server`는 Swift, SwiftNIO, MLX Swift로 만든 Apple Silicon 전용 Runtime입니다. Python, pip, `mlx_lm.server`를 호출하지 않습니다. `~/services/mlx-models`의 완전한 MLX 모델과 일반 GGUF 폴더의 지원되는 GGUF를 직접 불러올 수 있습니다. 네이티브 MLX 지원 형식은 번들된 `mlx-swift-lm 3.31.4` Registry에서 동적으로 가져오며 멀티모달 Gemma 4를 포함합니다. Runtime이 현재 보고하는 GGUF 직접 로딩 대상은 Gemma, Llama, Mimo, MiniCPM, Mistral, Qwen 2, Qwen 3, Qwen 3.5, SmolLM3이며, 탐지된 미지원 언어 모델은 비활성 상태로 표시합니다. 멀티모달 Qwen 3.5 GGUF는 대응하는 `mmproj`를 선택할 수 있습니다.
 
-**Fast GGUF 모드**는 mlx-server의 범용 GGUF 최적화 진입점이며 GGUF를 선택하면 기본으로 켜집니다. 모델 이름 대신 tensor 형식과 모양을 검사하여 부동소수점 가중치는 BF16, Q8은 INT8, 지원되는 저비트 행렬은 INT4로 처리합니다. group size는 64를 우선하고 필요할 때 32로 안전하게 전환하며 recurrent controls는 더 높은 정밀도를 유지합니다. `--gguf-group-size auto|32|64`와 `--gguf-profile auto|quality|speed`로 재정의할 수 있고 `quality`는 Q5_K/Q6_K를 INT8로 변환합니다.
+**Fast GGUF 모드**는 mlx-server의 범용 GGUF 최적화 진입점이며 GGUF를 선택하면 기본으로 켜집니다. 시스템 설정의 별도 **Fast GGUF 전략** 카드에서 기본 스위치와 세 가지 전략을 저장합니다.
+
+- **기본**: `speed + group auto + recurrent controls`. auto는 Group 64로 결정되고 K-Quant는 INT8로 재양자화됩니다.
+- **Beta 1**: `speed-passthrough + group 32 + recurrent controls`. 표현 가능한 Q4_K 원본 4-bit sub-block을 재사용하고 나머지 tensor는 Group 32를 사용합니다.
+- **Beta 2**: `speed-passthrough + group 64 + recurrent controls`. Q4_K 재사용은 Beta 1과 같고 나머지 tensor는 Group 64를 사용합니다.
+
+Fast GGUF를 끄면 일반 `auto + group auto + recurrent off` 변환을 사용합니다. 모든 전략은 모델 이름이 아니라 tensor dtype, shape, source block, architecture metadata로 결정됩니다. 재사용된 Q4_K의 32요소 Group은 원본 sub-block 형식이 정의한 것이며 전체 모델에 Group 32를 적용한다는 뜻이 아닙니다. `quality`는 FP32 참조 가중치를 사용하는 진단용 모드이며 일반 성능 모드가 아닙니다.
 
 이 전략은 모델별 예외 없이 mlx-server가 해석할 수 있는 대부분의 GGUF에 적용되지만 호환성, 속도 또는 정밀도를 보장하지는 않습니다. 아키텍처 규약, GGUF metadata, Tokenizer, tensor layout, 양자화 방식 및 사용자 정의 변경에 따라 로드 실패, 속도 향상 없음 또는 품질 차이가 생길 수 있습니다. 이상이 있으면 Fast GGUF를 끄고 비교한 뒤 실제 생성 품질을 검증하십시오. GGUF Target은 일반 MLX 생성을 사용하며 DFlash는 MLX safetensors Target과 호환 Draft 조합으로 제한됩니다.
 

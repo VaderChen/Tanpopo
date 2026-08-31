@@ -8,7 +8,7 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 
 - モデル Runtime の起動、停止、状態復元、ログ確認を 1 つの管理画面で実行。
 - サブフォルダーを含む GGUF と完全な MLX モデルフォルダーを自動検出。Apple Silicon の `mlx-server` は、safetensors への事前変換なしで対応 GGUF を直接読み込めます。
-- **Fast GGUF モード**は `mlx-server` で GGUF を選択したとき既定で有効になり、モデル名に依存しない tensor 規則で INT4、INT8、BF16、group size、recurrent controls を選択し、変換済みウェイトを `.fgguf` に永続保存します。mlx-server が解析できる多くの GGUF に有効ですが、すべてのアーキテクチャ、量子化形式、独自 checkpoint の読み込み、加速、同一精度を保証するものではありません。
+- **Fast GGUF モード**は `mlx-server` で GGUF を選択したとき既定で有効になり、モデル名に依存しない tensor 規則で INT4、INT8、BF16、group size を選択し、変換済みウェイトを `.fgguf` に永続保存します。システム設定では「既定、Beta 1、Beta 2」の三つの高速戦略を選択できます。mlx-server が解析できる多くの GGUF に有効ですが、すべてのアーキテクチャ、量子化形式、独自 checkpoint の読み込み、加速、同一精度を保証するものではありません。
 - mlx-server のモデルを GGUF／MLX に分類。Runtime がまだ対応を明示していない言語モデルも選択可能な「未テスト（N）」グループに残し、起動時の実際の読み込みで互換性を確認します。
 - Hugging Face の公開、gated、private repository から GGUF または MLX モデルをダウンロード。
 - 外部 JSON カタログによる常用モデルのクイック選択。GGUF と MLX をそれぞれ 8B クラス、30B クラス、70B 以上に分類し、各グループ内ではモデル名のアルファベット順に表示します。Runtime、repository、revision、GGUF ファイル名を自動入力し、モデル情報は JavaScript に固定しません。
@@ -18,7 +18,7 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 - DFlash の対応状況を検出し、有効化前に互換性のある Draft モデルの存在を確認。独立した MMap スイッチは llama-server と Apple Silicon mlx-server の両方に対応し、ファイルバックページでモデル読み込み時のメモリ負荷を抑えます。
 - KV Cache、MMap、DFlash は、機能既定値、起動 Profile、実行スイッチ、互換性事前検査、Runtime 引数、状態保存、エラー表示まで一貫して統合されています。実際の利用可否は Runtime とモデルに依存し、DFlash には互換 Target／Draft が必要で、KV Cache 量子化とは同時に有効化できません。
 - Hugging Face metadata とモデル設定を検証し、同一または別 repository の対応 DFlash Draft をモデル名の固定リストなしで自動検索・ダウンロード。
-- Markdown、数式、reasoning 分離表示に対応した一時的なローカルチャット。思考過程は生成中に既定で展開され、三点アニメーションを表示し、生成完了後に自動で折りたたまれます。Token 数と毎秒出力 Token 数も表示します。
+- Markdown、数式、reasoning API フィールド、`<think>`、`<|channel|>` 思考チャンネルの分離表示に対応した一時的なローカルチャット。思考過程は生成中に既定で展開され、三点アニメーションを表示し、生成完了後に自動で折りたたまれます。Token 数と毎秒出力 Token 数も表示します。
 - モデル起動時には、大規模モデルで変換が必要な場合があることを知らせる読み込みダイアログを直ちに表示します。実行中モデルのテストではアニメーションダイアログを表示し、完了後に入出力 Token、生成速度、所要時間、または読み込み／接続エラーを表示。メイン画面の再読み込みには別の小型進捗ダイアログを使用します。
 - MLX から Token 単位で送信する OpenAI 互換 SSE。クライアントの切断または Cancel は対応する生成 Task を直ちに停止。
 - モデル API にアクセスキー、IP 許可リスト、両方、または制限なしを設定可能。
@@ -33,7 +33,7 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 ## 公開テストレポート
 
 - [モデル互換性レポート](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：ネイティブ MLX、MLX による GGUF 読み込み、llama.cpp GGUF、マルチモーダル投影、KV Cache 量子化、推測デコードの対応範囲と互換性境界をまとめています。
-- [性能・精度レポート](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：3 組の対応モデルでネイティブ MLX、Fast GGUF オフ、Fast GGUF オン、llama+GGUF を比較し、生成速度、固定データセット精度、テスト環境、再測定条件を公開しています。
+- [MLX と GGUF 変換の読み込み速度および演算精度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：同一モデルで未変換のネイティブ MLX、MLX + 既定高速変換、MLX + Beta 1、MLX + Beta 2 を比較し、固定 100 問、生成速度、元モデルと変換キャッシュの容量、プロセス RAM のピークと平均をそのまま公開しています。
 
 両 HTML レポートは `AUTO`、繁体字中国語、英語を切り替えられます。結果は記載された日付、ハードウェア、Runtime バージョン、サンプルでの再現可能なスナップショットであり、すべてのモデルやデバイスで同じ結果になること、また Fast GGUF の互換性、速度、精度を保証するものではありません。
 
@@ -81,7 +81,13 @@ MMap は実行状態ページの「詳細設定」ポップオーバーにある
 
 `mlx-server` は Swift、SwiftNIO、MLX Swift で構築された Apple Silicon 専用 Runtime です。Python、pip、`mlx_lm.server` は使用しません。`~/services/mlx-models` の完全な MLX モデルに加え、通常の GGUF フォルダーにある対応 GGUF を直接読み込めます。ネイティブ MLX の対応型は内蔵 `mlx-swift-lm 3.31.4` の Registry から動的に取得し、マルチモーダル Gemma 4 を含みます。Runtime が現在報告する GGUF 直接読み込み対象は Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen 2、Qwen 3、Qwen 3.5、SmolLM3 で、未対応の検出済み言語モデルは無効状態で表示します。マルチモーダル Qwen 3.5 GGUF では対応する `mmproj` を選択できます。
 
-**Fast GGUF モード**は mlx-server の汎用 GGUF 最適化入口で、GGUF 選択時に既定で有効です。モデル名ではなく tensor の型と形状を検査し、浮動小数点ウェイトは BF16、Q8 は INT8、対応する低ビット行列は INT4 を使用します。group size は 64 を優先して必要時に 32 へ安全にフォールバックし、recurrent controls は高精度を維持します。`--gguf-group-size auto|32|64` と `--gguf-profile auto|quality|speed` で上書きでき、`quality` では Q5_K／Q6_K を INT8 にします。
+**Fast GGUF モード**は mlx-server の汎用 GGUF 最適化入口で、GGUF 選択時に既定で有効です。システム設定の独立した「Fast GGUF 戦略」カードで、既定スイッチと三つの戦略を保存します。
+
+- **既定**：`speed + group auto + recurrent controls`。auto は Group 64 に解決され、K-Quant は INT8 に再量子化されます。
+- **Beta 1**：`speed-passthrough + group 32 + recurrent controls`。表現可能な Q4_K の 4-bit sub-block を再利用し、その他の tensor は Group 32 を使用します。
+- **Beta 2**：`speed-passthrough + group 64 + recurrent controls`。Q4_K の再利用は Beta 1 と同じで、その他の tensor は Group 64 を使用します。
+
+Fast GGUF を無効にすると、一般の `auto + group auto + recurrent off` 変換を使用します。すべての戦略はモデル名ではなく tensor dtype、shape、source block、architecture metadata で判定します。Q4_K の 32 要素 Group は source sub-block 形式で定義され、全体を Group 32 にする意味ではありません。`quality` は FP32 参照ウェイトを使う診断用で、通常の性能モードではありません。
 
 この戦略はモデルごとの特例なしで、mlx-server が解析できる多くの GGUF に適用できますが、互換性、速度、精度を保証するものではありません。アーキテクチャ契約、GGUF metadata、Tokenizer、tensor layout、量子化方式、独自変更によっては、読み込み失敗、速度向上なし、品質差が発生します。異常時は Fast GGUF を無効にして比較し、実際の生成品質を検証してください。GGUF Target は通常の MLX 生成を使用し、DFlash は MLX safetensors Target と互換 Draft の組み合わせに限定されます。
 
