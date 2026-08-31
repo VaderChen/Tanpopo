@@ -95,6 +95,45 @@ final class MixedGroupSizeProbeTests: XCTestCase {
         }
     }
 
+    /// scales／biases 以 fp16 保存是否被 MLX 的量化路徑接受，且數值是否更準。
+    /// fp16 與 bfloat16 同為 2 bytes，頻寬相同，但 fp16 多 3 位尾數。
+    func testFP16ScalesAreAcceptedAndMoreAccurateThanBFloat16() throws {
+        MLXRandom.seed(11)
+        let dimension = 256
+        let names = ["l0", "l1", "l2", "l3"]
+        var weights: [String: MLXArray] = [:]
+        for name in names {
+            weights["\(name).weight"] = MLXRandom.normal([dimension, dimension]) * 0.05
+        }
+        let input = MLXRandom.normal([1, dimension])
+        let reference = makeStack(dimension: dimension, weights: weights)(input)
+        eval(reference)
+
+        var errors: [DType: Float] = [:]
+        for dtype in [DType.bfloat16, DType.float16] {
+            var packedWeights: [String: MLXArray] = [:]
+            for name in names {
+                let packed = MLX.quantized(weights["\(name).weight"]!, groupSize: 32, bits: 4)
+                packedWeights["\(name).weight"] = packed.wq
+                packedWeights["\(name).scales"] = packed.scales.asType(dtype)
+                packedWeights["\(name).biases"] = packed.biases!.asType(dtype)
+            }
+            let stack = ProbeStack(dimension: dimension)
+            quantize(model: stack) { _, _ in (32, 4, .affine) }
+            try stack.update(
+                parameters: ModuleParameters.unflattened(packedWeights),
+                verify: [.all]
+            )
+            let output = stack(input)
+            eval(output)
+            errors[dtype] = relativeError(output, reference)
+            print("PROBE scales dtype=\(dtype) 相對誤差 = "
+                + "\(String(format: "%.4f", errors[dtype]! * 100))%")
+        }
+        // fp16 被接受且不應比 bfloat16 差。
+        XCTAssertLessThanOrEqual(errors[.float16]!, errors[.bfloat16]! * 1.05)
+    }
+
     func testMixedGroupSizesAcrossLayers() throws {
         MLXRandom.seed(42)
         let dimension = 256

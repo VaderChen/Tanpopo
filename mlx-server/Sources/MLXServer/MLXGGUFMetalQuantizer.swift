@@ -551,6 +551,10 @@ enum MLXGGUFMetalQuantizer {
             grid: (blockCount, 1, 1),
             threadGroup: (min(blockCount, 64), 1, 1),
             outputShapes: [targetWeightShape, targetScaleShape, targetScaleShape],
+            // scale／bias 維持 bfloat16。改用 fp16 雖能把 scale 的相對誤差由
+            // 約 0.54% 降到 0.068%，但實測 beta1／beta2 的速度掉 33～44%——
+            // 模型權重是 bfloat16，scales 同型別才走 MLX 的原生 kernel，
+            // 換成 fp16 會多一次型別轉換。端到端精度改善又幾乎為零。
             outputDTypes: [.uint32, .bfloat16, .bfloat16]
         )
         try checkedEval(output)
