@@ -1,0 +1,5 @@
+model,runtime,variant,format,quantization,model_disk_gib,conversion_cache_gib,peak_process_rss_gib,average_active_rss_gib,median_server_tokens_per_second,median_wall_tokens_per_second,average_request_seconds,average_completion_tokens,runs,warmups,quality_correct,quality_evaluated,quality_retention_vs_native
+Ornith 1.5 9B,MLX,native,MLX Safetensors,Affine 4-bit group 64,4.711,0.000,4.897,4.897,48.863,44.726,2.862,128,3,1,79,100,1.0000
+Ornith 1.5 9B,MLX+GGUF,default-speed-g64,GGUF Q4_K_M,speed / auto→group 64 / recurrent controls / K-Quant→INT8,5.383,8.682,1.218,1.062,27.720,26.278,4.873,128,3,1,69,100,0.8734
+Ornith 1.5 9B,MLX+GGUF,beta1-passthrough-g32,GGUF Q4_K_M,speed-passthrough / group 32 / recurrent controls / Q4_K source block,5.383,5.848,1.967,1.952,36.794,34.381,3.720,128,3,1,68,100,0.8608
+Ornith 1.5 9B,MLX+GGUF,beta2-passthrough-g64,GGUF Q4_K_M,speed-passthrough / group 64 / recurrent controls / Q4_K source block,5.383,5.759,1.766,1.745,37.678,35.164,3.639,128,3,1,67,99,0.8567

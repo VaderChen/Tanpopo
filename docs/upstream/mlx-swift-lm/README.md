@@ -11,6 +11,7 @@
 | 3 | Exact rejection sampling 與 cache transaction | 等待設計方向 | 需要同時處理 dense／sparse draft 分布、LogitProcessor 狀態與 hybrid cache rollback |
 | 4 | DFlash 1／2 模型與 Qwen target capture | 等待第 2、3 項介面穩定 | 模型支援應建立在共用介面上，不直接帶入 Tanpopo 專用 Runtime |
 | 5 | MMap 權重載入實驗 | Issue 草稿與量測規格完成 | 官方 loader 已有 lazy load 與並行 materialization，必須先用數據證明 mmap 的適用區間 |
+| 6 | GGUF 混合 group size loader 經驗 | Issue 草稿完成 | MLX 已支援 per-layer group size；先分享 shape-based loader 修正與合成測試，不誤報成 kernel bug |
 
 ## 已完成的第一批程式
 
@@ -48,6 +49,7 @@
 - [Sampling 基礎 PR 草稿](./PR-SAMPLING-DISTRIBUTION.md)
 - [DFlash 設計 Issue 草稿](./ISSUE-DFLASH.md)
 - [MMap 實驗 Issue 草稿](./ISSUE-MMAP.md)
+- [GGUF 混合 group size Issue 草稿](./ISSUE-GGUF-MIXED-GROUP-SIZES.md)
 - [量測規格](./BENCHMARK-PLAN.md)
 
 未經人工確認，不應勾選模板中的認可核取方塊，也不應送出 Issue 或 PR。

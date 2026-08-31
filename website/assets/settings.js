@@ -105,6 +105,9 @@
     updateResidentModeLabel();
     notifyNativeResidentMode(settings.resident_mode);
     byId("defaultFastGGUFEnabled").checked = settings.default_fast_gguf_enabled !== false;
+    byId("defaultFastGGUFStrategy").value = ["default", "beta1", "beta2"].includes(settings.default_fast_gguf_strategy)
+      ? settings.default_fast_gguf_strategy
+      : "default";
     byId("defaultKVCacheQuantizationEnabled").checked = Boolean(settings.default_kv_cache_quantization_enabled);
     byId("defaultMMapEnabled").checked = Boolean(settings.default_mmap_enabled);
     byId("defaultDFlashEnabled").checked = Boolean(settings.default_dflash_enabled);
@@ -121,13 +124,17 @@
     const saveGeneral = scope === "general";
     const saveModelSource = scope === "model-source";
     const saveRuntimeDefaults = scope === "runtime-defaults";
+    const saveFastGGUFDefaults = scope === "fast-gguf-defaults";
     return {
       model_directory: saveGeneral ? byId("modelDirectory").value.trim() : (settingsState.model_directory || byId("modelDirectory").value.trim()),
       mlx_model_directory: saveGeneral ? byId("mlxModelDirectory").value.trim() : (settingsState.mlx_model_directory || byId("mlxModelDirectory").value.trim()),
       resident_mode: saveGeneral || typeof settingsState.resident_mode !== "boolean" ? byId("residentMode").checked : settingsState.resident_mode,
-      default_fast_gguf_enabled: saveRuntimeDefaults || typeof settingsState.default_fast_gguf_enabled !== "boolean"
+      default_fast_gguf_enabled: saveFastGGUFDefaults || typeof settingsState.default_fast_gguf_enabled !== "boolean"
         ? byId("defaultFastGGUFEnabled").checked
         : settingsState.default_fast_gguf_enabled,
+      default_fast_gguf_strategy: saveFastGGUFDefaults || !settingsState.default_fast_gguf_strategy
+        ? byId("defaultFastGGUFStrategy").value
+        : settingsState.default_fast_gguf_strategy,
       default_kv_cache_quantization_enabled: saveRuntimeDefaults || typeof settingsState.default_kv_cache_quantization_enabled !== "boolean"
         ? byId("defaultKVCacheQuantizationEnabled").checked
         : settingsState.default_kv_cache_quantization_enabled,
@@ -158,6 +165,7 @@
         const rollingUpdateFields = new Set([
           "ui_theme",
           "default_fast_gguf_enabled",
+          "default_fast_gguf_strategy",
           "default_kv_cache_quantization_enabled",
           "default_mmap_enabled",
           "default_dflash_enabled"
@@ -809,6 +817,15 @@
       byId("saveRuntimeDefaultsButton"),
       byId("runtimeDefaultsMessage"),
       "功能預設已保存"
+    );
+  });
+  byId("fastGGUFDefaultsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSettings(
+      "fast-gguf-defaults",
+      byId("saveFastGGUFDefaultsButton"),
+      byId("fastGGUFDefaultsMessage"),
+      "快速 GGUF 策略已保存"
     );
   });
 

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -177,6 +178,38 @@ func TestListModelsSkipsNonLanguageGGUF(t *testing.T) {
 	}
 	if listed["video.gguf"] {
 		t.Fatal("影片模型不該出現在列表")
+	}
+}
+
+func TestListModelsSkipsHiddenTemporaryDirectories(t *testing.T) {
+	directory := t.TempDir()
+	visibleDirectory := filepath.Join(directory, "Qwen3.5-4B-GGUF")
+	hiddenDirectory := filepath.Join(directory, ".tanpopo-gguf-native-assets.tmp")
+	for _, modelDirectory := range []string{visibleDirectory, hiddenDirectory} {
+		if err := os.MkdirAll(modelDirectory, 0755); err != nil {
+			t.Fatal(err)
+		}
+		writeMinimalGGUF(t, filepath.Join(modelDirectory, "Qwen3.5-4B-Q4_0.gguf"),
+			"qwen35", map[string]uint32{"qwen35.block_count": 32})
+	}
+	writeMinimalGGUF(t, filepath.Join(visibleDirectory, "mmproj-F16.gguf"), "clip", nil)
+
+	models, err := ListModels(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := make(map[string]bool, len(models))
+	for _, model := range models {
+		listed[model.Path] = true
+	}
+	if !listed["Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.gguf"] ||
+		!listed["Qwen3.5-4B-GGUF/mmproj-F16.gguf"] {
+		t.Fatalf("可見模型與 mmproj 應保留：%+v", models)
+	}
+	for path := range listed {
+		if strings.Contains(path, ".tanpopo-") {
+			t.Fatalf("隱藏暫存模型不應出現在列表：%s", path)
+		}
 	}
 }
 

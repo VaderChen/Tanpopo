@@ -42,6 +42,8 @@ enum MLXGGUFConversionCache {
         let profile: String
         let groupSize: Int
         let recurrentPromotion: String
+        /// 轉換後各儲存型別的張量數量；策略改變時快取自動失效。
+        let storageSignature: String
     }
 
     private struct Manifest: Codable, Sendable {
@@ -84,7 +86,8 @@ enum MLXGGUFConversionCache {
         configurationURL: URL?,
         profile: GGUFQuantizationProfile,
         groupSize: Int,
-        recurrentPromotion: GGUFRecurrentPromotionPolicy
+        recurrentPromotion: GGUFRecurrentPromotionPolicy,
+        storageSignature: String
     ) throws -> Plan {
         var sources = [try sourceIdentity(role: "model", url: weightURL)]
         if let mmprojURL {
@@ -100,7 +103,8 @@ enum MLXGGUFConversionCache {
             sources: sources,
             profile: profile.rawValue,
             groupSize: groupSize,
-            recurrentPromotion: recurrentPromotion.rawValue
+            recurrentPromotion: recurrentPromotion.rawValue,
+            storageSignature: storageSignature
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

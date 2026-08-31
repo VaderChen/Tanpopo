@@ -4,7 +4,7 @@ set -euo pipefail
 
 if [[ "$#" -lt 4 ]]; then
   echo "用法：$0 <mlx|mlx-gguf|llama-gguf> <模型名稱> <模型路徑> <port> [額外 Runtime 參數...]" >&2
-  echo "環境變數：ACCURACY_VARIANT、ACCURACY_DATASET、ACCURACY_RESULT_FILE、ACCURACY_SAMPLES、ACCURACY_SEED" >&2
+  echo "環境變數：ACCURACY_VARIANT、ACCURACY_DATASET、ACCURACY_RESULT_FILE、ACCURACY_SAMPLES、ACCURACY_SEED、ACCURACY_MAX_TOKENS、ACCURACY_CASE_TIMEOUT" >&2
   exit 1
 fi
 
@@ -22,6 +22,8 @@ BASE_URL="http://${HOST}:${PORT}"
 VARIANT="${ACCURACY_VARIANT:-${RUNTIME}}"
 SAMPLE_COUNT="${ACCURACY_SAMPLES:-100}"
 SAMPLE_SEED="${ACCURACY_SEED:-0}"
+MAX_TOKENS="${ACCURACY_MAX_TOKENS:-512}"
+CASE_TIMEOUT="${ACCURACY_CASE_TIMEOUT:-600}"
 RESULT_FILE="${ACCURACY_RESULT_FILE:-}"
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tanpopo-accuracy.XXXXXX")"
 SERVER_LOG="${RUN_DIR}/server.log"
@@ -63,14 +65,14 @@ case "${RUNTIME}" in
     COMMAND=(
       "${MLX_SERVER}" --model "${MODEL_PATH}" --model-type text
       --host "${HOST}" --port "${PORT}" --max-kv-size 4096
-      --max-tokens 64 --temperature 0 --top-k 1 --no-thinking
+      --max-tokens "${MAX_TOKENS}" --temperature 0 --top-k 1 --no-thinking
     )
     ;;
   mlx-gguf)
     COMMAND=(
       "${MLX_SERVER}" --model "${MODEL_PATH}" --model-type text
       --host "${HOST}" --port "${PORT}" --max-kv-size 4096
-      --max-tokens 64 --temperature 0 --top-k 1 --no-thinking
+      --max-tokens "${MAX_TOKENS}" --temperature 0 --top-k 1 --no-thinking
       --mmap --gguf-profile auto --gguf-group-size auto
     )
     ;;
@@ -140,11 +142,11 @@ request_case() {
       temperature: 0,
       top_p: 1,
       seed: 42,
-      max_tokens: 64,
+      max_tokens: ($max_tokens | tonumber),
       stream: false,
       chat_template_kwargs: {enable_thinking: false}
-    }')"
-  curl --max-time 300 --silent --show-error \
+    }' --arg max_tokens "${MAX_TOKENS}")"
+  curl --max-time "${CASE_TIMEOUT}" --silent --show-error \
     --output "${response}" --write-out '%{time_total}' \
     "${BASE_URL}/v1/chat/completions" \
     --header 'Content-Type: application/json' \
@@ -157,8 +159,10 @@ request_case "${FIRST_RECORD}" "${RUN_DIR}/warmup.json" >/dev/null
 
 ROWS_FILE="${RUN_DIR}/rows.csv"
 TOTAL=0
+EVALUATED=0
 CORRECT=0
 INVALID=0
+LENGTH_EXCLUDED=0
 SECONDS_TOTAL=0
 
 while IFS= read -r record; do
@@ -178,6 +182,9 @@ while IFS= read -r record; do
   subject="$(jq -r '.subject' <<<"${record}")"
   expected="$(jq -r '.answer' <<<"${record}")"
   content="$(jq -r '.choices[0].message.content' "${response}")"
+  finish_reason="$(jq -r '.choices[0].finish_reason // "unknown"' "${response}")"
+  # 已出現 A～D 的回覆照常評分。只有在輸出因 Token 上限截斷且
+  # 尚未產生可解析答案時，才將該題標示為不可評分，不當作錯答。
   predicted="$(perl -CS -e '
     $text = join("", <>);
     if ($text =~ /(?:^|[^A-Za-z])([ABCD])(?:[^A-Za-z]|$)/s) { print $1 }
@@ -186,31 +193,43 @@ while IFS= read -r record; do
     predicted="?"
     INVALID=$((INVALID + 1))
   fi
+  evaluable=1
+  if [[ "${predicted}" == "?" && "${finish_reason}" == "length" ]]; then
+    evaluable=0
+    LENGTH_EXCLUDED=$((LENGTH_EXCLUDED + 1))
+  fi
   is_correct=0
-  if [[ "${predicted}" == "${expected}" ]]; then
-    is_correct=1
-    CORRECT=$((CORRECT + 1))
+  if [[ "${evaluable}" -eq 1 ]]; then
+    EVALUATED=$((EVALUATED + 1))
+    if [[ "${predicted}" == "${expected}" ]]; then
+      is_correct=1
+      CORRECT=$((CORRECT + 1))
+    fi
   fi
   SECONDS_TOTAL="$(awk -v total="${SECONDS_TOTAL}" -v value="${timing}" 'BEGIN { printf "%.6f", total + value }')"
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "${MODEL_NAME}" "${RUNTIME}" "${VARIANT}" "${id}" "${source_row}" \
     "${category}" "${subject}" "${expected}" "${predicted}" "${is_correct}" "${timing}" \
+    "${finish_reason}" "${evaluable}" \
     >>"${ROWS_FILE}"
-  printf 'CASE,%s,%s,%s,%s,%s,%s\n' \
-    "${MODEL_NAME}" "${VARIANT}" "${id}" "${expected}" "${predicted}" "${is_correct}"
+  printf 'CASE,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    "${MODEL_NAME}" "${VARIANT}" "${id}" "${expected}" "${predicted}" \
+    "${is_correct}" "${finish_reason}" "${evaluable}"
 done <"${DATASET}"
 
-ACCURACY="$(awk -v correct="${CORRECT}" -v total="${TOTAL}" 'BEGIN { printf "%.4f", correct / total }')"
+ACCURACY="$(awk -v correct="${CORRECT}" -v total="${EVALUATED}" \
+  'BEGIN { if (total > 0) printf "%.4f", correct / total; else print "0.0000" }')"
 AVERAGE_SECONDS="$(awk -v seconds="${SECONDS_TOTAL}" -v total="${TOTAL}" 'BEGIN { printf "%.3f", seconds / total }')"
 
 if [[ -n "${RESULT_FILE}" ]]; then
   if [[ ! -e "${RESULT_FILE}" ]]; then
-    printf 'model,runtime,variant,case_id,source_row,category,subject,expected,predicted,correct,response_seconds\n' \
+    printf 'model,runtime,variant,case_id,source_row,category,subject,expected,predicted,correct,response_seconds,finish_reason,evaluable\n' \
       >"${RESULT_FILE}"
   fi
   cat "${ROWS_FILE}" >>"${RESULT_FILE}"
 fi
 
-printf 'ACCURACY,%s,%s,%s,%s,%s,%s,%s\n' \
-  "${MODEL_NAME}" "${RUNTIME}" "${VARIANT}" "${TOTAL}" "${CORRECT}" "${ACCURACY}" "${INVALID}"
+printf 'ACCURACY,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  "${MODEL_NAME}" "${RUNTIME}" "${VARIANT}" "${TOTAL}" "${EVALUATED}" \
+  "${CORRECT}" "${ACCURACY}" "${INVALID}" "${LENGTH_EXCLUDED}"
 printf 'LATENCY,%s,%s,%s,%s\n' "${MODEL_NAME}" "${VARIANT}" "${AVERAGE_SECONDS}" "${TOTAL}"

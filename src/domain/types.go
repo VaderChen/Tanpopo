@@ -6,6 +6,10 @@ const (
 	RuntimeLlamaServer = "llama-server"
 	RuntimeMLXServer   = "mlx-server"
 
+	FastGGUFStrategyDefault = "default"
+	FastGGUFStrategyBeta1   = "beta1"
+	FastGGUFStrategyBeta2   = "beta2"
+
 	KVCacheQuantizationNone = ""
 	KVCacheQuantizationQ8   = "q8"
 	KVCacheQuantizationQ4   = "q4"
@@ -36,40 +40,42 @@ type AgentConfig struct {
 
 // Settings 是管理畫面可即時保存的模型目錄與 Hugging Face 設定。
 type Settings struct {
-	ModelDirectory         string   `json:"model_directory"`
-	MLXModelDirectory      string   `json:"mlx_model_directory"`
-	ResidentMode           bool     `json:"resident_mode"`
-	DefaultFastGGUFEnabled bool     `json:"default_fast_gguf_enabled"`
-	DefaultKVCacheEnabled  bool     `json:"default_kv_cache_quantization_enabled"`
-	DefaultMMapEnabled     bool     `json:"default_mmap_enabled"`
-	DefaultDFlashEnabled   bool     `json:"default_dflash_enabled"`
-	UILanguage             string   `json:"ui_language"`
-	UITheme                string   `json:"ui_theme"`
-	HuggingFaceEndpoint    string   `json:"huggingface_endpoint"`
-	HuggingFaceToken       string   `json:"huggingface_token,omitempty"`
-	DefaultRevision        string   `json:"default_revision"`
-	ServerHost             string   `json:"server_host"`
-	ServerPort             int      `json:"server_port"`
-	ContextSize            int      `json:"context_size"`
-	GPULayers              int      `json:"gpu_layers"`
-	Threads                int      `json:"threads"`
-	ExtraArgs              []string `json:"extra_args"`
+	ModelDirectory          string   `json:"model_directory"`
+	MLXModelDirectory       string   `json:"mlx_model_directory"`
+	ResidentMode            bool     `json:"resident_mode"`
+	DefaultFastGGUFEnabled  bool     `json:"default_fast_gguf_enabled"`
+	DefaultFastGGUFStrategy string   `json:"default_fast_gguf_strategy"`
+	DefaultKVCacheEnabled   bool     `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled      bool     `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled    bool     `json:"default_dflash_enabled"`
+	UILanguage              string   `json:"ui_language"`
+	UITheme                 string   `json:"ui_theme"`
+	HuggingFaceEndpoint     string   `json:"huggingface_endpoint"`
+	HuggingFaceToken        string   `json:"huggingface_token,omitempty"`
+	DefaultRevision         string   `json:"default_revision"`
+	ServerHost              string   `json:"server_host"`
+	ServerPort              int      `json:"server_port"`
+	ContextSize             int      `json:"context_size"`
+	GPULayers               int      `json:"gpu_layers"`
+	Threads                 int      `json:"threads"`
+	ExtraArgs               []string `json:"extra_args"`
 }
 
 // PublicSettings 排除 Hugging Face Token 明文，僅回傳是否已設定。
 type PublicSettings struct {
-	ModelDirectory         string `json:"model_directory"`
-	MLXModelDirectory      string `json:"mlx_model_directory"`
-	ResidentMode           bool   `json:"resident_mode"`
-	DefaultFastGGUFEnabled bool   `json:"default_fast_gguf_enabled"`
-	DefaultKVCacheEnabled  bool   `json:"default_kv_cache_quantization_enabled"`
-	DefaultMMapEnabled     bool   `json:"default_mmap_enabled"`
-	DefaultDFlashEnabled   bool   `json:"default_dflash_enabled"`
-	UILanguage             string `json:"ui_language"`
-	UITheme                string `json:"ui_theme"`
-	HuggingFaceEndpoint    string `json:"huggingface_endpoint"`
-	HuggingFaceTokenSet    bool   `json:"huggingface_token_set"`
-	DefaultRevision        string `json:"default_revision"`
+	ModelDirectory          string `json:"model_directory"`
+	MLXModelDirectory       string `json:"mlx_model_directory"`
+	ResidentMode            bool   `json:"resident_mode"`
+	DefaultFastGGUFEnabled  bool   `json:"default_fast_gguf_enabled"`
+	DefaultFastGGUFStrategy string `json:"default_fast_gguf_strategy"`
+	DefaultKVCacheEnabled   bool   `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled      bool   `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled    bool   `json:"default_dflash_enabled"`
+	UILanguage              string `json:"ui_language"`
+	UITheme                 string `json:"ui_theme"`
+	HuggingFaceEndpoint     string `json:"huggingface_endpoint"`
+	HuggingFaceTokenSet     bool   `json:"huggingface_token_set"`
+	DefaultRevision         string `json:"default_revision"`
 }
 
 type ModelFile struct {

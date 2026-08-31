@@ -17,9 +17,12 @@ MLX_SERVER="${ROOT_DIR}/mlx-server/.build/out/Products/Release/mlx-server"
 LLAMA_SERVER="${ROOT_DIR}/llama-runtime/prebuilt/darwin-arm64/bin/llama-server"
 HOST="127.0.0.1"
 BASE_URL="http://${HOST}:${PORT}"
+VARIANT="${BENCHMARK_VARIANT:-${RUNTIME}}"
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tanpopo-benchmark.XXXXXX")"
 SERVER_LOG="${RUN_DIR}/server.log"
-RSS_LOG="${RUN_DIR}/rss.log"
+RSS_LOG="${RUN_DIR}/rss-peak.log"
+ACTIVE_RSS_LOG="${RUN_DIR}/rss-active.log"
+ACTIVE_MARKER="${RUN_DIR}/active"
 SERVER_PID=""
 MONITOR_PID=""
 
@@ -40,10 +43,6 @@ cleanup() {
   rm -rf "${RUN_DIR}"
 }
 trap cleanup EXIT INT TERM
-
-now_seconds() {
-  perl -MTime::HiRes=time -e 'printf "%.6f", time'
-}
 
 if [[ ! -e "${MODEL_PATH}" ]]; then
   echo "找不到模型：${MODEL_PATH}" >&2
@@ -71,6 +70,7 @@ case "${RUNTIME}" in
       "${LLAMA_SERVER}" --model "${MODEL_PATH}" --host "${HOST}" --port "${PORT}"
       --ctx-size 4096 --n-gpu-layers 999 --flash-attn on --threads 8
       --threads-batch 8 --no-webui --metrics
+      --reasoning off --reasoning-budget 0 --jinja
     )
     ;;
   *)
@@ -83,13 +83,42 @@ if [[ "$#" -gt 0 ]]; then
   COMMAND+=("$@")
 fi
 
-STARTED_AT="$(now_seconds)"
+MODEL_DISK_KIB="$(du -sk "${MODEL_PATH}" | awk '{ print $1 }')"
+MODEL_DISK_GIB="$(awk -v kib="${MODEL_DISK_KIB}" 'BEGIN { printf "%.3f", kib / 1048576 }')"
+CACHE_DISK_GIB="0.000"
+if [[ "${RUNTIME}" == "mlx-gguf" ]]; then
+  INSPECTION_JSON="$("${COMMAND[@]}" --inspect-gguf-cache 2>/dev/null || true)"
+  CACHE_KEY="$(jq -r '.cache_key // empty' <<<"${INSPECTION_JSON}" 2>/dev/null || true)"
+  CACHE_DIRECTORY="$(jq -r '.cache_directory // empty' <<<"${INSPECTION_JSON}" 2>/dev/null || true)"
+  CACHE_BYTES=0
+  if [[ -n "${CACHE_KEY}" && -d "${CACHE_DIRECTORY}" ]]; then
+    CACHE_PREFIX="${CACHE_KEY:0:24}"
+    CACHE_MANIFEST="$(find "${CACHE_DIRECTORY}" -maxdepth 1 -type f \
+      -name "*${CACHE_PREFIX}.fgguf.json" -print -quit)"
+    if [[ -n "${CACHE_MANIFEST}" ]]; then
+      CACHE_BYTES="$(jq -r '.storedBytes // 0' "${CACHE_MANIFEST}")"
+    fi
+  fi
+  if [[ "${CACHE_BYTES}" == "0" ]]; then
+    CACHE_BYTES="$(jq -r '.estimated_cache_bytes // 0' <<<"${INSPECTION_JSON}" 2>/dev/null || echo 0)"
+  fi
+  CACHE_DISK_GIB="$(awk -v bytes="${CACHE_BYTES}" 'BEGIN { printf "%.3f", bytes / 1073741824 }')"
+fi
+
 "${COMMAND[@]}" >"${SERVER_LOG}" 2>&1 &
 SERVER_PID="$!"
+: >"${RSS_LOG}"
+: >"${ACTIVE_RSS_LOG}"
 
 (
   while kill -0 "${SERVER_PID}" 2>/dev/null; do
-    ps -o rss= -p "${SERVER_PID}" 2>/dev/null | tr -d ' ' >>"${RSS_LOG}" || true
+    rss="$(ps -o rss= -p "${SERVER_PID}" 2>/dev/null | tr -d ' ')"
+    if [[ -n "${rss}" ]]; then
+      printf '%s\n' "${rss}" >>"${RSS_LOG}"
+      if [[ -e "${ACTIVE_MARKER}" ]]; then
+        printf '%s\n' "${rss}" >>"${ACTIVE_RSS_LOG}"
+      fi
+    fi
     sleep 0.2
   done
 ) &
@@ -114,9 +143,8 @@ if [[ "${READY}" -ne 1 ]]; then
   exit 1
 fi
 
-READY_AT="$(now_seconds)"
-LOAD_SECONDS="$(awk -v start="${STARTED_AT}" -v ready="${READY_AT}" 'BEGIN { printf "%.3f", ready - start }')"
 API_MODEL="$(curl --silent --fail "${BASE_URL}/v1/models" | jq -r '.data[0].id')"
+touch "${ACTIVE_MARKER}"
 REQUEST_BODY="$(jq -cn --arg model "${API_MODEL}" '{
   model: $model,
   messages: [{
@@ -149,6 +177,7 @@ request_once() {
   server_tps="$(jq -r '.usage.tokens_per_second // .timings.predicted_per_second // 0' "${response}")"
   wall_tps="$(awk -v tokens="${tokens}" -v seconds="${timing}" \
     'BEGIN { if (seconds > 0) printf "%.3f", tokens / seconds; else print "0" }')"
+  # 固定 completion 長度是吞吐量取樣邊界；length 並非推論失敗。
   finish_reason="$(jq -r '.choices[0].finish_reason // "unknown"' "${response}")"
   printf '%s,%s,%s,%s,%s,%s\n' \
     "${index}" "${tokens}" "${timing}" "${server_tps}" "${wall_tps}" "${finish_reason}"
@@ -164,15 +193,18 @@ done
 
 PEAK_RSS_KIB="$(awk 'BEGIN { max = 0 } $1 > max { max = $1 } END { print max }' "${RSS_LOG}")"
 PEAK_RSS_GIB="$(awk -v kib="${PEAK_RSS_KIB}" 'BEGIN { printf "%.3f", kib / 1048576 }')"
+AVERAGE_RSS_KIB="$(awk '{ total += $1; count++ } END { if (count > 0) printf "%.3f", total / count; else print 0 }' "${ACTIVE_RSS_LOG}")"
+AVERAGE_RSS_GIB="$(awk -v kib="${AVERAGE_RSS_KIB}" 'BEGIN { printf "%.3f", kib / 1048576 }')"
 AVERAGE_SECONDS="$(awk -F, '{ total += $3 } END { printf "%.3f", total / NR }' "${RUN_OUTPUT}")"
 MEDIAN_SERVER_TPS="$(awk -F, '{ print $4 }' "${RUN_OUTPUT}" | sort -n | sed -n '2p')"
 MEDIAN_WALL_TPS="$(awk -F, '{ print $5 }' "${RUN_OUTPUT}" | sort -n | sed -n '2p')"
 AVERAGE_TOKENS="$(awk -F, '{ total += $2 } END { printf "%.1f", total / NR }' "${RUN_OUTPUT}")"
 SUMMARY="${AVERAGE_SECONDS},${MEDIAN_SERVER_TPS},${MEDIAN_WALL_TPS},${AVERAGE_TOKENS}"
 
-printf 'RESULT,%s,%s,%s,%s,%s,%s\n' \
-  "${MODEL_NAME}" "${RUNTIME}" "${LOAD_SECONDS}" "${PEAK_RSS_GIB}" \
-  "${SUMMARY}" "$(tr '\n' ' ' <"${SERVER_LOG}" | tail -c 320)"
-printf 'RUNS,%s,%s,' "${MODEL_NAME}" "${RUNTIME}"
+printf 'RESULT,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  "${MODEL_NAME}" "${RUNTIME}" "${VARIANT}" "${MODEL_DISK_GIB}" "${CACHE_DISK_GIB}" \
+  "${PEAK_RSS_GIB}" "${AVERAGE_RSS_GIB}" "${SUMMARY}" \
+  "$(tr '\n' ' ' <"${SERVER_LOG}" | tail -c 320)"
+printf 'RUNS,%s,%s,%s,' "${MODEL_NAME}" "${RUNTIME}" "${VARIANT}"
 tr '\n' ';' <"${RUN_OUTPUT}"
 printf '\n'

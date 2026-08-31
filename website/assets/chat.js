@@ -170,9 +170,31 @@
     return { row, indicator, thinking, reasoningContent, message, meta };
   }
 
+  function splitChannelReasoning(value) {
+    const content = String(value || "");
+    const reasoningStart = /<\|channel\|>\s*(?:analysis|thought|thinking|reasoning)\b(?:\s*<\|message\|>)?/i.exec(content);
+    if (!reasoningStart) return { content, reasoning: "" };
+
+    const before = content.slice(0, reasoningStart.index).trim();
+    const afterStart = content.slice(reasoningStart.index + reasoningStart[0].length);
+    const finalStart = /<\|channel\|>(?:\s*(?:final|answer|response)\b)?(?:\s*<\|message\|>)?/i.exec(afterStart);
+    if (!finalStart) {
+      return { content: before, reasoning: afterStart.trim() };
+    }
+
+    const reasoning = afterStart.slice(0, finalStart.index).trim();
+    const finalContent = afterStart.slice(finalStart.index + finalStart[0].length).trim();
+    return {
+      content: [before, finalContent].filter(Boolean).join("\n\n"),
+      reasoning
+    };
+  }
+
   function splitStreamingReasoning(value) {
-    let content = String(value || "");
+    const channelSplit = splitChannelReasoning(value);
+    let content = channelSplit.content;
     const reasoningParts = [];
+    if (channelSplit.reasoning) reasoningParts.push(channelSplit.reasoning);
     content = content.replace(/<think\b[^>]*>([\s\S]*?)<\/think\s*>/gi, (_match, reasoning) => {
       if (String(reasoning).trim()) reasoningParts.push(String(reasoning).trim());
       return "";

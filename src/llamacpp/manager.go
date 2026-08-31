@@ -335,7 +335,9 @@ func (m *Manager) startMLXLocked(
 		domain.RuntimeMLXServer,
 		startupCommand.KVCacheQuantization,
 	)
-	args = withManagedMLXGGUFOptimization(args, isGGUF, fastGGUFEnabled)
+	args = withManagedMLXGGUFOptimization(
+		args, isGGUF, fastGGUFEnabled, settings.DefaultFastGGUFStrategy,
+	)
 	args = withoutMLXGGUFCacheArguments(args)
 	if isGGUF && skipGGUFConversionCache {
 		args = append(args, "--no-gguf-cache")
@@ -512,7 +514,9 @@ func (m *Manager) inspectConversion(
 	if err != nil {
 		return domain.ModelConversionPreflight{}, err
 	}
-	args := withManagedMLXGGUFOptimization(nil, true, fastGGUFEnabled)
+	args := withManagedMLXGGUFOptimization(
+		nil, true, fastGGUFEnabled, settings.DefaultFastGGUFStrategy,
+	)
 	args = append(args,
 		"--model", selection.modelArgument,
 	)
@@ -1053,7 +1057,15 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
+		if entry.IsDir() {
+			// 下載與轉換流程可能在模型根目錄建立隱藏暫存目錄。這些檔案不該
+			// 被列成另一份可選模型，否則同名項目會失去原目錄內的 mmproj 配對。
+			if path != base && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
 			return nil
 		}
 		info, err := entry.Info()
@@ -1714,8 +1726,9 @@ func canonicalMLXGGUFArchitecture(architecture string) string {
 	)
 }
 
-// resolveCompanionMMProj 只在架構宣告需要視覺投影時使用，並要求同一個
-// 模型目錄中只有一個明確配對的 mmproj，避免靜默掛載錯誤投影權重。
+// resolveCompanionMMProj 會自動掛載同一模型目錄中唯一的 mmproj；若沒有
+// projector，GGUF 仍可作為純文字 LLM 啟動。只有候選不唯一時才要求使用者
+// 明確選擇，避免靜默掛載錯誤投影權重。
 func resolveCompanionMMProj(modelRoot, targetPath string) (string, string, error) {
 	entries, err := os.ReadDir(filepath.Dir(targetPath))
 	if err != nil {
@@ -1730,7 +1743,7 @@ func resolveCompanionMMProj(modelRoot, targetPath string) (string, string, error
 		candidates = append(candidates, filepath.Join(filepath.Dir(targetPath), entry.Name()))
 	}
 	if len(candidates) == 0 {
-		return "", "", errors.New("Qwen3.5 GGUF 需要搭配同目錄的 mmproj；請先下載配對的 mmproj")
+		return "", "", nil
 	}
 	if len(candidates) > 1 {
 		return "", "", errors.New("找到多個 mmproj，請在執行狀態頁選擇與 GGUF 模型配對的檔案")
@@ -2063,27 +2076,42 @@ func withoutMLXMMapArguments(arguments []string) []string {
 	return filtered
 }
 
-// withManagedMLXGGUFOptimization 讓執行狀態頁的「快速GGUF模式」成為 GGUF
-// 權重量化與 recurrent 混合精度策略的唯一來源。預設模式以較保守的
-// INT8／Group 32 為主；快速模式啟用 INT4／自動 Group（相容時優先 64），
-// 並將語意上屬於 recurrent control 的量化投影保留為 BF16。原生 MLX 模型
-// 會移除殘留的 GGUF 參數，避免把不適用的旗標傳給 Runtime。
-func withManagedMLXGGUFOptimization(arguments []string, isGGUF, fastMode bool) []string {
+// withManagedMLXGGUFOptimization 讓執行狀態頁的快速 GGUF 開關與系統設定的
+// 策略選項共同管理 GGUF 量化參數。關閉快速模式時走一般 auto 路徑；開啟時，
+// 預設使用 speed + auto，Beta 1／Beta 2 則依序使用 speed-passthrough 搭配
+// Group 32／64。策略判定只依設定值與 tensor metadata，不依模型名稱。
+// 原生 MLX 模型會移除殘留的 GGUF 參數；思考模式維持 Runtime／模型預設。
+func withManagedMLXGGUFOptimization(
+	arguments []string,
+	isGGUF, fastMode bool,
+	strategy string,
+) []string {
 	filtered := withoutMLXGGUFOptimizationArguments(arguments)
 	if !isGGUF {
 		return filtered
 	}
-	if fastMode {
+	if !fastMode {
 		return append(filtered,
-			"--gguf-profile", "speed",
+			"--gguf-profile", "auto",
 			"--gguf-group-size", "auto",
-			"--gguf-recurrent-promotion", "controls",
+			"--gguf-recurrent-promotion", "off",
 		)
 	}
+
+	profile := "speed"
+	groupSize := "auto"
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case domain.FastGGUFStrategyBeta1:
+		profile = "speed-passthrough"
+		groupSize = "32"
+	case domain.FastGGUFStrategyBeta2:
+		profile = "speed-passthrough"
+		groupSize = "64"
+	}
 	return append(filtered,
-		"--gguf-profile", "auto",
-		"--gguf-group-size", "32",
-		"--gguf-recurrent-promotion", "off",
+		"--gguf-profile", profile,
+		"--gguf-group-size", groupSize,
+		"--gguf-recurrent-promotion", "controls",
 	)
 }
 

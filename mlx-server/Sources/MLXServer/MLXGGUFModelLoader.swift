@@ -26,23 +26,72 @@ struct MLXGGUFQuantizationStrategy: Equatable, Sendable {
         groupSize == 32 && requestedGroupSize != 32
     }
 
-    var logDescription: String {
-        let requested = requestedGroupSize.map(String.init) ?? "auto"
+    /// 每種目標儲存型別的張量數量，順序固定，可直接當作快取鍵的一部分。
+    /// 轉換策略一改變（例如某型別由 INT8 改為無損沿用的 INT4），簽章就會不同，
+    /// 既有快取自然失效，不必再靠手動調整 Runtime 版本號讓它過期。
+    var storageSignature: String {
         let storageOrder: [GGUFStorageType] = [
             .int4, .int8, .bf16, .fp16, .fp32, .int16, .int32
         ]
-        let storage = storageOrder.compactMap { type -> String? in
+        return storageOrder.compactMap { type -> String? in
             guard let count = targetStorageCounts[type], count > 0 else { return nil }
             return "\(type.rawValue):\(count)"
         }.joined(separator: ",")
+    }
+
+    var logDescription: String {
+        let requested = requestedGroupSize.map(String.init) ?? "auto"
         return "profile=\(profile.rawValue) requested_group=\(requested) "
-            + "resolved_group=\(groupSize) storage=[\(storage)]"
+            + "resolved_group=\(groupSize) storage=[\(storageSignature)]"
     }
 }
 
 private enum GGUFRecurrentTensorRole {
     case control
     case data
+}
+
+/// GGUF 的 recurrent／SSM tensor 可能保存 Runtime 參數本身，也可能保存已摺疊
+/// 的執行值。轉換由來源語意與目標架構契約決定，不依模型檔名判斷。
+enum GGUFStateSpaceParameterEncoding: Equatable, Sendable {
+    case native
+    case negativeExponential
+}
+
+struct MLXGGUFArchitectureContract: Equatable, Sendable {
+    let stateSpaceParameterEncoding: GGUFStateSpaceParameterEncoding
+
+    static func resolve(modelType: String) -> Self {
+        switch modelType.lowercased() {
+        // llama.cpp 的 Qwen Gated Delta Net GGUF 將 ssm_a 保存為
+        // -exp(A_log)，而 mlx-swift-lm 的參數契約是 A_log。
+        case "qwen3_5", "qwen3_5_text", "qwen3_next":
+            Self(stateSpaceParameterEncoding: .negativeExponential)
+        default:
+            // 未經架構契約確認時保留來源語意，避免把某一架構的公式套到
+            // Mamba、Jamba、Falcon H1 等不同 SSM 實作。
+            Self(stateSpaceParameterEncoding: .native)
+        }
+    }
+}
+
+enum GGUFStateSpaceParameterDecoder {
+    /// 轉換後立即 eval，確保以 mmap 建立的來源 tensor 在解除映射前已完成材料化。
+    /// 這是所有需要算術轉換的外部映射 tensor 共用的生命週期規則。
+    static func decode(
+        _ source: MLXArray,
+        encoding: GGUFStateSpaceParameterEncoding
+    ) -> MLXArray {
+        let result: MLXArray
+        switch encoding {
+        case .native:
+            result = source
+        case .negativeExponential:
+            result = (-source).log()
+        }
+        result.eval()
+        return result
+    }
 }
 
 enum MLXGGUFWeightContractIssueKind: String, Equatable, Sendable {
@@ -571,7 +620,7 @@ enum MLXGGUFLoader {
         from url: URL,
         targetGroupSize: Int? = nil,
         quantizationProfile: GGUFQuantizationProfile = .automatic,
-        convertQwen35StateSpaceParameters: Bool = false,
+        stateSpaceParameterEncoding: GGUFStateSpaceParameterEncoding = .native,
         recurrentPromotion: GGUFRecurrentPromotionPolicy = .disabled,
         memoryMapped: Bool = false,
         progress: ((Int64, Int64) -> Void)? = nil
@@ -646,11 +695,11 @@ enum MLXGGUFLoader {
                 promotedRecurrentTensorCount += 1
                 continue
             }
-            // quality 是不對外開啟的數值參考路徑：將可完整解碼的 GGUF
-            // block 展開為 FP32，用來區分架構／權重映射問題、二次量化誤差
-            // 與低精度矩陣累加誤差。
-            if quantizationProfile == .quality,
-               isBF16ReferenceType(tensor.type) {
+            switch support.materialization {
+            case .dequantizedFP32:
+                // quality 是不對外開啟的數值參考路徑：將可完整解碼的 GGUF
+                // block 展開為 FP32，用來區分架構／權重映射問題、二次量化誤差
+                // 與低精度矩陣累加誤差。
                 try insert(
                     try dequantizedArray(
                         data,
@@ -662,9 +711,6 @@ enum MLXGGUFLoader {
                     name: tensor.name,
                     into: &weights
                 )
-                continue
-            }
-            switch support.materialization {
             case .directFloat32:
                 let value = try directArray(
                     from: url,
@@ -676,16 +722,18 @@ enum MLXGGUFLoader {
                     dtype: .float32,
                     memoryMapped: memoryMapped
                 )
-                try insert(
-                    convertQwen35StateSpaceParameters
-                        && Self.isStateSpaceParameterTensorName(tensor.name)
-                        // GGUF stores Qwen3.5's A parameter as -exp(A_log),
-                        // while mlx-swift's GatedDeltaNet expects A_log.
-                        ? (-value).log()
-                        : value.asType(.bfloat16),
-                    name: tensor.name,
-                    into: &weights
-                )
+                let converted: MLXArray
+                if Self.isStateSpaceParameterTensorName(tensor.name),
+                   stateSpaceParameterEncoding != .native {
+                    converted = GGUFStateSpaceParameterDecoder.decode(
+                        value,
+                        encoding: stateSpaceParameterEncoding
+                    )
+                } else {
+                    converted = value.asType(.bfloat16)
+                    converted.eval()
+                }
+                try insert(converted, name: tensor.name, into: &weights)
             case .directFloat16:
                 let value = try directArray(
                     from: url,
@@ -697,11 +745,9 @@ enum MLXGGUFLoader {
                     dtype: .float16,
                     memoryMapped: memoryMapped
                 )
-                try insert(
-                    value.asType(.bfloat16),
-                    name: tensor.name,
-                    into: &weights
-                )
+                let converted = value.asType(.bfloat16)
+                converted.eval()
+                try insert(converted, name: tensor.name, into: &weights)
             case .directBFloat16:
                 let value = try directArray(
                     from: url,
@@ -713,14 +759,17 @@ enum MLXGGUFLoader {
                     dtype: .bfloat16,
                     memoryMapped: memoryMapped
                 )
-                try insert(
-                    convertQwen35StateSpaceParameters
-                        && Self.isStateSpaceParameterTensorName(tensor.name)
-                        ? (-value).log()
-                        : value,
-                    name: tensor.name,
-                    into: &weights
-                )
+                let converted: MLXArray
+                if Self.isStateSpaceParameterTensorName(tensor.name),
+                   stateSpaceParameterEncoding != .native {
+                    converted = GGUFStateSpaceParameterDecoder.decode(
+                        value,
+                        encoding: stateSpaceParameterEncoding
+                    )
+                } else {
+                    converted = value
+                }
+                try insert(converted, name: tensor.name, into: &weights)
             case .quantized4, .quantized8:
                 let quantized = try quantizedArrays(
                     data,
@@ -932,11 +981,9 @@ enum MLXGGUFLoader {
                 byteCount += elements * 2
                 continue
             }
-            if profile == .quality, isBF16ReferenceType(tensor.type) {
-                byteCount += elements * 4
-                continue
-            }
             switch support.materialization {
+            case .dequantizedFP32:
+                byteCount += elements * 4
             case .directFloat32, .directFloat16, .directBFloat16:
                 byteCount += elements * 2
             case .directInt8:
@@ -946,8 +993,10 @@ enum MLXGGUFLoader {
             case .directInt32:
                 byteCount += elements * 4
             case .quantized4, .requantized4:
+                // Q4_K 走無損沿用時 group 固定 32，scale/bias 數量是 group 64 的兩倍。
+                let effectiveGroup = tensor.type == 12 ? 32 : strategy.groupSize
                 byteCount += elements * 0.5
-                    + (elements / Double(strategy.groupSize)) * 4
+                    + (elements / Double(effectiveGroup)) * 4
             case .quantized8, .requantized8:
                 byteCount += elements
                     + (elements / Double(strategy.groupSize)) * 4
@@ -990,9 +1039,9 @@ enum MLXGGUFLoader {
     }
 
     /// 通用決策矩陣：浮點來源統一以 BF16 運算；Q8 保留 INT8；其餘支援的
-    /// 低位元矩陣依 profile 落到 INT4／INT8。自動 Group 以 tensor 材料化方式
-    /// 決定：直接保留 GGUF 32 元素 block 時使用 Group 32，需要重新量化時
-    /// 才優先 64；若任一 affine tensor 的內層維度不相容，再安全降級。
+    /// 低位元矩陣依 profile 落到 INT4／INT8。未指定時固定使用 Group 64；
+    /// Group 32 只接受明確參數，絕不由 Runtime 靜默降級。若任一 affine tensor
+    /// 的內層維度不相容，回報該 tensor 並要求使用者自行選擇其他策略。
     static func quantizationStrategy(
         for tensors: [MLXGGUFTensorInfo],
         requestedGroupSize: Int?,
@@ -1006,12 +1055,7 @@ enum MLXGGUFLoader {
 
         var storageCounts = [GGUFStorageType: Int]()
         var affineTensors = [MLXGGUFTensorInfo]()
-        var hasPreserved32ElementBlocks = false
         for tensor in tensors {
-            if profile == .quality, isBF16ReferenceType(tensor.type) {
-                storageCounts[.fp32, default: 0] += 1
-                continue
-            }
             guard let support = GGUFStoragePolicy.support(
                 for: ggufTypeName(tensor.type),
                 profile: profile
@@ -1028,7 +1072,6 @@ enum MLXGGUFLoader {
             switch support.materialization {
             case .quantized4, .quantized8:
                 affineTensors.append(tensor)
-                hasPreserved32ElementBlocks = true
             case .requantized4, .requantized8:
                 affineTensors.append(tensor)
             default:
@@ -1044,17 +1087,12 @@ enum MLXGGUFLoader {
             }
         }
 
-        let preferredGroupSize = requestedGroupSize
-            ?? (hasPreserved32ElementBlocks ? 32 : 64)
-        let resolvedGroupSize: Int
-        if firstIncompatibleTensor(groupSize: preferredGroupSize) == nil {
-            resolvedGroupSize = preferredGroupSize
-        } else if preferredGroupSize == 64,
-                  firstIncompatibleTensor(groupSize: 32) == nil {
-            resolvedGroupSize = 32
-        } else {
-            let invalid = firstIncompatibleTensor(groupSize: 32)
-            throw MLXGGUFLoaderError.invalidTensor(invalid?.name ?? "量化群組設定")
+        // 無損沿用來源 block 的張量各自固定 group 32（由 quantizedArrays 決定），
+        // 其餘張量沿用這裡的全域選擇。兩者可以並存——重排流程已改為由實際 shape
+        // 反推每個張量的 packing，不再假設全模型共用同一個 group。
+        let resolvedGroupSize = requestedGroupSize ?? 64
+        if let invalid = firstIncompatibleTensor(groupSize: resolvedGroupSize) {
+            throw MLXGGUFLoaderError.invalidTensor(invalid.name)
         }
 
         return MLXGGUFQuantizationStrategy(
@@ -1065,18 +1103,14 @@ enum MLXGGUFLoader {
         )
     }
 
-    /// Qwen3.5 的 `blk.N.ssm_a` 對應 MLX 的 `linear_attn.A_log`，其參考
-    /// checkpoint 保留 F32；其餘 GGUF F32 權重統一降為 BF16 compute dtype。
+    /// `blk.N.ssm_a` 是 GGUF 的通用 SSM 參數角色；實際編碼公式由架構契約
+    /// 決定。需要還原成 A_log 的架構保留 F32，其餘 F32 權重降為 BF16。
     private static func isStateSpaceParameterTensorName(_ name: String) -> Bool {
         let components = name.split(separator: ".")
         return components.count == 3
             && components[0] == "blk"
             && Int(components[1]) != nil
             && components[2] == "ssm_a"
-    }
-
-    private static func isBF16ReferenceType(_ type: UInt32) -> Bool {
-        [2, 3, 8, 10, 11, 12, 13, 14, 41, 42].contains(type)
     }
 
     private static func readInspectionData(
@@ -1360,31 +1394,48 @@ enum MLXGGUFLoader {
         }
         let bits: Int
         let bytesPerBlock: Int
+        let elementsPerBlock: Int
         switch tensor.type {
         case 2:
             bits = 4
             bytesPerBlock = 18
+            elementsPerBlock = 32
         case 3:
             bits = 4
             bytesPerBlock = 20
+            elementsPerBlock = 32
         case 8:
             bits = 8
             bytesPerBlock = 34
+            elementsPerBlock = 32
+        case 12:
+            // Q4_K：256 元素 super-block，內含 8 個 32 元素 sub-block。
+            bits = 4
+            bytesPerBlock = 144
+            elementsPerBlock = 256
         default:
             throw MLXGGUFLoaderError.unsupportedTensorType(tensor.type, tensor.name)
         }
-        let blockCount = elementCount / 32
+        guard lastDimension % elementsPerBlock == 0 else {
+            throw MLXGGUFLoaderError.invalidTensor(tensor.name)
+        }
+        // 無損沿用來源量化值的前提是 MLX group 與來源 block 對齊；這些格式的
+        // block（Q4_K 則是 sub-block）都是 32 元素，因此固定 32。Q4_K 的結構
+        // 決定它一定要走 32，不受 auto=64 影響。
+        let preservedGroupSize = 32
+        let canPreserve = tensor.type == 12 || targetGroupSize == preservedGroupSize
+        let blockCount = elementCount / elementsPerBlock
         let byteCount = try checkedByteCount(blockCount, elementSize: bytesPerBlock)
         let raw = try dataSlice(data, tensor: tensor, dataOffset: dataOffset, byteCount: byteCount)
         var weightShape = shape
         weightShape[weightShape.count - 1] /= bits == 4 ? 8 : 4
         var scaleShape = shape
-        scaleShape[scaleShape.count - 1] /= targetGroupSize
+        scaleShape[scaleShape.count - 1] /= canPreserve ? preservedGroupSize : targetGroupSize
         let namePrefix = tensor.name.hasSuffix(".weight")
             ? String(tensor.name.dropLast(".weight".count))
             : tensor.name
         let packed: (wq: MLXArray, scales: MLXArray, biases: MLXArray)
-        if targetGroupSize == 32 {
+        if canPreserve {
             packed = try MLXGGUFMetalQuantizer.packPreserved(
                 raw: raw,
                 sourceType: tensor.type,
@@ -2894,7 +2945,8 @@ enum MLXGGUFModelLoader {
             configurationURL: configurationURL,
             profile: quantizationProfile,
             groupSize: analysis.strategy.groupSize,
-            recurrentPromotion: recurrentPromotion
+            recurrentPromotion: recurrentPromotion,
+            storageSignature: analysis.strategy.storageSignature
         )
         let cacheHit = MLXGGUFConversionCache.contains(plan: plan)
         return ConversionInspection(
@@ -3042,7 +3094,8 @@ enum MLXGGUFModelLoader {
                     configurationURL: configurationURL,
                     profile: quantizationProfile,
                     groupSize: resolvedGroupSize,
-                    recurrentPromotion: recurrentPromotion
+                    recurrentPromotion: recurrentPromotion,
+                    storageSignature: quantizationStrategy.storageSignature
                 )
             } catch {
                 cachePlan = nil
@@ -3108,14 +3161,14 @@ enum MLXGGUFModelLoader {
                 memoryMapped: memoryMapped,
                 progress: ggufProgressReporter(phase: "converting")
             )
-            if let cachePlan, let weights {
+            if let cachePlan, let convertedWeights = weights {
                 fputs(
                     "TANPOPO_GGUF_CACHE state=saving key=\(cachePlan.key)\n",
                     stderr
                 )
                 do {
                     try MLXGGUFConversionCache.store(
-                        weights: weights,
+                        weights: convertedWeights,
                         plan: cachePlan,
                         progress: ggufProgressReporter(phase: "saving_cache")
                     )
@@ -3123,6 +3176,22 @@ enum MLXGGUFModelLoader {
                         "TANPOPO_GGUF_CACHE state=stored key=\(cachePlan.key)\n",
                         stderr
                     )
+                    // 新轉換權重與後續啟動必須走同一條 FGGUF 解碼／MMap 路徑。
+                    // 直接沿用轉換期間的暫存 MLXArray，可能讓首次啟動與快取命中
+                    // 得到不同的材料化結果；存檔後立即重載可保證兩者一致。
+                    if let reloadedWeights = try MLXGGUFConversionCache.load(
+                        plan: cachePlan,
+                        memoryMapped: memoryMapped,
+                        progress: ggufProgressReporter(phase: "loading_cache")
+                    ) {
+                        weights = reloadedWeights
+                        fputs(
+                            "TANPOPO_GGUF_CACHE state=reloaded key=\(cachePlan.key)\n",
+                            stderr
+                        )
+                    } else {
+                        throw MLXGGUFLoaderError.invalidTensor("FGGUF 轉換快取")
+                    }
                 } catch {
                     fputs(
                         "TANPOPO_GGUF_CACHE state=unavailable key=\(cachePlan.key) "
@@ -3237,7 +3306,9 @@ enum MLXGGUFModelLoader {
             from: weightURL,
             targetGroupSize: resolvedGroupSize,
             quantizationProfile: quantizationProfile,
-            convertQwen35StateSpaceParameters: isQwen35Architecture(modelType),
+            stateSpaceParameterEncoding: MLXGGUFArchitectureContract.resolve(
+                modelType: modelType
+            ).stateSpaceParameterEncoding,
             recurrentPromotion: recurrentPromotion,
             memoryMapped: memoryMapped,
             progress: { completed, _ in
@@ -3247,8 +3318,7 @@ enum MLXGGUFModelLoader {
         weights = applyArchitectureWeightLayout(
             weights,
             modelType: modelType,
-            configurationData: configurationData,
-            groupSize: resolvedGroupSize
+            configurationData: configurationData
         )
         weights = try MLXGGUFWeightNameNormalizer.normalize(
             weights,
@@ -3285,7 +3355,13 @@ enum MLXGGUFModelLoader {
         if totalTensorBytes > 0 {
             progress?(totalTensorBytes, totalTensorBytes)
         }
-        return model.sanitize(weights: weights)
+        let sanitized = model.sanitize(weights: weights)
+        // sanitize 可能建立 transpose、log、offset 等 lazy graph。來源可能是 mmap，
+        // 必須在原始 weights 仍存活時依穩定順序完成材料化，避免快取寫入來源值。
+        for name in sanitized.keys.sorted() {
+            sanitized[name]?.eval()
+        }
+        return sanitized
     }
 
     private static func ggufProgressReporter(
@@ -3372,16 +3448,11 @@ enum MLXGGUFModelLoader {
     static func applyArchitectureWeightLayout(
         _ weights: [String: MLXArray],
         modelType: String,
-        configurationData: Data,
-        groupSize: Int
+        configurationData: Data
     ) -> [String: MLXArray] {
         if isQwen35Architecture(modelType),
            let layout = linearAttentionLayout(from: configurationData) {
-            return reorderQwen35LinearAttentionWeights(
-                weights,
-                layout: layout,
-                groupSize: groupSize
-            )
+            return reorderQwen35LinearAttentionWeights(weights, layout: layout)
         }
         if isGemma3Architecture(modelType) {
             // llama.cpp 的 Gemma 3 GGUF 會把 Hugging Face 的 delta-style RMSNorm
@@ -3505,8 +3576,7 @@ enum MLXGGUFModelLoader {
 
     private static func reorderQwen35LinearAttentionWeights(
         _ weights: [String: MLXArray],
-        layout: LinearAttentionLayout,
-        groupSize: Int
+        layout: LinearAttentionLayout
     ) -> [String: MLXArray] {
         var reordered = weights
         for (name, value) in weights {
@@ -3545,11 +3615,7 @@ enum MLXGGUFModelLoader {
             } else if baseName.hasSuffix(".ssm_conv1d.weight") {
                 transformed = reorderConv1D(value, layout: layout)
             } else if baseName.hasSuffix(".ssm_out.weight") {
-                transformed = reorderValueColumns(
-                    value,
-                    layout: layout,
-                    groupSize: groupSize
-                )
+                transformed = reorderValueColumns(value, layout: layout)
             } else {
                 transformed = nil
             }
@@ -3615,24 +3681,19 @@ enum MLXGGUFModelLoader {
 
     private static func reorderValueColumns(
         _ value: MLXArray,
-        layout: LinearAttentionLayout,
-        groupSize: Int
+        layout: LinearAttentionLayout
     ) -> MLXArray {
-        guard value.ndim >= 2, groupSize > 0 else { return value }
+        guard value.ndim >= 2 else { return value }
         let dimensionLength = value.dim(-1)
-        let packingFactor: Int
-        if dimensionLength == layout.valueRows {
-            packingFactor = 1
-        } else if dimensionLength == layout.valueRows / 8 {
-            packingFactor = 8
-        } else if dimensionLength == layout.valueRows / 4 {
-            packingFactor = 4
-        } else if dimensionLength == layout.valueRows / groupSize {
-            // Scales and biases have one value per quantization group.
-            packingFactor = groupSize
-        } else {
+        // 最後一維相對 valueRows 的壓縮倍率：權重是每個 uint32 打包 32/bits 個元素，
+        // scales／biases 則是每個量化群組一個值。倍率直接由實際長度反推，
+        // 不能沿用全域 group size——同一個模型內各層的 group 可以不同，
+        // 用全域值比對會認不出 scales，導致權重被重排而 scales 沒有，
+        // 兩者錯位後輸出即為亂碼。
+        guard dimensionLength > 0, layout.valueRows % dimensionLength == 0 else {
             return value
         }
+        let packingFactor = layout.valueRows / dimensionLength
         guard layout.valueHeadDimension % packingFactor == 0 else { return value }
         return reorderHeadAxis(
             value,
@@ -3668,25 +3729,100 @@ enum MLXGGUFModelLoader {
         return transposed.reshaped(value.shape)
     }
 
+    /// 統計每層實際套用的量化設定，用來確認混合 group 是否如預期。
+    private final class QuantizationLayerCounters: @unchecked Sendable {
+        private let lock = NSLock()
+        private var counts: [String: Int] = [:]
+        private var visitedPaths: Set<String> = []
+        private var skippedPaths: [String] = []
+
+        func record(group: Int, bits: Int) {
+            lock.lock()
+            counts["group\(group)/\(bits)bit", default: 0] += 1
+            lock.unlock()
+        }
+
+        func visit(_ path: String) {
+            lock.lock()
+            visitedPaths.insert(path)
+            lock.unlock()
+        }
+
+        func skip(_ path: String, reason: String) {
+            lock.lock()
+            skippedPaths.append("\(path)[\(reason)]")
+            lock.unlock()
+        }
+
+
+        func report(quantizedWeightPrefixes: Set<String>) {
+            lock.lock()
+            let summary = counts.sorted { $0.key < $1.key }
+                .map { "\($0.key):\($0.value)" }
+                .joined(separator: ",")
+            let visited = visitedPaths
+            let skipped = skippedPaths
+            lock.unlock()
+            fputs(
+                "GGUF quantized layers [\(summary)] total=\(quantizedWeightPrefixes.count)\n",
+                stderr
+            )
+            // 權重帶了 scales 卻沒有對應的量化 module，代表載入路徑與策略不一致，
+            // 屬於必須立刻察覺的異常；正常情況不輸出，避免淹沒啟動日誌。
+            let unvisited = quantizedWeightPrefixes.subtracting(visited).sorted()
+            guard !unvisited.isEmpty else { return }
+            fputs(
+                "GGUF quantize MISSING \(unvisited.count) 個量化權重沒有套用設定："
+                + unvisited.prefix(8).joined(separator: ", ")
+                + (unvisited.count > 8 ? " …" : "") + "\n",
+                stderr
+            )
+        }
+    }
+
     private static func quantizeGGUFModel(
         _ model: LanguageModel,
         weights: [String: MLXArray],
         groupSize: Int
     ) {
+        let counters = QuantizationLayerCounters()
+        let quantizedWeightPrefixes = Set(
+            weights.keys.compactMap { key -> String? in
+                key.hasSuffix(".scales") ? String(key.dropLast(".scales".count)) : nil
+            }
+        )
+        defer { counters.report(quantizedWeightPrefixes: quantizedWeightPrefixes) }
         quantize(model: model) { path, _ in
-            guard let weight = weights["\(path).weight"],
-                  let scales = weights["\(path).scales"],
-                  scales.dim(-1) > 0 else { return nil }
+            counters.visit(path)
+            guard let weight = weights["\(path).weight"] else {
+                counters.skip(path, reason: "no-weight")
+                return nil
+            }
+            guard let scales = weights["\(path).scales"], scales.dim(-1) > 0 else {
+                counters.skip(path, reason: "no-scales")
+                return nil
+            }
             if weights["\(path).biases"] == nil,
                scales.dtype == .uint8,
                weight.dim(-1) * 8 == scales.dim(-1) * 32 {
                 return (32, 4, .mxfp4)
             }
-            let packedWidthPerGroup = groupSize / 32
-            guard packedWidthPerGroup > 0,
-                  weight.dim(-1) % scales.dim(-1) == 0 else { return nil }
-            let bits = weight.dim(-1) / scales.dim(-1) / packedWidthPerGroup
+            // wq 是 uint32，因此 weight.dim(-1) / scales.dim(-1) == group * bits / 32。
+            // 無損沿用來源 block 的層固定 group 32／4 bit（比值 4），其餘層沿用
+            // 全域 group；在 group 64 下三種比值 4／8／16 互不重疊，可唯一還原。
+            guard scales.dim(-1) > 0, weight.dim(-1) % scales.dim(-1) == 0 else {
+                counters.skip(path, reason: "shape")
+                return nil
+            }
+            let packedRatio = weight.dim(-1) / scales.dim(-1)
+            if packedRatio == 4 {
+                counters.record(group: 32, bits: 4)
+                return (32, 4, .affine)
+            }
+            guard groupSize > 0, packedRatio * 32 % groupSize == 0 else { return nil }
+            let bits = packedRatio * 32 / groupSize
             guard bits == 4 || bits == 8 else { return nil }
+            counters.record(group: groupSize, bits: bits)
             return (groupSize, bits, .affine)
         }
     }

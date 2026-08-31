@@ -234,17 +234,6 @@
                   <p>控制選擇模型時套用的初始功能；進階設定仍可針對本次啟動手動調整。</p>
                 </div>
                 <div class="form-group-fields">
-                  <label class="settings-switch-row" for="defaultFastGGUFEnabled">
-                    <span class="settings-switch-copy">
-                      <strong>快速GGUF模式預設開啟</strong>
-                      <span class="helper">選擇 mlx-server 的 GGUF 模型時自動開啟，原生 MLX 與 llama-server 不受影響。</span>
-                    </span>
-                    <span class="dflash-switch">
-                      <input id="defaultFastGGUFEnabled" type="checkbox" role="switch" aria-label="啟用快速GGUF模式預設">
-                      <span class="dflash-switch-track" aria-hidden="true"></span>
-                      <span id="defaultFastGGUFEnabledLabel">啟用</span>
-                    </span>
-                  </label>
                   <label class="settings-switch-row" for="defaultKVCacheQuantizationEnabled">
                     <span class="settings-switch-copy">
                       <strong>KV Cache 量化預設開啟</strong>
@@ -283,6 +272,39 @@
               <div class="settings-actions">
                 <span id="runtimeDefaultsMessage" class="form-message"></span>
                 <button id="saveRuntimeDefaultsButton" class="button primary" type="submit">儲存功能預設</button>
+              </div>
+            </form>
+            <form id="fastGGUFDefaultsForm" class="panel form-panel settings-form">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>快速 GGUF 策略</h3>
+                  <p>設定 mlx-server 載入 GGUF 時套用的預設轉換策略；原生 MLX 與 llama-server 不受影響。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="field">
+                    <span>轉換策略</span>
+                    <select id="defaultFastGGUFStrategy">
+                      <option value="default">預設</option>
+                      <option value="beta1">Beta 1</option>
+                      <option value="beta2">Beta 2</option>
+                    </select>
+                  </label>
+                  <label class="settings-switch-row" for="defaultFastGGUFEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>快速GGUF模式預設開啟</strong>
+                      <span class="helper">選擇 mlx-server 的 GGUF 模型時自動開啟；關閉後改用一般 GGUF 轉換。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="defaultFastGGUFEnabled" type="checkbox" role="switch" aria-label="啟用快速GGUF模式預設">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="defaultFastGGUFEnabledLabel">啟用</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <span id="fastGGUFDefaultsMessage" class="form-message"></span>
+                <button id="saveFastGGUFDefaultsButton" class="button primary" type="submit">儲存快速 GGUF 策略</button>
               </div>
             </form>
           </section>

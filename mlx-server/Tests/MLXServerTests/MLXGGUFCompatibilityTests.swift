@@ -116,6 +116,180 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         }
     }
 
+    /// Q4_K 的 32 元素 sub-block 與 MLX affine group 32 同構，量化值可原樣沿用。
+    /// 這裡用合成 super-block 驗證 kernel 還原出的值與 GGUF 反量化公式一致。
+    func testPreservedQ4KSuperBlockMatchesReferenceDequantization() throws {
+        // 取貼近真實權重的量級；scales／biases 以 bfloat16 保存，
+        // 只有 8 位尾數，因此以相對誤差斷言。
+        let d = Float(0.0078125)
+        let dmin = Float(0.00390625)
+        // 8 個 sub-block 的 6-bit scale 與 min，涵蓋 j < 4 與 j >= 4 兩種打包分支。
+        let scaleValues: [UInt32] = [1, 5, 9, 13, 17, 21, 25, 29]
+        let minValues: [UInt32] = [2, 6, 10, 14, 18, 22, 26, 30]
+
+        var packedScales = [UInt8](repeating: 0, count: 12)
+        for j in 0 ..< 4 {
+            packedScales[j] = UInt8(scaleValues[j] & 63)
+            packedScales[j + 4] = UInt8(minValues[j] & 63)
+        }
+        for j in 4 ..< 8 {
+            packedScales[j + 4] = UInt8((scaleValues[j] & 15) | ((minValues[j] & 15) << 4))
+            packedScales[j - 4] |= UInt8((scaleValues[j] >> 4) << 6)
+            packedScales[j] |= UInt8((minValues[j] >> 4) << 6)
+        }
+
+        var bytes = [UInt8]()
+        bytes.append(contentsOf: float16Bytes(d))
+        bytes.append(contentsOf: float16Bytes(dmin))
+        bytes.append(contentsOf: packedScales)
+        // qs：每個 byte 低 nibble 屬於偶數 sub-block，高 nibble 屬於奇數 sub-block。
+        var quants = [UInt8](repeating: 0, count: 128)
+        for index in 0 ..< 128 {
+            quants[index] = UInt8((index % 16) | (((15 - index % 16)) << 4))
+        }
+        bytes.append(contentsOf: quants)
+        XCTAssertEqual(bytes.count, 144)
+
+        let packed = try MLXGGUFMetalQuantizer.packPreserved(
+            raw: Data(bytes),
+            sourceType: 12,
+            sourceShape: [1, 256],
+            targetWeightShape: [1, 32],
+            targetScaleShape: [1, 8]
+        )
+        let reconstructed = dequantized(
+            packed.wq,
+            scales: packed.scales,
+            biases: packed.biases,
+            groupSize: 32,
+            bits: 4
+        )
+        eval(reconstructed)
+
+        // 參考值直接套用 GGUF 的 Q4_K 反量化公式。
+        var expected = [Float]()
+        for k in 0 ..< 4 {
+            for half in 0 ..< 2 {
+                let sub = k * 2 + half
+                let scale = d * Float(scaleValues[sub])
+                let bias = -dmin * Float(minValues[sub])
+                for l in 0 ..< 32 {
+                    let byte = quants[k * 32 + l]
+                    let value = half == 0 ? UInt32(byte & 15) : UInt32(byte >> 4)
+                    expected.append(Float(value) * scale + bias)
+                }
+            }
+        }
+
+        let actual = reconstructed.asArray(Float.self)
+        XCTAssertEqual(actual.count, expected.count)
+        var maximumRelativeError = Float(0)
+        for (actualValue, expectedValue) in zip(actual, expected) {
+            let scale = max(abs(expectedValue), 0.001)
+            maximumRelativeError = max(
+                maximumRelativeError,
+                abs(actualValue - expectedValue) / scale
+            )
+        }
+        // bfloat16 的相對解析度約 0.4%，這裡確認沒有結構性錯位。
+        XCTAssertLessThan(maximumRelativeError, 0.01)
+    }
+
+    /// 覆蓋跨 super-block 與跨列的索引：單一 super-block 測不到寫入位移錯誤。
+    func testPreservedQ4KHandlesMultipleSuperBlocksAndRows() throws {
+        let rows = 2
+        let columns = 512
+        let superBlocks = rows * columns / 256
+        var bytes = [UInt8]()
+        var expected = [Float]()
+        for blockIndex in 0 ..< superBlocks {
+            let d = Float(0.0078125) * Float(blockIndex + 1)
+            let dmin = Float(0.00390625) * Float(blockIndex + 1)
+            let scaleValues = (0 ..< 8).map { UInt32(($0 * 3 + blockIndex) % 64) }
+            let minValues = (0 ..< 8).map { UInt32(($0 * 5 + blockIndex) % 64) }
+            var packedScales = [UInt8](repeating: 0, count: 12)
+            for j in 0 ..< 4 {
+                packedScales[j] = UInt8(scaleValues[j] & 63)
+                packedScales[j + 4] = UInt8(minValues[j] & 63)
+            }
+            for j in 4 ..< 8 {
+                packedScales[j + 4] = UInt8((scaleValues[j] & 15) | ((minValues[j] & 15) << 4))
+                packedScales[j - 4] |= UInt8((scaleValues[j] >> 4) << 6)
+                packedScales[j] |= UInt8((minValues[j] >> 4) << 6)
+            }
+            var quants = [UInt8](repeating: 0, count: 128)
+            for index in 0 ..< 128 {
+                quants[index] = UInt8(((index + blockIndex) % 16)
+                    | ((((index * 3 + blockIndex) % 16)) << 4))
+            }
+            bytes.append(contentsOf: float16Bytes(d))
+            bytes.append(contentsOf: float16Bytes(dmin))
+            bytes.append(contentsOf: packedScales)
+            bytes.append(contentsOf: quants)
+            for k in 0 ..< 4 {
+                for nibble in 0 ..< 2 {
+                    let sub = k * 2 + nibble
+                    let scale = d * Float(scaleValues[sub])
+                    let bias = -dmin * Float(minValues[sub])
+                    for l in 0 ..< 32 {
+                        let byte = quants[k * 32 + l]
+                        let value = nibble == 0 ? UInt32(byte & 15) : UInt32(byte >> 4)
+                        expected.append(Float(value) * scale + bias)
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(bytes.count, superBlocks * 144)
+
+        let packed = try MLXGGUFMetalQuantizer.packPreserved(
+            raw: Data(bytes),
+            sourceType: 12,
+            sourceShape: [rows, columns],
+            targetWeightShape: [rows, columns / 8],
+            targetScaleShape: [rows, columns / 32]
+        )
+        let reconstructed = dequantized(
+            packed.wq,
+            scales: packed.scales,
+            biases: packed.biases,
+            groupSize: 32,
+            bits: 4
+        )
+        eval(reconstructed)
+
+        let actual = reconstructed.reshaped([rows * columns]).asArray(Float.self)
+        XCTAssertEqual(actual.count, expected.count)
+        var maximumRelativeError = Float(0)
+        for (index, (actualValue, expectedValue)) in zip(actual, expected).enumerated() {
+            let scale = max(abs(expectedValue), 0.001)
+            let error = abs(actualValue - expectedValue) / scale
+            if error > maximumRelativeError {
+                maximumRelativeError = error
+            }
+            XCTAssertLessThan(error, 0.02, "元素 \(index)")
+        }
+    }
+
+    /// Q4_K 只在明確選用 speed-passthrough（Beta）時無損沿用；
+    /// auto 與 speed 都保守重新量化為 INT8。
+    func testQ4KUsesPreservedBlockOnlyUnderPassthroughProfile() {
+        let passthrough = GGUFStoragePolicy.support(for: "Q4_K", profile: .speedPassthrough)
+        XCTAssertEqual(passthrough?.storageType, .int4)
+        XCTAssertEqual(passthrough?.materialization, .quantized4)
+        XCTAssertEqual(passthrough?.preservesSourceQuantization, true)
+
+        for profile in [GGUFQuantizationProfile.automatic, .speed] {
+            let support = GGUFStoragePolicy.support(for: "Q4_K", profile: profile)
+            XCTAssertEqual(support?.storageType, .int8, profile.rawValue)
+            XCTAssertEqual(support?.materialization, .requantized8, profile.rawValue)
+        }
+    }
+
+    private func float16Bytes(_ value: Float) -> [UInt8] {
+        var half = Float16(value)
+        return withUnsafeBytes(of: &half) { Array($0) }
+    }
+
     func testWeightContractReportsMissingUnexpectedAndShapeMismatch() {
         let expected: [(String, MLXArray)] = [
             ("model.present.weight", MLXArray.zeros([2, 4])),
@@ -161,6 +335,52 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         )
     }
 
+    func testStateSpaceEncodingIsSelectedByArchitectureContract() {
+        XCTAssertEqual(
+            MLXGGUFArchitectureContract.resolve(modelType: "qwen3_5")
+                .stateSpaceParameterEncoding,
+            .negativeExponential
+        )
+        XCTAssertEqual(
+            MLXGGUFArchitectureContract.resolve(modelType: "qwen3_next")
+                .stateSpaceParameterEncoding,
+            .negativeExponential
+        )
+        XCTAssertEqual(
+            MLXGGUFArchitectureContract.resolve(modelType: "mamba2")
+                .stateSpaceParameterEncoding,
+            .native
+        )
+    }
+
+    func testMappedStateSpaceTensorIsMaterializedBeforeSourceLifetimeEnds() throws {
+        let expected: [Float] = [-1.75, -2.5, -3.25, -4]
+        let encoded = expected.map { -Foundation.exp($0) }
+        let data = encoded.withUnsafeBytes { Data($0) }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "tanpopo-ssm-contract-\(UUID().uuidString).bin"
+        )
+        try data.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let mapped = try MemoryMappedTensorArray.load(
+            from: url,
+            fileOffset: 0,
+            byteCount: data.count,
+            shape: [expected.count],
+            dtype: .float32
+        )
+        let decoded = GGUFStateSpaceParameterDecoder.decode(
+            mapped,
+            encoding: .negativeExponential
+        ).asArray(Float.self)
+
+        XCTAssertEqual(decoded.count, expected.count)
+        for (actual, reference) in zip(decoded, expected) {
+            XCTAssertEqual(actual, reference, accuracy: 0.0001)
+        }
+    }
+
     /// 真實模型的內容排列 POC；CI 沒有模型檔時會自動略過。
     ///
     /// 這個測試不把 Qwen 當成決策規則，而是用它的 fused QKV 當作
@@ -193,13 +413,12 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
             from: URL(fileURLWithPath: ggufPath),
             targetGroupSize: 64,
             quantizationProfile: .automatic,
-            convertQwen35StateSpaceParameters: true
+            stateSpaceParameterEncoding: .negativeExponential
         )
         let reorderedWeights = MLXGGUFModelLoader.applyArchitectureWeightLayout(
             sourceWeights,
             modelType: "qwen3_5",
-            configurationData: configData,
-            groupSize: 64
+            configurationData: configData
         )
         let rawNormalized = try MLXGGUFWeightNameNormalizer.normalize(
             sourceWeights,
@@ -435,6 +654,7 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         XCTAssertEqual(configuration.ggufRecurrentPromotion, .disabled)
         XCTAssertNil(configuration.kvBits)
         XCTAssertEqual(configuration.quantizedKVStart, 2_048)
+        XCTAssertEqual(configuration.thinkingEnabled, true)
     }
 
     func testConfigurationParsesGGUFRecurrentPromotion() throws {
@@ -469,30 +689,31 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
             profile: .automatic
         )
 
-        XCTAssertEqual(strategy.groupSize, 32)
-        XCTAssertTrue(strategy.usedResolvedGroup32)
+        XCTAssertEqual(strategy.groupSize, 64)
+        XCTAssertFalse(strategy.usedResolvedGroup32)
         XCTAssertEqual(strategy.targetStorageCounts[.bf16], 1)
         XCTAssertNil(strategy.targetStorageCounts[.int4])
         XCTAssertEqual(strategy.targetStorageCounts[.int8], 3)
     }
 
-    func testAutomaticGGUFStrategyFallsBackToGroup32ForIncompatibleDimensions() throws {
+    func testGroup32RequiresAnExplicitRequest() throws {
         let tensors = [
             MLXGGUFTensorInfo(
                 name: "generic.96-wide.weight", dimensions: [96, 128], type: 2, offset: 0)
         ]
 
-        let strategy = try MLXGGUFLoader.quantizationStrategy(
-            for: tensors,
-            requestedGroupSize: nil,
-            profile: .automatic
-        )
+        XCTAssertThrowsError(try MLXGGUFLoader.quantizationStrategy(
+            for: tensors, requestedGroupSize: nil, profile: .automatic
+        ))
 
+        let strategy = try MLXGGUFLoader.quantizationStrategy(
+            for: tensors, requestedGroupSize: 32, profile: .automatic
+        )
         XCTAssertEqual(strategy.groupSize, 32)
-        XCTAssertTrue(strategy.usedResolvedGroup32)
+        XCTAssertFalse(strategy.usedResolvedGroup32)
     }
 
-    func testSpeedGGUFStrategyKeepsPreservedSourceBlocksAtGroup32() throws {
+    func testSpeedGGUFStrategyPrefersGroup64WhenDimensionsPermit() throws {
         let tensors = [
             MLXGGUFTensorInfo(
                 name: "generic.q4.weight", dimensions: [4_096, 4_096], type: 2, offset: 0)
@@ -504,8 +725,8 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
             profile: .speed
         )
 
-        XCTAssertEqual(strategy.groupSize, 32)
-        XCTAssertTrue(strategy.usedResolvedGroup32)
+        XCTAssertEqual(strategy.groupSize, 64)
+        XCTAssertFalse(strategy.usedResolvedGroup32)
         XCTAssertEqual(strategy.targetStorageCounts[.int4], 1)
     }
 
@@ -524,6 +745,65 @@ final class MLXGGUFCompatibilityTests: XCTestCase {
         XCTAssertEqual(strategy.targetStorageCounts[.fp32], 1)
         XCTAssertNil(strategy.targetStorageCounts[.int4])
         XCTAssertNil(strategy.targetStorageCounts[.int8])
+
+        for sourceType in [
+            "Q4_0", "Q4_1", "Q8_0", "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K",
+            "Q1_0", "Q2_0",
+        ] {
+            let support = GGUFStoragePolicy.support(for: sourceType, profile: .quality)
+            XCTAssertEqual(support?.storageType, .fp32, sourceType)
+            XCTAssertEqual(support?.materialization, .dequantizedFP32, sourceType)
+            XCTAssertEqual(support?.requiresConversion, true, sourceType)
+        }
+    }
+
+    func testSpeedProfilePromotesRequantizedLowBitSourcesToINT8() {
+        // Q4_K 的 sub-block 與 MLX group 32 同構，改走無損沿用，
+        // 由 testQ4KUsesPreservedBlockUnderSpeedAndINT8UnderAutomatic 覆蓋。
+        for sourceType in [
+            "Q1_0", "Q2_0", "Q2_K", "Q3_K", "Q5_K", "Q6_K",
+            "IQ4_NL", "IQ3_S", "IQ4_XS",
+        ] {
+            let support = GGUFStoragePolicy.support(for: sourceType, profile: .speed)
+            XCTAssertEqual(support?.storageType, .int8, sourceType)
+            XCTAssertEqual(support?.materialization, .requantized8, sourceType)
+        }
+
+        let directQ4 = GGUFStoragePolicy.support(for: "Q4_0", profile: .speed)
+        XCTAssertEqual(directQ4?.storageType, .int4)
+        XCTAssertEqual(directQ4?.materialization, .quantized4)
+
+        let repackedMXFP4 = GGUFStoragePolicy.support(for: "MXFP4", profile: .speed)
+        XCTAssertEqual(repackedMXFP4?.storageType, .int4)
+        XCTAssertEqual(repackedMXFP4?.materialization, .quantizedMXFP4)
+        XCTAssertEqual(repackedMXFP4?.preservesSourceQuantization, true)
+        XCTAssertEqual(repackedMXFP4?.requiresConversion, true)
+    }
+
+    func testModelGenerationDefaultsLoadManifestAndPreferStandardConfiguration() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tanpopo-generation-defaults-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try Data(
+            #"{"generation":{"temperature":0.2,"topP":0.9,"topK":20,"minP":0.05,"repetitionPenalty":1.1}}"#.utf8
+        ).write(to: directory.appendingPathComponent("mangakitchen-model.json"))
+        try Data(
+            #"{"temperature":0.35,"top_p":0.92,"repetition_penalty":1.08}"#.utf8
+        ).write(to: directory.appendingPathComponent("generation_config.json"))
+
+        let defaults = ModelGenerationDefaults.load(from: directory)
+        XCTAssertEqual(defaults.temperature, 0.35)
+        XCTAssertEqual(defaults.topP, 0.92)
+        XCTAssertEqual(defaults.topK, 20)
+        XCTAssertEqual(defaults.minP, 0.05)
+        XCTAssertEqual(defaults.repetitionPenalty, 1.08)
+        XCTAssertEqual(
+            defaults.sources,
+            ["mangakitchen-model.json", "generation_config.json"]
+        )
     }
 
     func testGGUFAutomaticProfileRequantizesQ4AsInt8() throws {

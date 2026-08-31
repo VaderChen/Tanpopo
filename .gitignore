@@ -28,6 +28,8 @@ llama-server/tools/mtmd/test-2.mp3
 llama-server/tools/mtmd/test-3.mp4
 **/build/
 **/build-*/
+/.build/
+**/.bak-*/
 mlx-server/.build/
 mlx-server/.swiftpm/
 *.zip

@@ -3568,6 +3568,17 @@ textarea:focus {
   margin-right: auto;
 }
 
+.settings-pane-stack .settings-actions {
+  width: 100%;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.settings-pane-stack .settings-actions .form-message {
+  margin-right: 0;
+}
+
 .admin-security-section,
 .security-section {
   margin-top: 34px;

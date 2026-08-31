@@ -15,7 +15,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap-fastgguf-cache4"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap-fastgguf-cache12"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -37,14 +37,22 @@ struct ServerConfiguration: Sendable {
     var topP: Float = 1
     var topK = 0
     var minP: Float = 0
+    // 保留「使用者是否明確指定」；未指定時可採用模型隨附的 generation
+    // 建議值，API 請求與命令列參數仍具有最高優先權。
+    var temperatureOverride: Float?
+    var topPOverride: Float?
+    var topKOverride: Int?
+    var minPOverride: Float?
     var repetitionPenalty: Float?
-    var thinkingEnabled: Bool?
+    // 正式運作預設保留模型思考；效能與精確度基準測試明確傳入
+    // --no-thinking，避免思考長度污染不同 Runtime 的比較。
+    var thinkingEnabled: Bool? = true
     var accessControlPath: String?
     var dflashDraftPath: String?
     var dflashBlockSize = 5
-    // nil 代表依 tensor 材料化方式與實際維度自動選擇：保留 32 元素 GGUF block
-    // 時使用 32，需要重新量化時優先 64；維度不相容則安全降級。
-    // 這是資料驅動的全模型策略，不依賴模型名稱或固定樣本。
+    // nil 代表自動策略，固定解析為 Group 64。Group 32 只接受使用者明確
+    // 指定，維度不相容時直接回報，不做靜默降級。這是資料驅動的全模型
+    // 策略，不依賴模型名稱或固定樣本。
     var ggufGroupSize: Int?
     var ggufProfile = GGUFQuantizationProfile.automatic
     var ggufRecurrentPromotion = GGUFRecurrentPromotionPolicy.disabled
@@ -112,13 +120,21 @@ struct ServerConfiguration: Sendable {
             case "--prefill-step-size":
                 result.prefillStepSize = try parseInteger(nextValue(for: option), option: option, range: 1...65_536)
             case "--temperature":
-                result.temperature = try parseFloat(nextValue(for: option), option: option, range: 0...2)
+                let value = try parseFloat(nextValue(for: option), option: option, range: 0...2)
+                result.temperature = value
+                result.temperatureOverride = value
             case "--top-p":
-                result.topP = try parseFloat(nextValue(for: option), option: option, range: 0...1)
+                let value = try parseFloat(nextValue(for: option), option: option, range: 0...1)
+                result.topP = value
+                result.topPOverride = value
             case "--top-k":
-                result.topK = try parseInteger(nextValue(for: option), option: option, range: 0...100_000)
+                let value = try parseInteger(nextValue(for: option), option: option, range: 0...100_000)
+                result.topK = value
+                result.topKOverride = value
             case "--min-p":
-                result.minP = try parseFloat(nextValue(for: option), option: option, range: 0...1)
+                let value = try parseFloat(nextValue(for: option), option: option, range: 0...1)
+                result.minP = value
+                result.minPOverride = value
             case "--repetition-penalty":
                 result.repetitionPenalty = try parseFloat(nextValue(for: option), option: option, range: 0...10)
             case "--thinking":
@@ -287,9 +303,12 @@ struct ServerConfiguration: Sendable {
       --model-type <類型>          auto、text 或 vision，預設 auto
       --mmproj <GGUF 檔案>         GGUF 多模態視覺投影檔
       --gguf-group-size <auto|32|64>
-                                   GGUF 權重量化群組大小，預設 auto（block-aware）
-      --gguf-profile <auto|quality|speed>
-                                   GGUF 轉換策略，預設 auto
+                                   GGUF 權重量化群組大小；auto 固定解析為 64，
+                                   Group 32 僅在明確指定時使用
+      --gguf-profile <auto|quality|speed|speed-passthrough>
+                                   GGUF 轉換策略，預設 auto。speed-passthrough 為
+                                   Beta：K-quant 直接沿用來源 4-bit block（group 32），
+                                   較快但精度低於 speed
       --gguf-recurrent-promotion <off|controls|all>
                                    recurrent tensor 混合精度策略，預設 off
       --gguf-cache-dir <目錄>      GGUF 轉換後權重的永久快取目錄

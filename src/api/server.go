@@ -484,19 +484,20 @@ func (s *Server) handleResidentModeUpdate(w http.ResponseWriter, r *http.Request
 }
 
 type settingsUpdateRequest struct {
-	ModelDirectory         string `json:"model_directory"`
-	MLXModelDirectory      string `json:"mlx_model_directory"`
-	ResidentMode           bool   `json:"resident_mode"`
-	DefaultFastGGUFEnabled *bool  `json:"default_fast_gguf_enabled"`
-	DefaultKVCacheEnabled  *bool  `json:"default_kv_cache_quantization_enabled"`
-	DefaultMMapEnabled     *bool  `json:"default_mmap_enabled"`
-	DefaultDFlashEnabled   *bool  `json:"default_dflash_enabled"`
-	UILanguage             string `json:"ui_language"`
-	UITheme                string `json:"ui_theme"`
-	HuggingFaceEndpoint    string `json:"huggingface_endpoint"`
-	HuggingFaceToken       string `json:"huggingface_token"`
-	ClearHuggingFaceToken  bool   `json:"clear_huggingface_token"`
-	DefaultRevision        string `json:"default_revision"`
+	ModelDirectory          string  `json:"model_directory"`
+	MLXModelDirectory       string  `json:"mlx_model_directory"`
+	ResidentMode            bool    `json:"resident_mode"`
+	DefaultFastGGUFEnabled  *bool   `json:"default_fast_gguf_enabled"`
+	DefaultFastGGUFStrategy *string `json:"default_fast_gguf_strategy"`
+	DefaultKVCacheEnabled   *bool   `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled      *bool   `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled    *bool   `json:"default_dflash_enabled"`
+	UILanguage              string  `json:"ui_language"`
+	UITheme                 string  `json:"ui_theme"`
+	HuggingFaceEndpoint     string  `json:"huggingface_endpoint"`
+	HuggingFaceToken        string  `json:"huggingface_token"`
+	ClearHuggingFaceToken   bool    `json:"clear_huggingface_token"`
+	DefaultRevision         string  `json:"default_revision"`
 }
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
@@ -516,6 +517,10 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if request.DefaultFastGGUFEnabled != nil {
 		defaultFastGGUFEnabled = *request.DefaultFastGGUFEnabled
 	}
+	defaultFastGGUFStrategy := current.DefaultFastGGUFStrategy
+	if request.DefaultFastGGUFStrategy != nil {
+		defaultFastGGUFStrategy = *request.DefaultFastGGUFStrategy
+	}
 	defaultKVCacheEnabled := current.DefaultKVCacheEnabled
 	if request.DefaultKVCacheEnabled != nil {
 		defaultKVCacheEnabled = *request.DefaultKVCacheEnabled
@@ -529,24 +534,25 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		defaultDFlashEnabled = *request.DefaultDFlashEnabled
 	}
 	value := domain.Settings{
-		ModelDirectory:         request.ModelDirectory,
-		MLXModelDirectory:      request.MLXModelDirectory,
-		ResidentMode:           request.ResidentMode,
-		DefaultFastGGUFEnabled: defaultFastGGUFEnabled,
-		DefaultKVCacheEnabled:  defaultKVCacheEnabled,
-		DefaultMMapEnabled:     defaultMMapEnabled,
-		DefaultDFlashEnabled:   defaultDFlashEnabled,
-		UILanguage:             request.UILanguage,
-		UITheme:                request.UITheme,
-		HuggingFaceEndpoint:    request.HuggingFaceEndpoint,
-		HuggingFaceToken:       token,
-		DefaultRevision:        request.DefaultRevision,
-		ServerHost:             current.ServerHost,
-		ServerPort:             current.ServerPort,
-		ContextSize:            current.ContextSize,
-		GPULayers:              current.GPULayers,
-		Threads:                current.Threads,
-		ExtraArgs:              current.ExtraArgs,
+		ModelDirectory:          request.ModelDirectory,
+		MLXModelDirectory:       request.MLXModelDirectory,
+		ResidentMode:            request.ResidentMode,
+		DefaultFastGGUFEnabled:  defaultFastGGUFEnabled,
+		DefaultFastGGUFStrategy: defaultFastGGUFStrategy,
+		DefaultKVCacheEnabled:   defaultKVCacheEnabled,
+		DefaultMMapEnabled:      defaultMMapEnabled,
+		DefaultDFlashEnabled:    defaultDFlashEnabled,
+		UILanguage:              request.UILanguage,
+		UITheme:                 request.UITheme,
+		HuggingFaceEndpoint:     request.HuggingFaceEndpoint,
+		HuggingFaceToken:        token,
+		DefaultRevision:         request.DefaultRevision,
+		ServerHost:              current.ServerHost,
+		ServerPort:              current.ServerPort,
+		ContextSize:             current.ContextSize,
+		GPULayers:               current.GPULayers,
+		Threads:                 current.Threads,
+		ExtraArgs:               current.ExtraArgs,
 	}
 	if err := s.settings.Save(value); err != nil {
 		writeError(w, http.StatusBadRequest, err)

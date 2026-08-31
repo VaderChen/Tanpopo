@@ -6,11 +6,19 @@
 
 FGGUF 不是 GGUF 規格的延伸，也不是可交給 llama.cpp 或其他 GGUF 工具載入的模型交換格式。副檔名中的 `f` 代表 Tanpopo 的 fast／file-backed cache；所有讀寫端都必須先驗證 magic 與格式版本，不可只靠副檔名判斷。
 
-FGGUF 的容器壓縮是無損的。GGUF 來源到 MLX 權重之間是否重新量化，則由 `auto`、`quality`、`speed`、group size 與 recurrent promotion 等轉換策略決定，和容器壓縮是兩個獨立階段。
+FGGUF 的容器壓縮是無損的。GGUF 來源到 MLX 權重之間是否重新量化，則由 `auto`、`quality`、`speed`、`speed-passthrough`、group size 與 recurrent promotion 等轉換策略決定，和容器壓縮是兩個獨立階段。
 
 ## Fast GGUF 的角色與保證範圍
 
-**快速GGUF模式（Fast GGUF）**是 Tanpopo／mlx-server 的通用 GGUF 最佳化策略，`.fgguf` 則是保存其轉換結果的快取容器；兩者不可混為一談。mlx-server 選擇 GGUF 時預設啟用 Fast GGUF，依 tensor 的 dtype、shape 與架構語意自動決定 INT4、INT8、BF16、group size 與 recurrent controls，不以模型檔名或固定模型清單套用特例。
+**快速GGUF模式（Fast GGUF）**是 Tanpopo／mlx-server 的通用 GGUF 最佳化入口，`.fgguf` 則是保存其轉換結果的快取容器；兩者不可混為一談。系統設定以獨立卡片保存快速模式開關與三種策略，不以模型檔名或固定模型清單套用特例：
+
+| 介面策略 | Runtime 參數 | 權重處理 |
+| --- | --- | --- |
+| 預設 | `speed + group auto + recurrent controls` | auto 固定解析為 Group 64；K-Quant 重新量化為 INT8 |
+| Beta 1 | `speed-passthrough + group 32 + recurrent controls` | 可表示的 Q4_K 沿用來源 4-bit sub-block；其他張量 Group 32 |
+| Beta 2 | `speed-passthrough + group 64 + recurrent controls` | Q4_K 沿用方式相同；其他張量 Group 64 |
+
+關閉快速模式時使用 `auto + group auto + recurrent off` 的一般轉換。Q4_K 沿用區段固定 32 元素是來源格式的 sub-block 規格，不是模型名稱特例，也不代表整個模型改用 Group 32。`quality` 模式使用 FP32 參考權重，定位是轉換誤差診斷，不是一般速度選項。
 
 這套策略對多數「mlx-server 已能解析其架構與 tensor layout」的 GGUF 都有幫助，通常可降低重複轉換成本，並改善 MLX 路徑的生成速度或記憶體配置；但**不保證**所有 GGUF 都能載入、加速或保持相同精度。下列條件都可能影響結果：
 

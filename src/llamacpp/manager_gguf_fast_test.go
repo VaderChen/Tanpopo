@@ -15,11 +15,12 @@ func TestWithManagedMLXGGUFOptimizationUsesQualityDefaults(t *testing.T) {
 		[]string{"--temperature", "0.2", "--gguf-profile", "auto", "--gguf-group-size=64"},
 		true,
 		false,
+		domain.FastGGUFStrategyDefault,
 	)
 	want := []string{
 		"--temperature", "0.2",
 		"--gguf-profile", "auto",
-		"--gguf-group-size", "32",
+		"--gguf-group-size", "auto",
 		"--gguf-recurrent-promotion", "off",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -27,15 +28,39 @@ func TestWithManagedMLXGGUFOptimizationUsesQualityDefaults(t *testing.T) {
 	}
 }
 
-func TestWithManagedMLXGGUFOptimizationUsesFastProfile(t *testing.T) {
-	got := withManagedMLXGGUFOptimization(nil, true, true)
+func TestWithManagedMLXGGUFOptimizationUsesDefaultFastStrategy(t *testing.T) {
+	got := withManagedMLXGGUFOptimization(nil, true, true, domain.FastGGUFStrategyDefault)
 	want := []string{
 		"--gguf-profile", "speed",
 		"--gguf-group-size", "auto",
 		"--gguf-recurrent-promotion", "controls",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("快速 GGUF 策略不符：got %v want %v", got, want)
+		t.Fatalf("預設快速 GGUF 策略不符：got %v want %v", got, want)
+	}
+}
+
+func TestWithManagedMLXGGUFOptimizationUsesBetaStrategies(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy string
+		group    string
+	}{
+		{name: "Beta 1", strategy: domain.FastGGUFStrategyBeta1, group: "32"},
+		{name: "Beta 2", strategy: domain.FastGGUFStrategyBeta2, group: "64"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := withManagedMLXGGUFOptimization(nil, true, true, test.strategy)
+			want := []string{
+				"--gguf-profile", "speed-passthrough",
+				"--gguf-group-size", test.group,
+				"--gguf-recurrent-promotion", "controls",
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s 快速 GGUF 策略不符：got %v want %v", test.name, got, want)
+			}
+		})
 	}
 }
 
@@ -49,6 +74,7 @@ func TestWithManagedMLXGGUFOptimizationStripsFlagsForNativeMLX(t *testing.T) {
 		},
 		false,
 		false,
+		domain.FastGGUFStrategyDefault,
 	)
 	want := []string{"--thinking"}
 	if !reflect.DeepEqual(got, want) {
@@ -96,6 +122,32 @@ func TestResolveMLXTargetSelectionAttachesQwen35CompanionMMProj(t *testing.T) {
 	}
 	if selection.statusMMProj != "gguf:Qwen3.5-4B-GGUF/mmproj-F16.gguf" {
 		t.Fatalf("mmproj 狀態路徑錯誤：%q", selection.statusMMProj)
+	}
+}
+
+func TestResolveMLXTargetSelectionAllowsTextOnlyQwen35WithoutMMProj(t *testing.T) {
+	modelRoot := t.TempDir()
+	modelDirectory := filepath.Join(modelRoot, "Qwen3.5-4B-GGUF")
+	if err := os.MkdirAll(modelDirectory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeMinimalGGUF(
+		t,
+		filepath.Join(modelDirectory, "Qwen3.5-4B-Q4_0.gguf"),
+		"qwen35",
+		map[string]uint32{"qwen35.block_count": 32},
+	)
+
+	selection, err := resolveMLXTargetSelection(
+		domain.Settings{ModelDirectory: modelRoot},
+		"gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.gguf",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("純文字 Qwen3.5 不應因缺少 mmproj 被拒絕：%v", err)
+	}
+	if selection.mmprojArgument != "" || selection.statusMMProj != "" {
+		t.Fatalf("缺少 mmproj 時應維持純文字模式：%+v", selection)
 	}
 }
 

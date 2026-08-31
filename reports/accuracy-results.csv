@@ -1,401 +1,1001 @@
-model,runtime,variant,case_id,source_row,category,subject,expected,predicted,correct,response_seconds
-Qwen 3.5 4B,mlx,native,mmlu-0-001,13835,other,virology,A,C,0,0.205725
-Qwen 3.5 4B,mlx,native,mmlu-0-002,6311,other,human_aging,B,D,0,0.199231
-Qwen 3.5 4B,mlx,native,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.371828
-Qwen 3.5 4B,mlx,native,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.198732
-Qwen 3.5 4B,mlx,native,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.203559
-Qwen 3.5 4B,mlx,native,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,0.257909
-Qwen 3.5 4B,mlx,native,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.255593
-Qwen 3.5 4B,mlx,native,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.203014
-Qwen 3.5 4B,mlx,native,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.147890
-Qwen 3.5 4B,mlx,native,mmlu-0-010,12841,social_sciences,professional_psychology,C,B,0,0.255665
-Qwen 3.5 4B,mlx,native,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.202853
-Qwen 3.5 4B,mlx,native,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.199679
-Qwen 3.5 4B,mlx,native,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.147351
-Qwen 3.5 4B,mlx,native,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,0.893889
-Qwen 3.5 4B,mlx,native,mmlu-0-015,9558,other,nutrition,A,A,1,0.200724
-Qwen 3.5 4B,mlx,native,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.201186
-Qwen 3.5 4B,mlx,native,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.259402
-Qwen 3.5 4B,mlx,native,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.256207
-Qwen 3.5 4B,mlx,native,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.200767
-Qwen 3.5 4B,mlx,native,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.202934
-Qwen 3.5 4B,mlx,native,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.313213
-Qwen 3.5 4B,mlx,native,mmlu-0-022,1553,stem,computer_security,A,A,1,0.204113
-Qwen 3.5 4B,mlx,native,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.199952
-Qwen 3.5 4B,mlx,native,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.148201
-Qwen 3.5 4B,mlx,native,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.254875
-Qwen 3.5 4B,mlx,native,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.312268
-Qwen 3.5 4B,mlx,native,mmlu-0-027,11553,humanities,professional_law,A,C,0,0.550823
-Qwen 3.5 4B,mlx,native,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.369529
-Qwen 3.5 4B,mlx,native,mmlu-0-029,9861,humanities,philosophy,C,C,1,0.485505
-Qwen 3.5 4B,mlx,native,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.199779
-Qwen 3.5 4B,mlx,native,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.201442
-Qwen 3.5 4B,mlx,native,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.202541
-Qwen 3.5 4B,mlx,native,mmlu-0-033,11957,humanities,professional_law,D,A,0,0.540468
-Qwen 3.5 4B,mlx,native,mmlu-0-034,1208,other,college_medicine,D,B,0,0.368039
-Qwen 3.5 4B,mlx,native,mmlu-0-035,13934,humanities,world_religions,A,D,0,0.200741
-Qwen 3.5 4B,mlx,native,mmlu-0-036,11206,humanities,professional_law,A,D,0,0.543281
-Qwen 3.5 4B,mlx,native,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.205519
-Qwen 3.5 4B,mlx,native,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.149569
-Qwen 3.5 4B,mlx,native,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.311793
-Qwen 3.5 4B,mlx,native,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.200886
-Qwen 3.5 4B,mlx,native,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,0.718823
-Qwen 3.5 4B,mlx,native,mmlu-0-042,7113,other,marketing,D,D,1,0.146957
-Qwen 3.5 4B,mlx,native,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.202617
-Qwen 3.5 4B,mlx,native,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.199185
-Qwen 3.5 4B,mlx,native,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.316927
-Qwen 3.5 4B,mlx,native,mmlu-0-046,3350,humanities,high_school_european_history,A,D,0,0.602603
-Qwen 3.5 4B,mlx,native,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.260432
-Qwen 3.5 4B,mlx,native,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.150128
-Qwen 3.5 4B,mlx,native,mmlu-0-049,7253,other,marketing,D,D,1,0.202843
-Qwen 3.5 4B,mlx,native,mmlu-0-050,8541,humanities,moral_scenarios,C,B,0,0.262575
-Qwen 3.5 4B,mlx,native,mmlu-0-051,4267,stem,high_school_mathematics,A,?,0,0.950269
-Qwen 3.5 4B,mlx,native,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.375356
-Qwen 3.5 4B,mlx,native,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.496150
-Qwen 3.5 4B,mlx,native,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,0.315806
-Qwen 3.5 4B,mlx,native,mmlu-0-055,230,other,anatomy,A,A,1,0.200241
-Qwen 3.5 4B,mlx,native,mmlu-0-056,1528,stem,computer_security,B,B,1,0.147295
-Qwen 3.5 4B,mlx,native,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.200984
-Qwen 3.5 4B,mlx,native,mmlu-0-058,13764,other,virology,D,D,1,0.146928
-Qwen 3.5 4B,mlx,native,mmlu-0-059,6534,humanities,international_law,A,A,1,0.267818
-Qwen 3.5 4B,mlx,native,mmlu-0-060,11636,humanities,professional_law,B,C,0,0.501496
-Qwen 3.5 4B,mlx,native,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.208505
-Qwen 3.5 4B,mlx,native,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.260033
-Qwen 3.5 4B,mlx,native,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.501010
-Qwen 3.5 4B,mlx,native,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.262611
-Qwen 3.5 4B,mlx,native,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.202385
-Qwen 3.5 4B,mlx,native,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.201613
-Qwen 3.5 4B,mlx,native,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.149368
-Qwen 3.5 4B,mlx,native,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.258727
-Qwen 3.5 4B,mlx,native,mmlu-0-069,5458,stem,high_school_statistics,A,B,0,0.264336
-Qwen 3.5 4B,mlx,native,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.203570
-Qwen 3.5 4B,mlx,native,mmlu-0-071,11964,humanities,professional_law,B,B,1,0.633398
-Qwen 3.5 4B,mlx,native,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.206808
-Qwen 3.5 4B,mlx,native,mmlu-0-073,11528,humanities,professional_law,A,B,0,0.752371
-Qwen 3.5 4B,mlx,native,mmlu-0-074,1031,stem,college_computer_science,C,A,0,0.207056
-Qwen 3.5 4B,mlx,native,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.268911
-Qwen 3.5 4B,mlx,native,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.321883
-Qwen 3.5 4B,mlx,native,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.149055
-Qwen 3.5 4B,mlx,native,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.150504
-Qwen 3.5 4B,mlx,native,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.204750
-Qwen 3.5 4B,mlx,native,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.265901
-Qwen 3.5 4B,mlx,native,mmlu-0-081,13159,social_sciences,security_studies,C,D,0,0.204708
-Qwen 3.5 4B,mlx,native,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.325173
-Qwen 3.5 4B,mlx,native,mmlu-0-083,7339,other,medical_genetics,B,B,1,0.273716
-Qwen 3.5 4B,mlx,native,mmlu-0-084,1494,stem,computer_security,C,C,1,0.149960
-Qwen 3.5 4B,mlx,native,mmlu-0-085,1318,other,college_medicine,B,B,1,0.262347
-Qwen 3.5 4B,mlx,native,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.203666
-Qwen 3.5 4B,mlx,native,mmlu-0-087,8322,humanities,moral_disputes,C,D,0,0.260768
-Qwen 3.5 4B,mlx,native,mmlu-0-088,8016,other,miscellaneous,A,A,1,0.263946
-Qwen 3.5 4B,mlx,native,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,0.208751
-Qwen 3.5 4B,mlx,native,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.208767
-Qwen 3.5 4B,mlx,native,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,0.323004
-Qwen 3.5 4B,mlx,native,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.264876
-Qwen 3.5 4B,mlx,native,mmlu-0-093,11576,humanities,professional_law,C,D,0,0.570023
-Qwen 3.5 4B,mlx,native,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.202600
-Qwen 3.5 4B,mlx,native,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.271515
-Qwen 3.5 4B,mlx,native,mmlu-0-096,5451,stem,high_school_statistics,D,B,0,0.327404
-Qwen 3.5 4B,mlx,native,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,0.391183
-Qwen 3.5 4B,mlx,native,mmlu-0-098,8852,humanities,moral_scenarios,D,B,0,0.270103
-Qwen 3.5 4B,mlx,native,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,0.976864
-Qwen 3.5 4B,mlx,native,mmlu-0-100,9882,humanities,philosophy,D,B,0,0.204906
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-001,13835,other,virology,A,C,0,0.069128
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-002,6311,other,human_aging,B,C,0,0.182001
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.371929
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.179251
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.227938
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,0.273859
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.271662
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.229731
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.179021
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-010,12841,social_sciences,professional_psychology,C,B,0,0.268314
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.231050
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.290470
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.177785
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,0.801410
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-015,9558,other,nutrition,A,A,1,0.227843
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.225640
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.272536
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.270578
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.226490
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.231293
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-021,12383,other,professional_medicine,A,A,1,1.378552
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-022,1553,stem,computer_security,A,A,1,0.230610
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.225370
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.178381
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.268820
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.325710
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-027,11553,humanities,professional_law,A,C,0,0.517146
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.372360
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-029,9861,humanities,philosophy,C,C,1,0.471079
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.225690
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.227559
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.227618
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-033,11957,humanities,professional_law,D,D,1,0.517180
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-034,1208,other,college_medicine,D,D,1,0.369102
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-035,13934,humanities,world_religions,A,D,0,0.226972
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-036,11206,humanities,professional_law,A,D,0,0.517524
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.228560
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.178263
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.279071
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.225923
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,0.661802
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-042,7113,other,marketing,D,D,1,0.180412
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.230870
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.179752
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.329434
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,0.564350
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.273094
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.176631
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-049,7253,other,marketing,D,D,1,0.225149
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.274901
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-051,4267,stem,high_school_mathematics,A,?,0,1.278791
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.374259
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.475904
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-054,8989,humanities,moral_scenarios,A,C,0,0.328022
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-055,230,other,anatomy,A,A,1,0.223865
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-056,1528,stem,computer_security,B,B,1,0.178212
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.226816
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-058,13764,other,virology,D,D,1,0.178795
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-059,6534,humanities,international_law,A,A,1,0.279401
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-060,11636,humanities,professional_law,B,B,1,0.483870
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-061,13514,social_sciences,sociology,D,B,0,0.231949
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.275013
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.481686
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.276149
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.228492
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.227726
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.179328
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.233008
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-069,5458,stem,high_school_statistics,A,D,0,0.277927
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.228625
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-071,11964,humanities,professional_law,B,B,1,0.547117
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.233185
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-073,11528,humanities,professional_law,A,B,0,0.699096
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-074,1031,stem,college_computer_science,C,A,0,0.234697
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.281435
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.284762
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.179340
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.180677
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.236211
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.279963
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-081,13159,social_sciences,security_studies,C,D,0,0.231270
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.335829
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-083,7339,other,medical_genetics,B,A,0,0.285270
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-084,1494,stem,computer_security,C,C,1,0.181804
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-085,1318,other,college_medicine,B,B,1,0.231897
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.230619
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-087,8322,humanities,moral_disputes,C,D,0,0.234172
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-088,8016,other,miscellaneous,A,A,1,0.276625
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.233416
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.233942
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,0.337795
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.284718
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-093,11576,humanities,professional_law,C,D,0,0.563041
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.184209
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.290042
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-096,5451,stem,high_school_statistics,D,D,1,0.293240
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,0.403912
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,0.291322
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.061121
-Qwen 3.5 4B,llama-gguf,llama-reference,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.235135
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-001,13835,other,virology,A,C,0,0.209831
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-002,6311,other,human_aging,B,C,0,0.207924
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-003,12418,other,professional_medicine,C,B,0,0.488370
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.208633
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-005,663,other,clinical_knowledge,C,D,0,0.211978
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-006,4242,stem,high_school_mathematics,D,B,0,1.196058
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.263700
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.209679
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-009,6634,humanities,jurisprudence,C,C,1,0.154733
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-010,12841,social_sciences,professional_psychology,C,D,0,0.323322
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.481706
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.207194
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.155107
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-014,5866,humanities,high_school_world_history,D,?,0,0.903755
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-015,9558,other,nutrition,A,C,0,0.209073
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-016,3578,social_sciences,high_school_geography,D,A,0,1.140307
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.266871
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-018,2281,stem,elementary_mathematics,B,C,0,0.264264
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,B,0,0.208190
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.211531
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-021,12383,other,professional_medicine,A,D,0,0.321822
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-022,1553,stem,computer_security,A,D,0,0.214525
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.210891
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.155510
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,?,0,1.193024
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-026,8725,humanities,moral_scenarios,B,?,0,1.250506
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-027,11553,humanities,professional_law,A,?,0,1.500876
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,1.335758
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-029,9861,humanities,philosophy,C,?,0,1.433678
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-030,2407,stem,elementary_mathematics,A,?,0,1.148903
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.210872
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.211629
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-033,11957,humanities,professional_law,D,?,0,0.749888
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-034,1208,other,college_medicine,D,D,1,0.566870
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-035,13934,humanities,world_religions,A,C,0,0.209990
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-036,11206,humanities,professional_law,A,?,0,1.525529
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-037,5409,social_sciences,high_school_psychology,C,D,0,0.549502
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.155686
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-039,9171,humanities,moral_scenarios,C,C,1,0.331459
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.210858
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-041,5796,humanities,high_school_us_history,B,?,0,1.706819
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-042,7113,other,marketing,D,D,1,0.156406
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-043,5180,social_sciences,high_school_psychology,B,C,0,0.220653
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-044,10008,humanities,philosophy,B,C,0,0.215151
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-045,10492,other,professional_accounting,B,C,0,0.483071
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-046,3350,humanities,high_school_european_history,A,?,0,0.710063
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-047,9052,humanities,moral_scenarios,B,C,0,0.280516
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-048,7815,other,miscellaneous,B,C,0,0.159111
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-049,7253,other,marketing,D,D,1,0.213725
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-050,8541,humanities,moral_scenarios,C,B,0,0.342302
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-051,4267,stem,high_school_mathematics,A,?,0,1.157573
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.581851
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.626507
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-054,8989,humanities,moral_scenarios,A,C,0,0.338841
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-055,230,other,anatomy,A,A,1,0.214088
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-056,1528,stem,computer_security,B,B,1,0.157589
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.220305
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-058,13764,other,virology,D,D,1,0.156564
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-059,6534,humanities,international_law,A,C,0,0.298691
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-060,11636,humanities,professional_law,B,?,0,0.638361
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.225506
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.284133
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-063,10947,humanities,professional_law,C,?,0,0.661255
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.280272
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.216141
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.756304
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.159289
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.712225
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-069,5458,stem,high_school_statistics,A,B,0,1.236002
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.218463
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-071,11964,humanities,professional_law,B,?,0,0.661077
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.222671
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-073,11528,humanities,professional_law,A,?,0,0.782114
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-074,1031,stem,college_computer_science,C,D,0,0.221955
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.284452
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.339231
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.161148
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,C,0,0.161099
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.220056
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.284969
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,0.215939
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-082,8896,humanities,moral_scenarios,A,D,0,0.339086
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-083,7339,other,medical_genetics,B,D,0,1.219133
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-084,1494,stem,computer_security,C,C,1,0.158546
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-085,1318,other,college_medicine,B,D,0,0.440963
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-086,5243,social_sciences,high_school_psychology,D,C,0,0.216120
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-087,8322,humanities,moral_disputes,C,B,0,0.279045
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.224471
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,0.220168
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.220811
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,0.340776
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-092,4769,stem,high_school_physics,B,A,0,0.850584
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-093,11576,humanities,professional_law,C,?,0,0.600947
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.217734
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-095,8969,humanities,moral_scenarios,B,C,0,0.303497
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-096,5451,stem,high_school_statistics,D,D,1,0.520221
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-097,13344,social_sciences,security_studies,C,?,0,1.344570
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,0.357146
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-099,3329,humanities,high_school_european_history,C,?,0,1.033704
-Qwen 3.5 4B,mlx-gguf,preserved-q4,mmlu-0-100,9882,humanities,philosophy,D,B,0,0.219485
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-001,13835,other,virology,A,D,0,0.203854
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-002,6311,other,human_aging,B,D,0,0.199777
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-003,12418,other,professional_medicine,C,B,0,0.529476
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.199667
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.204276
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-006,4242,stem,high_school_mathematics,D,?,0,1.020772
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-007,8376,humanities,moral_disputes,D,B,0,0.329230
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.204131
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-009,6634,humanities,jurisprudence,C,C,1,0.148901
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-010,12841,social_sciences,professional_psychology,C,?,0,1.018728
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-011,13596,social_sciences,sociology,A,B,0,0.203483
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.200148
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.148025
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-014,5866,humanities,high_school_world_history,D,?,0,0.895813
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-015,9558,other,nutrition,A,C,0,0.204661
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.201766
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.261019
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.427257
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,A,0,0.201077
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.203786
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-021,12383,other,professional_medicine,A,A,1,1.070255
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-022,1553,stem,computer_security,A,D,0,0.204922
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.201340
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.150536
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,?,0,1.022377
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-026,8725,humanities,moral_scenarios,B,?,0,1.065759
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-027,11553,humanities,professional_law,A,?,0,0.530669
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.441941
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-029,9861,humanities,philosophy,C,?,0,0.525315
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.203978
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.204849
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-032,1618,stem,conceptual_physics,B,C,0,0.206612
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-033,11957,humanities,professional_law,D,?,0,0.595568
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-034,1208,other,college_medicine,D,C,0,1.132641
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-035,13934,humanities,world_religions,A,C,0,0.202049
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-036,11206,humanities,professional_law,A,D,0,1.312546
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-037,5409,social_sciences,high_school_psychology,C,D,0,0.206436
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.150118
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-039,9171,humanities,moral_scenarios,C,?,0,1.071158
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-040,1649,stem,conceptual_physics,B,D,0,0.200861
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-041,5796,humanities,high_school_us_history,B,?,0,0.740627
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-042,7113,other,marketing,D,D,1,0.148261
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.205579
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-044,10008,humanities,philosophy,B,C,0,0.200824
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.437374
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-046,3350,humanities,high_school_european_history,A,?,0,0.678298
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.268092
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.149091
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-049,7253,other,marketing,D,D,1,0.202143
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-050,8541,humanities,moral_scenarios,C,?,0,1.022188
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-051,4267,stem,high_school_mathematics,A,?,0,0.960624
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-052,1020,stem,college_computer_science,A,?,0,1.153974
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-053,13189,social_sciences,security_studies,D,?,0,0.499492
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-054,8989,humanities,moral_scenarios,A,?,0,1.080129
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-055,230,other,anatomy,A,A,1,0.204141
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-056,1528,stem,computer_security,B,B,1,0.149770
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.206085
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-058,13764,other,virology,D,D,1,0.148220
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-059,6534,humanities,international_law,A,A,1,0.273038
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-060,11636,humanities,professional_law,B,?,0,0.590757
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-061,13514,social_sciences,sociology,D,B,0,0.213649
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,0.267216
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-063,10947,humanities,professional_law,C,?,0,0.514498
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-064,10244,humanities,prehistory,A,B,0,1.023916
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.207384
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.205618
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.151766
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.620470
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-069,5458,stem,high_school_statistics,A,B,0,0.399120
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.208509
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-071,11964,humanities,professional_law,B,?,0,0.624983
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.211577
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-073,11528,humanities,professional_law,A,?,0,0.771808
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-074,1031,stem,college_computer_science,C,D,0,0.212428
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-075,3130,stem,high_school_chemistry,B,?,0,1.029937
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-076,9298,humanities,moral_scenarios,D,?,0,0.667156
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.151496
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.153586
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.209480
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.273000
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,0.208255
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-082,8896,humanities,moral_scenarios,A,?,0,1.087804
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-083,7339,other,medical_genetics,B,?,0,1.034081
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-084,1494,stem,computer_security,C,C,1,0.153658
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-085,1318,other,college_medicine,B,D,0,0.270151
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.207903
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-087,8322,humanities,moral_disputes,C,B,0,0.267059
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.025940
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.213047
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-090,4938,social_sciences,high_school_psychology,B,C,0,0.213932
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-091,9031,humanities,moral_scenarios,B,A,0,0.403937
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-092,4769,stem,high_school_physics,B,?,0,1.035187
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-093,11576,humanities,professional_law,C,?,0,0.775351
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.206882
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.274365
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-096,5451,stem,high_school_statistics,D,C,0,1.090923
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-097,13344,social_sciences,security_studies,C,?,0,1.162030
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-098,8852,humanities,moral_scenarios,D,?,0,1.047730
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-099,3329,humanities,high_school_european_history,C,?,0,1.027324
-Qwen 3.5 4B,mlx-gguf,fastGGUF,mmlu-0-100,9882,humanities,philosophy,D,B,0,0.209462
+model,runtime,variant,case_id,source_row,category,subject,expected,predicted,correct,response_seconds,finish_reason,evaluable
+Qwen3.5 4B,mlx,native,mmlu-0-001,13835,other,virology,A,C,0,0.218529,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-002,6311,other,human_aging,B,D,0,0.214787,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.399860,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.214830,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.219089,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,0.278563,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.276140,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.218363,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.160721,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-010,12841,social_sciences,professional_psychology,C,B,0,0.278270,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.219665,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.214798,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.158714,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,0.947491,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-015,9558,other,nutrition,A,A,1,0.217252,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.216628,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.280021,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.275116,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.216612,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.220016,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.340601,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-022,1553,stem,computer_security,A,A,1,0.221007,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.216193,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.161180,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.276384,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.337910,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-027,11553,humanities,professional_law,A,C,0,0.582731,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.395637,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-029,9861,humanities,philosophy,C,C,1,0.519438,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.214731,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.218982,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.218822,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-033,11957,humanities,professional_law,D,A,0,0.583002,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-034,1208,other,college_medicine,D,B,0,0.396318,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-035,13934,humanities,world_religions,A,D,0,0.216873,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-036,11206,humanities,professional_law,A,D,0,0.579340,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.218438,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.159132,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.335948,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.214346,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,0.772180,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-042,7113,other,marketing,D,D,1,0.158566,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.219978,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.214255,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.341697,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-046,3350,humanities,high_school_european_history,A,D,0,0.639263,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.280467,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.160449,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-049,7253,other,marketing,D,D,1,0.214894,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-050,8541,humanities,moral_scenarios,C,B,0,0.280620,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,6.449328,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.400351,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.520468,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,0.336075,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-055,230,other,anatomy,A,A,1,0.216325,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-056,1528,stem,computer_security,B,B,1,0.159180,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.216921,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-058,13764,other,virology,D,D,1,0.159661,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-059,6534,humanities,international_law,A,A,1,0.284025,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-060,11636,humanities,professional_law,B,C,0,0.530297,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.222768,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.276973,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.521815,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.280734,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.219083,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.219060,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.161299,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.273508,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-069,5458,stem,high_school_statistics,A,B,0,0.282428,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.218173,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-071,11964,humanities,professional_law,B,B,1,0.648733,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.225468,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-073,11528,humanities,professional_law,A,B,0,0.771917,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-074,1031,stem,college_computer_science,C,A,0,0.226295,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.288334,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.340247,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.164929,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.163699,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.224823,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.288458,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-081,13159,social_sciences,security_studies,C,D,0,0.218405,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.364813,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-083,7339,other,medical_genetics,B,B,1,0.288328,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-084,1494,stem,computer_security,C,C,1,0.164988,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-085,1318,other,college_medicine,B,B,1,0.284041,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.227818,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-087,8322,humanities,moral_disputes,C,D,0,0.279066,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-088,8016,other,miscellaneous,A,A,1,0.285075,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,0.228657,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.228892,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,0.347443,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.284313,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-093,11576,humanities,professional_law,C,D,0,0.596298,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.219529,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.287998,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-096,5451,stem,high_school_statistics,D,B,0,0.342258,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,0.411513,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-098,8852,humanities,moral_scenarios,D,B,0,0.285155,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.019992,stop,1
+Qwen3.5 4B,mlx,native,mmlu-0-100,9882,humanities,philosophy,D,B,0,0.224062,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-001,13835,other,virology,A,C,0,0.239632,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-002,6311,other,human_aging,B,C,0,0.237919,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.423863,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.235589,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.243143,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,0.302253,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.298100,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.239393,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.180743,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-010,12841,social_sciences,professional_psychology,C,B,0,0.297428,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.242005,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.236519,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.180309,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,0.977550,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-015,9558,other,nutrition,A,A,1,0.237553,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.237700,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.299821,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.297931,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.236579,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.240278,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-021,12383,other,professional_medicine,A,A,1,3.355647,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-022,1553,stem,computer_security,A,A,1,0.241410,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.238956,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.182235,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.296484,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.357957,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-027,11553,humanities,professional_law,A,A,1,0.606644,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,0.419406,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-029,9861,humanities,philosophy,C,C,1,0.544615,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.237016,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.238686,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.239644,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-033,11957,humanities,professional_law,D,D,1,0.607454,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-034,1208,other,college_medicine,D,D,1,0.418207,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-035,13934,humanities,world_religions,A,D,0,0.238683,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-036,11206,humanities,professional_law,A,D,0,0.614498,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.242887,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.181616,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.361534,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.238018,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,0.817097,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-042,7113,other,marketing,D,D,1,0.181566,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.241232,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.235363,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.367071,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,0.689057,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.308223,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.183484,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-049,7253,other,marketing,D,D,1,0.238059,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.310483,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-051,4267,stem,high_school_mathematics,A,?,0,12.554767,length,0
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.459219,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.613131,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-054,8989,humanities,moral_scenarios,A,C,0,0.389479,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-055,230,other,anatomy,A,A,1,0.253895,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-056,1528,stem,computer_security,B,B,1,0.188925,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.255090,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-058,13764,other,virology,D,D,1,0.188507,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-059,6534,humanities,international_law,A,A,1,0.340058,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-060,11636,humanities,professional_law,B,A,0,0.607718,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-061,13514,social_sciences,sociology,D,B,0,0.271053,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.331065,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.617392,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.327493,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.268738,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.250856,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.200382,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.323858,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-069,5458,stem,high_school_statistics,A,D,0,0.330136,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.266009,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-071,11964,humanities,professional_law,B,B,1,0.762942,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.257105,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-073,11528,humanities,professional_law,A,A,1,0.915926,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-074,1031,stem,college_computer_science,C,A,0,0.273532,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.341532,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.404007,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.199845,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.198483,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.262741,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.330505,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-081,13159,social_sciences,security_studies,C,D,0,0.266511,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.401085,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-083,7339,other,medical_genetics,B,A,0,0.332764,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-084,1494,stem,computer_security,C,C,1,0.205642,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-085,1318,other,college_medicine,B,B,1,0.327878,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.257413,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-087,8322,humanities,moral_disputes,C,D,0,0.333264,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-088,8016,other,miscellaneous,A,A,1,0.328912,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.272045,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.259992,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,0.400745,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.330553,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-093,11576,humanities,professional_law,C,D,0,0.696612,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.258749,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.330048,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-096,5451,stem,high_school_statistics,D,D,1,0.408381,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,0.479198,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,0.340385,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.171058,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-off,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.258899,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-001,13835,other,virology,A,C,0,0.224964,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-002,6311,other,human_aging,B,C,0,0.230701,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.419194,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.241551,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.227691,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,0.293767,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.294456,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.224654,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.165614,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-010,12841,social_sciences,professional_psychology,C,B,0,0.280428,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.226044,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.223348,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.176619,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,0.991931,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-015,9558,other,nutrition,A,A,1,0.223029,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.231928,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.296703,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.302280,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.222166,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.235163,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-021,12383,other,professional_medicine,A,A,1,2.574084,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-022,1553,stem,computer_security,A,A,1,0.225054,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.242625,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.166111,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.281531,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.351776,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-027,11553,humanities,professional_law,A,A,1,0.613781,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,0.425963,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-029,9861,humanities,philosophy,C,C,1,0.549006,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.236664,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.222939,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.224902,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-033,11957,humanities,professional_law,D,D,1,0.619586,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-034,1208,other,college_medicine,D,D,1,0.417599,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-035,13934,humanities,world_religions,A,D,0,0.235027,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-036,11206,humanities,professional_law,A,C,0,0.960640,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.495603,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.369561,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.754648,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.315464,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,0.845978,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-042,7113,other,marketing,D,D,1,0.194245,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.228086,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.237285,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-045,10492,other,professional_accounting,B,B,1,0.388531,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,0.729365,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.295611,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.179041,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-049,7253,other,marketing,D,D,1,0.250283,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.320609,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,8.989146,length,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-052,1020,stem,college_computer_science,A,B,0,0.447480,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.578889,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-054,8989,humanities,moral_scenarios,A,C,0,0.379169,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-055,230,other,anatomy,A,A,1,0.242324,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-056,1528,stem,computer_security,B,B,1,0.165717,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.224615,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-058,13764,other,virology,D,D,1,0.163810,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-059,6534,humanities,international_law,A,A,1,0.295489,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-060,11636,humanities,professional_law,B,A,0,0.544620,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-061,13514,social_sciences,sociology,D,B,0,0.233114,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-062,12862,social_sciences,professional_psychology,C,A,0,0.289377,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.551527,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-064,10244,humanities,prehistory,A,C,0,0.291804,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.225742,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.223692,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.166160,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.282757,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-069,5458,stem,high_school_statistics,A,B,0,0.289681,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.223039,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-071,11964,humanities,professional_law,B,B,1,0.670521,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.227942,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-073,11528,humanities,professional_law,A,A,1,0.815577,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-074,1031,stem,college_computer_science,C,A,0,0.228126,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,0.295018,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.345084,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.164921,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.165112,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,0.223042,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.287763,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-081,13159,social_sciences,security_studies,C,D,0,0.223169,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.345646,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-083,7339,other,medical_genetics,B,A,0,0.291748,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-084,1494,stem,computer_security,C,C,1,0.165452,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-085,1318,other,college_medicine,B,B,1,0.285089,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.222242,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-087,8322,humanities,moral_disputes,C,D,0,0.284258,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-088,8016,other,miscellaneous,A,A,1,0.284294,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.226521,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.227113,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,0.347139,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.285529,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-093,11576,humanities,professional_law,C,D,0,0.605859,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.221253,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.290534,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-096,5451,stem,high_school_statistics,D,D,1,0.349181,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,0.417266,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-098,8852,humanities,moral_scenarios,D,C,0,0.299178,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.024671,stop,1
+Qwen3.5 4B,mlx-gguf,fastgguf-on,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.222397,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-001,13835,other,virology,A,C,0,1.175011,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-002,6311,other,human_aging,B,A,0,1.151850,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-003,12418,other,professional_medicine,C,C,1,2.156106,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-004,6890,stem,machine_learning,D,D,1,1.143547,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-005,663,other,clinical_knowledge,C,C,1,1.161739,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,1.484641,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,1.486056,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-008,7961,other,miscellaneous,B,B,1,1.154975,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-009,6634,humanities,jurisprudence,C,C,1,0.829100,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,1.490371,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-011,13596,social_sciences,sociology,A,A,1,1.201424,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,1.183823,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.876863,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,5.650558,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-015,9558,other,nutrition,A,A,1,1.215612,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,1.221491,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,1.617153,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,1.607431,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,1.240276,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-020,2289,stem,elementary_mathematics,C,C,1,1.270027,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-021,12383,other,professional_medicine,A,A,1,2.022918,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-022,1553,stem,computer_security,A,A,1,1.281524,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-023,10131,humanities,prehistory,C,C,1,1.266390,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.907631,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,1.642774,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,2.041199,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-027,11553,humanities,professional_law,A,A,1,3.549914,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,2.369968,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-029,9861,humanities,philosophy,C,D,0,3.129833,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-030,2407,stem,elementary_mathematics,A,A,1,1.225163,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,1.233557,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,1.255138,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-033,11957,humanities,professional_law,D,D,1,3.438622,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-034,1208,other,college_medicine,D,D,1,2.313570,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-035,13934,humanities,world_religions,A,A,1,1.223217,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-036,11206,humanities,professional_law,A,A,1,3.419698,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,1.225395,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.877787,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-039,9171,humanities,moral_scenarios,C,C,1,2.297675,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-040,1649,stem,conceptual_physics,B,A,0,1.396819,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,5.445808,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-042,7113,other,marketing,D,D,1,0.973172,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,1.272489,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-044,10008,humanities,philosophy,B,B,1,1.178214,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-045,10492,other,professional_accounting,B,A,0,1.929998,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,3.685969,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,1.566131,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.856487,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-049,7253,other,marketing,D,D,1,1.169931,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,1.563537,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-051,4267,stem,high_school_mathematics,A,C,0,1.202860,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-052,1020,stem,college_computer_science,A,A,1,2.283857,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,2.966398,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-054,8989,humanities,moral_scenarios,A,A,1,1.930965,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-055,230,other,anatomy,A,A,1,1.157707,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-056,1528,stem,computer_security,B,B,1,0.840017,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-057,11791,humanities,professional_law,D,D,1,1.168602,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-058,13764,other,virology,D,D,1,0.834828,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-059,6534,humanities,international_law,A,A,1,1.543648,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-060,11636,humanities,professional_law,B,B,1,2.927000,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-061,13514,social_sciences,sociology,D,D,1,1.189079,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,1.504894,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-063,10947,humanities,professional_law,C,C,1,2.917444,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-064,10244,humanities,prehistory,A,A,1,1.498675,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-065,18,stem,abstract_algebra,D,D,1,1.159180,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-066,10025,humanities,prehistory,D,B,0,1.166275,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.841107,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-068,13566,social_sciences,sociology,B,B,1,1.484400,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,1.523880,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,1.162360,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-071,11964,humanities,professional_law,B,B,1,3.592323,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,1.167688,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-073,11528,humanities,professional_law,A,A,1,4.241746,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-074,1031,stem,college_computer_science,C,C,1,1.171114,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,1.513321,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-076,9298,humanities,moral_scenarios,D,D,1,1.868213,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.842520,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.844134,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,1.160889,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,1.509403,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,1.162963,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,1.911741,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-083,7339,other,medical_genetics,B,B,1,1.846055,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-084,1494,stem,computer_security,C,C,1,0.996863,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-085,1318,other,college_medicine,B,B,1,1.757042,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,1.272244,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,1.589849,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.551425,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,1.174628,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,1.176724,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,1.860179,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-092,4769,stem,high_school_physics,B,B,1,1.533274,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-093,11576,humanities,professional_law,C,C,1,3.376831,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,1.153603,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,1.512314,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-096,5451,stem,high_school_statistics,D,C,0,1.881060,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,2.213974,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,1.519806,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,5.941986,stop,1
+Qwen3.8 27B,mlx,native,mmlu-0-100,9882,humanities,philosophy,D,D,1,1.161708,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-001,13835,other,virology,A,C,0,1.322143,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-002,6311,other,human_aging,B,C,0,1.305537,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-003,12418,other,professional_medicine,C,C,1,2.557454,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-004,6890,stem,machine_learning,D,D,1,1.279551,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-005,663,other,clinical_knowledge,C,C,1,1.296911,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,1.881279,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,1.643829,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-008,7961,other,miscellaneous,B,B,1,1.313759,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.973743,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,1.674681,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-011,13596,social_sciences,sociology,A,A,1,1.348348,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,1.330100,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.997293,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,5.774644,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-015,9558,other,nutrition,A,A,1,1.358251,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,1.375557,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,1.767360,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,1.753500,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,1.357021,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-020,2289,stem,elementary_mathematics,C,C,1,1.624102,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-021,12383,other,professional_medicine,A,A,1,2.374860,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-022,1553,stem,computer_security,A,A,1,1.396040,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-023,10131,humanities,prehistory,C,C,1,1.491766,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,1.033855,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,1.963383,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,2.116647,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-027,11553,humanities,professional_law,A,A,1,3.882767,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,2.449129,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-029,9861,humanities,philosophy,C,D,0,3.248879,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-030,2407,stem,elementary_mathematics,A,?,0,1.246718,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,1.393488,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,1.400377,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-033,11957,humanities,professional_law,D,D,1,4.333053,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-034,1208,other,college_medicine,D,D,1,3.168301,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-035,13934,humanities,world_religions,A,A,1,1.430942,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-036,11206,humanities,professional_law,A,A,1,3.963769,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,1.353193,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-038,7735,other,miscellaneous,A,A,1,1.001283,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-039,9171,humanities,moral_scenarios,C,D,0,2.076663,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-040,1649,stem,conceptual_physics,B,A,0,1.335913,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,4.680138,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-042,7113,other,marketing,D,D,1,1.004483,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,1.358457,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-044,10008,humanities,philosophy,B,B,1,1.341217,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-045,10492,other,professional_accounting,B,A,0,2.348931,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,4.022590,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,1.718844,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.991619,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-049,7253,other,marketing,D,D,1,1.340620,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,1.757471,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,1.363744,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-052,1020,stem,college_computer_science,A,A,1,2.505198,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,3.299104,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-054,8989,humanities,moral_scenarios,A,A,1,2.037324,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-055,230,other,anatomy,A,A,1,1.304033,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-056,1528,stem,computer_security,B,B,1,0.982113,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-057,11791,humanities,professional_law,D,D,1,1.316364,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-058,13764,other,virology,D,D,1,0.988845,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-059,6534,humanities,international_law,A,A,1,1.901785,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-060,11636,humanities,professional_law,B,B,1,4.105962,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-061,13514,social_sciences,sociology,D,D,1,1.475204,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,1.984903,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-063,10947,humanities,professional_law,C,C,1,3.670910,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-064,10244,humanities,prehistory,A,A,1,1.676601,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-065,18,stem,abstract_algebra,D,D,1,1.574708,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-066,10025,humanities,prehistory,D,B,0,1.329579,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.978700,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-068,13566,social_sciences,sociology,B,B,1,1.658690,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,1.682996,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,1.315254,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-071,11964,humanities,professional_law,B,B,1,4.066534,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,1.340049,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-073,11528,humanities,professional_law,A,A,1,4.909042,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-074,1031,stem,college_computer_science,C,C,1,1.325118,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,1.695487,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-076,9298,humanities,moral_scenarios,D,D,1,2.039000,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.969777,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.973455,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,1.297314,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,1.652253,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,1.292289,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,1.983496,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-083,7339,other,medical_genetics,B,B,1,1.662562,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-084,1494,stem,computer_security,C,C,1,0.950465,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-085,1318,other,college_medicine,B,B,1,1.602270,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,1.283685,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,1.596817,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.613890,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,1.302046,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,1.293434,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,1.955364,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-092,4769,stem,high_school_physics,B,B,1,1.836103,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-093,11576,humanities,professional_law,C,C,1,3.541752,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,1.260023,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,1.604176,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-096,5451,stem,high_school_statistics,D,C,0,1.932146,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,2.272136,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,1.610988,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,6.282743,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-off,mmlu-0-100,9882,humanities,philosophy,D,D,1,1.261812,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-001,13835,other,virology,A,C,0,1.292703,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-002,6311,other,human_aging,B,C,0,1.282072,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-003,12418,other,professional_medicine,C,C,1,2.554839,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-004,6890,stem,machine_learning,D,D,1,1.276071,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-005,663,other,clinical_knowledge,C,C,1,1.299332,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,1.883112,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,1.626597,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-008,7961,other,miscellaneous,B,B,1,1.297315,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-009,6634,humanities,jurisprudence,C,B,0,0.956947,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,1.617710,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-011,13596,social_sciences,sociology,A,A,1,1.303050,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,1.276477,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.953944,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,5.354338,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-015,9558,other,nutrition,A,A,1,1.282389,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,1.280767,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,1.640602,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,1.629736,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,1.295910,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-020,2289,stem,elementary_mathematics,C,C,1,1.548257,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-021,12383,other,professional_medicine,A,A,1,2.239548,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-022,1553,stem,computer_security,A,A,1,1.312203,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-023,10131,humanities,prehistory,C,C,1,1.293988,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.972459,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,1.900272,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,2.040856,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-027,11553,humanities,professional_law,A,A,1,3.763299,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-028,13274,social_sciences,security_studies,A,A,1,2.425558,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-029,9861,humanities,philosophy,C,D,0,3.178266,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-030,2407,stem,elementary_mathematics,A,?,0,1.212935,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,1.349405,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,1.360041,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-033,11957,humanities,professional_law,D,D,1,3.792198,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-034,1208,other,college_medicine,D,D,1,2.808649,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-035,13934,humanities,world_religions,A,A,1,1.336833,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-036,11206,humanities,professional_law,A,A,1,3.792361,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,1.351901,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.992872,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-039,9171,humanities,moral_scenarios,C,D,0,2.068871,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-040,1649,stem,conceptual_physics,B,A,0,1.335172,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,4.639985,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-042,7113,other,marketing,D,D,1,0.993627,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,1.357951,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-044,10008,humanities,philosophy,B,B,1,1.321336,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-045,10492,other,professional_accounting,B,A,0,2.329395,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,3.883647,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,1.712458,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.989964,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-049,7253,other,marketing,D,D,1,1.324982,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,1.718157,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,1.351760,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-052,1020,stem,college_computer_science,A,A,1,2.419152,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,3.147087,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-054,8989,humanities,moral_scenarios,A,A,1,2.042280,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-055,230,other,anatomy,A,A,1,1.325604,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-056,1528,stem,computer_security,B,B,1,0.979646,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-057,11791,humanities,professional_law,D,D,1,1.344105,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-058,13764,other,virology,D,D,1,0.976717,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-059,6534,humanities,international_law,A,A,1,1.769398,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-060,11636,humanities,professional_law,B,B,1,3.452419,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-061,13514,social_sciences,sociology,D,D,1,1.341820,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,1.672909,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-063,10947,humanities,professional_law,C,C,1,3.377164,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-064,10244,humanities,prehistory,A,A,1,1.671766,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-065,18,stem,abstract_algebra,D,D,1,1.563472,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-066,10025,humanities,prehistory,D,B,0,1.328605,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.975173,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-068,13566,social_sciences,sociology,B,B,1,1.676715,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,1.688581,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,1.309801,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-071,11964,humanities,professional_law,B,B,1,4.095638,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,1.320233,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-073,11528,humanities,professional_law,A,A,1,4.821702,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-074,1031,stem,college_computer_science,C,C,1,1.321070,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,1.691529,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-076,9298,humanities,moral_scenarios,D,D,1,2.044481,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.971187,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.977077,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-079,13162,social_sciences,security_studies,D,D,1,1.323664,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,1.676796,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,1.305137,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,2.005312,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-083,7339,other,medical_genetics,B,B,1,1.691935,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-084,1494,stem,computer_security,C,C,1,0.975183,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-085,1318,other,college_medicine,B,B,1,1.642719,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,1.304300,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,1.630780,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.639903,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,1.306451,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,1.299481,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,1.999449,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-092,4769,stem,high_school_physics,B,B,1,1.883418,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-093,11576,humanities,professional_law,C,C,1,3.654599,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,1.289129,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,1.639485,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-096,5451,stem,high_school_statistics,D,C,0,1.979078,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-097,13344,social_sciences,security_studies,C,C,1,2.340366,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-098,8852,humanities,moral_scenarios,D,D,1,1.677512,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,6.572076,stop,1
+Qwen3.8 27B,mlx-gguf,fastgguf-on,mmlu-0-100,9882,humanities,philosophy,D,D,1,1.305396,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-001,13835,other,virology,A,C,0,0.363333,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-002,6311,other,human_aging,B,D,0,1.979151,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.668410,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-004,6890,stem,machine_learning,D,D,1,0.358189,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-005,663,other,clinical_knowledge,C,C,1,0.363050,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,3.752652,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.462114,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.362966,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-009,6634,humanities,jurisprudence,C,A,0,0.261235,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,0.461390,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.362859,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.358385,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.261498,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,1.594811,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-015,9558,other,nutrition,A,A,1,0.359677,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.359603,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-017,8268,humanities,moral_disputes,D,D,1,0.466588,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.462403,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.359240,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.363077,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.566124,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-022,1553,stem,computer_security,A,A,1,0.364485,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-023,10131,humanities,prehistory,C,C,1,0.356063,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.260187,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.455457,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,2.922502,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-027,11553,humanities,professional_law,A,D,0,3.815153,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.659544,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-029,9861,humanities,philosophy,C,D,0,0.864768,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,0.356098,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.356389,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,0.359836,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-033,11957,humanities,professional_law,D,D,1,0.978242,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-034,1208,other,college_medicine,D,D,1,0.665953,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-035,13934,humanities,world_religions,A,A,1,0.359867,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-036,11206,humanities,professional_law,A,A,1,0.977736,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,0.362773,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.262571,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,2.845531,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,0.361048,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,1.290926,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-042,7113,other,marketing,D,D,1,0.259661,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.361313,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.358216,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-045,10492,other,professional_accounting,B,C,0,3.163241,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,1.078016,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-047,9052,humanities,moral_scenarios,B,C,0,3.222908,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.262273,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-049,7253,other,marketing,D,D,1,0.358343,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,3.201959,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,10.578227,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-052,1020,stem,college_computer_science,A,A,1,11.186007,length,1
+Ornith 1.5 9B,mlx,native,mmlu-0-053,13189,social_sciences,security_studies,D,D,1,0.879748,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,2.913916,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-055,230,other,anatomy,A,A,1,0.359774,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-056,1528,stem,computer_security,B,B,1,0.261466,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.359663,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-058,13764,other,virology,D,D,1,0.260479,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-059,6534,humanities,international_law,A,A,1,0.475046,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-060,11636,humanities,professional_law,B,D,0,5.236676,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.375038,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,4.340757,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.927039,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-064,10244,humanities,prehistory,A,B,0,0.485165,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.372835,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.370837,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.270892,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.476946,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,0.485377,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.371470,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-071,11964,humanities,professional_law,B,B,1,9.328400,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.374968,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-073,11528,humanities,professional_law,A,A,1,1.369728,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-074,1031,stem,college_computer_science,C,C,1,6.665135,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,3.427461,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,8.109431,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.265057,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.267789,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-079,13162,social_sciences,security_studies,D,C,0,0.372506,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.485721,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,1.813944,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,2.486318,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-083,7339,other,medical_genetics,B,B,1,6.974159,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-084,1494,stem,computer_security,C,C,1,0.266524,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-085,1318,other,college_medicine,B,B,1,0.478473,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.376841,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,0.480705,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-088,8016,other,miscellaneous,A,A,1,1.571477,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-089,1786,stem,conceptual_physics,D,D,1,0.373333,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,0.375945,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,3.415666,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.475968,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-093,11576,humanities,professional_law,C,C,1,1.027217,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,0.366611,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,2.955647,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-096,5451,stem,high_school_statistics,D,D,1,0.581168,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,0.699140,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-098,8852,humanities,moral_scenarios,D,B,0,3.663715,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.759585,stop,1
+Ornith 1.5 9B,mlx,native,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.366085,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-001,13835,other,virology,A,C,0,0.393405,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-002,6311,other,human_aging,B,C,0,0.390078,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.699601,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-004,6890,stem,machine_learning,D,B,0,9.062031,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-005,663,other,clinical_knowledge,C,A,0,9.066444,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,19.086922,length,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.491934,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.392691,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-009,6634,humanities,jurisprudence,C,C,1,0.291430,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-010,12841,social_sciences,professional_psychology,C,A,0,6.270047,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.402488,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.398186,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.296428,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,1.741150,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-015,9558,other,nutrition,A,A,1,10.824006,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.418178,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-017,8268,humanities,moral_disputes,D,A,0,7.354629,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.542883,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.425884,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.430432,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.661559,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-022,1553,stem,computer_security,A,A,1,0.432251,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-023,10131,humanities,prehistory,C,A,0,6.465022,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.311275,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,0.536081,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.656037,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-027,11553,humanities,professional_law,A,A,1,1.131699,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.840660,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-029,9861,humanities,philosophy,C,D,0,1.011086,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,1.413214,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.415910,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,2.251632,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-033,11957,humanities,professional_law,D,D,1,1.103903,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-034,1208,other,college_medicine,D,B,0,0.753845,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-035,13934,humanities,world_religions,A,A,1,8.280740,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-036,11206,humanities,professional_law,A,A,1,10.728473,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-037,5409,social_sciences,high_school_psychology,C,C,1,3.763098,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.299895,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-039,9171,humanities,moral_scenarios,C,C,1,5.321847,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-040,1649,stem,conceptual_physics,B,A,0,10.037439,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,1.413175,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-042,7113,other,marketing,D,A,0,6.161395,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.408355,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.404563,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-045,10492,other,professional_accounting,B,A,0,0.634401,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,1.188751,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.523965,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.301342,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-049,7253,other,marketing,D,D,1,0.403130,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.523238,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-051,4267,stem,high_school_mathematics,A,B,0,3.342524,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.734328,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-053,13189,social_sciences,security_studies,D,A,0,11.837326,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,9.322589,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-055,230,other,anatomy,A,A,1,0.394355,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-056,1528,stem,computer_security,B,B,1,0.294979,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.399865,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-058,13764,other,virology,D,D,1,0.294640,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-059,6534,humanities,international_law,A,A,1,0.518626,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-060,11636,humanities,professional_law,B,D,0,5.058087,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-061,13514,social_sciences,sociology,D,D,1,3.627137,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,0.503091,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.951070,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-064,10244,humanities,prehistory,A,C,0,2.946894,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.396811,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.398236,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.296749,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.507313,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,6.006008,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.398859,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-071,11964,humanities,professional_law,B,B,1,11.902612,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.400616,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-073,11528,humanities,professional_law,A,A,1,1.386490,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-074,1031,stem,college_computer_science,C,C,1,6.800761,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,5.808068,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.609642,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.298515,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.300037,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-079,13162,social_sciences,security_studies,D,C,0,0.403870,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.514529,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,0.403923,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.616632,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-083,7339,other,medical_genetics,B,B,1,0.518476,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-084,1494,stem,computer_security,C,C,1,0.297112,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-085,1318,other,college_medicine,B,B,1,5.398097,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.392976,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,0.500617,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-088,8016,other,miscellaneous,A,A,1,9.097465,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.403049,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-090,4938,social_sciences,high_school_psychology,B,A,0,8.528987,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,8.007574,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.499539,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-093,11576,humanities,professional_law,C,C,1,1.049519,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,5.097454,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.509165,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-096,5451,stem,high_school_statistics,D,A,0,6.842869,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,12.523611,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-098,8852,humanities,moral_scenarios,D,C,0,5.238401,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.807965,stop,1
+Ornith 1.5 9B,mlx-gguf,default-speed-g64,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.402029,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-001,13835,other,virology,A,C,0,0.375803,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-002,6311,other,human_aging,B,D,0,0.371554,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.685540,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-004,6890,stem,machine_learning,D,A,0,4.607850,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-005,663,other,clinical_knowledge,C,A,0,8.175679,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-006,4242,stem,high_school_mathematics,D,D,1,12.425652,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.477667,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.378130,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-009,6634,humanities,jurisprudence,C,A,0,1.539818,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,0.476424,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.377076,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.374477,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.275506,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,1.640577,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-015,9558,other,nutrition,A,A,1,8.197251,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.380842,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-017,8268,humanities,moral_disputes,D,A,0,4.046565,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.501305,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.390465,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.397147,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.619064,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-022,1553,stem,computer_security,A,A,1,2.388063,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-023,10131,humanities,prehistory,C,A,0,3.872878,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.295736,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,2.166075,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.650208,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-027,11553,humanities,professional_law,A,A,1,1.130112,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.814844,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-029,9861,humanities,philosophy,C,D,0,1.001042,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,1.166085,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.404246,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,1.780647,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-033,11957,humanities,professional_law,D,D,1,1.116258,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-034,1208,other,college_medicine,D,D,1,6.404760,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-035,13934,humanities,world_religions,A,B,0,5.868974,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-036,11206,humanities,professional_law,A,A,1,7.623193,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-037,5409,social_sciences,high_school_psychology,C,D,0,3.511109,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.289506,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.626393,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,7.930930,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,1.443717,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-042,7113,other,marketing,D,A,0,3.779739,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.402039,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.396440,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-045,10492,other,professional_accounting,B,A,0,0.629332,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,1.199304,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,0.510022,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.287294,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-049,7253,other,marketing,D,D,1,0.389274,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.513338,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-051,4267,stem,high_school_mathematics,A,D,0,2.092299,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.725318,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-053,13189,social_sciences,security_studies,D,A,0,11.282753,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,0.605406,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-055,230,other,anatomy,A,A,1,0.386753,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-056,1528,stem,computer_security,B,B,1,0.284043,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.388068,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-058,13764,other,virology,D,D,1,0.282967,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-059,6534,humanities,international_law,A,A,1,0.506089,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-060,11636,humanities,professional_law,B,D,0,4.595930,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.391948,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,0.495314,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.939246,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-064,10244,humanities,prehistory,A,C,0,2.345602,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.380255,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.381335,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.279607,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.490038,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,5.352677,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.381872,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-071,11964,humanities,professional_law,B,B,1,1.151809,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.389714,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-073,11528,humanities,professional_law,A,A,1,1.379865,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-074,1031,stem,college_computer_science,C,A,0,2.843750,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,4.849433,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.592982,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.276176,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.277847,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-079,13162,social_sciences,security_studies,D,C,0,0.379965,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.491487,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,0.380501,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.595324,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-083,7339,other,medical_genetics,B,A,0,9.953518,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-084,1494,stem,computer_security,C,C,1,0.274446,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-085,1318,other,college_medicine,B,B,1,4.162198,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.372818,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,0.478340,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-088,8016,other,miscellaneous,A,A,1,5.992649,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.381792,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,5.169021,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-091,9031,humanities,moral_scenarios,B,B,1,2.203441,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.480026,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-093,11576,humanities,professional_law,C,C,1,1.026236,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,3.244529,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.483499,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-096,5451,stem,high_school_statistics,D,A,0,9.275540,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,11.647536,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-098,8852,humanities,moral_scenarios,D,B,0,0.486733,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.766873,stop,1
+Ornith 1.5 9B,mlx-gguf,beta1-passthrough-g32,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.377097,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-001,13835,other,virology,A,C,0,0.375495,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-002,6311,other,human_aging,B,D,0,0.370384,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-003,12418,other,professional_medicine,C,C,1,0.685719,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-004,6890,stem,machine_learning,D,A,0,6.567289,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-005,663,other,clinical_knowledge,C,A,0,7.034434,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-006,4242,stem,high_school_mathematics,D,?,0,14.430267,length,0
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-007,8376,humanities,moral_disputes,D,D,1,0.476826,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-008,7961,other,miscellaneous,B,B,1,0.376245,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-009,6634,humanities,jurisprudence,C,A,0,0.275463,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-010,12841,social_sciences,professional_psychology,C,C,1,0.476205,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-011,13596,social_sciences,sociology,A,A,1,0.375314,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-012,4969,social_sciences,high_school_psychology,D,D,1,0.369563,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-013,7808,other,miscellaneous,C,C,1,0.271698,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-014,5866,humanities,high_school_world_history,D,D,1,1.669761,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-015,9558,other,nutrition,A,A,1,8.050233,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-016,3578,social_sciences,high_school_geography,D,D,1,0.388220,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-017,8268,humanities,moral_disputes,D,A,0,3.616511,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-018,2281,stem,elementary_mathematics,B,B,1,0.508669,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-019,4617,social_sciences,high_school_microeconomics,C,C,1,0.399058,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-020,2289,stem,elementary_mathematics,C,B,0,0.401909,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-021,12383,other,professional_medicine,A,A,1,0.629520,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-022,1553,stem,computer_security,A,A,1,0.405386,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-023,10131,humanities,prehistory,C,A,0,4.900316,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-024,13097,social_sciences,public_relations,A,C,0,0.293664,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-025,4104,social_sciences,high_school_macroeconomics,C,C,1,2.118867,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-026,8725,humanities,moral_scenarios,B,B,1,0.646715,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-027,11553,humanities,professional_law,A,A,1,1.123208,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-028,13274,social_sciences,security_studies,A,B,0,0.809840,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-029,9861,humanities,philosophy,C,D,0,0.997963,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-030,2407,stem,elementary_mathematics,A,B,0,1.148387,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-031,5081,social_sciences,high_school_psychology,B,B,1,0.401121,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-032,1618,stem,conceptual_physics,B,B,1,1.750098,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-033,11957,humanities,professional_law,D,D,1,1.104374,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-034,1208,other,college_medicine,D,B,0,0.746443,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-035,13934,humanities,world_religions,A,B,0,5.637592,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-036,11206,humanities,professional_law,A,A,1,7.696539,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-037,5409,social_sciences,high_school_psychology,C,D,0,3.453308,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-038,7735,other,miscellaneous,A,A,1,0.284850,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-039,9171,humanities,moral_scenarios,C,B,0,0.618652,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-040,1649,stem,conceptual_physics,B,B,1,7.776504,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-041,5796,humanities,high_school_us_history,B,B,1,1.426682,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-042,7113,other,marketing,D,A,0,3.274181,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-043,5180,social_sciences,high_school_psychology,B,B,1,0.397612,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-044,10008,humanities,philosophy,B,B,1,0.391918,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-045,10492,other,professional_accounting,B,A,0,0.625111,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-046,3350,humanities,high_school_european_history,A,A,1,1.186223,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-047,9052,humanities,moral_scenarios,B,B,1,1.633887,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-048,7815,other,miscellaneous,B,B,1,0.285659,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-049,7253,other,marketing,D,D,1,0.388259,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-050,8541,humanities,moral_scenarios,C,C,1,0.510067,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-051,4267,stem,high_school_mathematics,A,A,1,8.751160,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-052,1020,stem,college_computer_science,A,A,1,0.723718,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-053,13189,social_sciences,security_studies,D,A,0,10.177777,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-054,8989,humanities,moral_scenarios,A,B,0,0.601184,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-055,230,other,anatomy,A,A,1,0.382799,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-056,1528,stem,computer_security,B,B,1,0.281194,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-057,11791,humanities,professional_law,D,D,1,0.385409,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-058,13764,other,virology,D,D,1,0.280334,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-059,6534,humanities,international_law,A,A,1,0.506723,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-060,11636,humanities,professional_law,B,D,0,4.088713,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-061,13514,social_sciences,sociology,D,D,1,0.389872,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-062,12862,social_sciences,professional_psychology,C,C,1,0.494211,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-063,10947,humanities,professional_law,C,C,1,0.938559,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-064,10244,humanities,prehistory,A,C,0,2.331885,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-065,18,stem,abstract_algebra,D,D,1,0.383567,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-066,10025,humanities,prehistory,D,B,0,0.383153,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-067,8086,other,miscellaneous,A,A,1,0.280655,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-068,13566,social_sciences,sociology,B,B,1,0.490949,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-069,5458,stem,high_school_statistics,A,A,1,5.158125,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-070,3996,social_sciences,high_school_macroeconomics,A,A,1,0.378224,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-071,11964,humanities,professional_law,B,B,1,9.112962,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-072,5328,social_sciences,high_school_psychology,D,D,1,0.381329,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-073,11528,humanities,professional_law,A,A,1,1.368962,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-074,1031,stem,college_computer_science,C,A,0,2.376772,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-075,3130,stem,high_school_chemistry,B,B,1,4.660291,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-076,9298,humanities,moral_scenarios,D,B,0,0.587498,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-077,3632,social_sciences,high_school_geography,B,B,1,0.275442,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-078,3909,social_sciences,high_school_macroeconomics,D,D,1,0.277475,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-079,13162,social_sciences,security_studies,D,C,0,0.378973,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-080,2334,stem,elementary_mathematics,B,B,1,0.494080,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-081,13159,social_sciences,security_studies,C,C,1,0.377976,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-082,8896,humanities,moral_scenarios,A,B,0,0.595256,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-083,7339,other,medical_genetics,B,B,1,0.496514,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-084,1494,stem,computer_security,C,C,1,0.278259,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-085,1318,other,college_medicine,B,B,1,4.131654,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-086,5243,social_sciences,high_school_psychology,D,D,1,0.371797,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-087,8322,humanities,moral_disputes,C,C,1,0.479902,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-088,8016,other,miscellaneous,A,A,1,6.664690,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-089,1786,stem,conceptual_physics,D,C,0,0.377384,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-090,4938,social_sciences,high_school_psychology,B,B,1,5.065435,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-091,9031,humanities,moral_scenarios,B,C,0,0.585410,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-092,4769,stem,high_school_physics,B,B,1,0.484040,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-093,11576,humanities,professional_law,C,C,1,1.028760,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-094,2044,stem,electrical_engineering,B,B,1,3.818191,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-095,8969,humanities,moral_scenarios,B,B,1,0.483281,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-096,5451,stem,high_school_statistics,D,A,0,8.591688,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-097,13344,social_sciences,security_studies,C,A,0,9.068475,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-098,8852,humanities,moral_scenarios,D,B,0,0.481911,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-099,3329,humanities,high_school_european_history,C,C,1,1.766800,stop,1
+Ornith 1.5 9B,mlx-gguf,beta2-passthrough-g64,mmlu-0-100,9882,humanities,philosophy,D,D,1,0.377601,stop,1

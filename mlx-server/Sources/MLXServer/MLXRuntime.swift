@@ -14,6 +14,7 @@ actor MLXRuntime {
     private let ggufWeightURL: URL?
     private let ggufMMProjURL: URL?
     private let memoryMapPlan: MLXMemoryMapPlan?
+    private let modelGenerationDefaults: ModelGenerationDefaults
     private var container: ModelContainer?
     private var memoryGuard: Task<Void, Never>?
     private var dflashDrafter: (any DFlashDrafterModel)?
@@ -27,13 +28,15 @@ actor MLXRuntime {
         memoryMapPlan = configuration.memoryMappingEnabled
             ? try MLXMemoryMapPlan(reserveGB: configuration.mmapReserveGB)
             : nil
-        modelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
+        let resolvedModelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
+        modelDirectory = resolvedModelDirectory
+        modelGenerationDefaults = ModelGenerationDefaults.load(from: resolvedModelDirectory)
         modelID = isGGUF
             ? modelURL.deletingPathExtension().lastPathComponent
-            : modelDirectory.lastPathComponent
+            : resolvedModelDirectory.lastPathComponent
         kind = try Self.resolveModelKind(
             requested: configuration.modelKind,
-            directory: modelDirectory,
+            directory: resolvedModelDirectory,
             isGGUF: isGGUF,
             hasMMProj: ggufMMProjURL != nil
         )
@@ -55,6 +58,9 @@ actor MLXRuntime {
     }
 
     private func prepareModels() async throws {
+        if !modelGenerationDefaults.isEmpty {
+            fputs(modelGenerationDefaults.logDescription + "\n", stderr)
+        }
         if let ggufWeightURL {
             switch kind {
             case .text, .auto:
@@ -247,6 +253,22 @@ actor MLXRuntime {
             additionalContext: additionalContext
         )
         let prepared = try await container.prepare(input: input)
+        let resolvedTemperature = options.temperature
+            ?? configuration.temperatureOverride
+            ?? modelGenerationDefaults.temperature
+            ?? configuration.temperature
+        let resolvedTopP = options.topP
+            ?? configuration.topPOverride
+            ?? modelGenerationDefaults.topP
+            ?? configuration.topP
+        let resolvedTopK = configuration.topKOverride
+            ?? modelGenerationDefaults.topK
+            ?? configuration.topK
+        let resolvedMinP = configuration.minPOverride
+            ?? modelGenerationDefaults.minP
+            ?? configuration.minP
+        let resolvedRepetitionPenalty = configuration.repetitionPenalty
+            ?? modelGenerationDefaults.repetitionPenalty
         let parameters = GenerateParameters(
             maxTokens: max(1, options.maxTokens ?? configuration.maxTokens),
             maxKVSize: configuration.maxKVSize,
@@ -254,11 +276,11 @@ actor MLXRuntime {
             kvGroupSize: configuration.kvGroupSize,
             quantizedKVStart: configuration.quantizedKVStart,
             kvScheme: configuration.kvScheme,
-            temperature: min(max(options.temperature ?? configuration.temperature, 0), 2),
-            topP: min(max(options.topP ?? configuration.topP, 0), 1),
-            topK: configuration.topK,
-            minP: configuration.minP,
-            repetitionPenalty: configuration.repetitionPenalty,
+            temperature: min(max(resolvedTemperature, 0), 2),
+            topP: min(max(resolvedTopP, 0), 1),
+            topK: resolvedTopK,
+            minP: resolvedMinP,
+            repetitionPenalty: resolvedRepetitionPenalty,
             repetitionContextSize: 128,
             prefillStepSize: configuration.prefillStepSize,
             seed: options.seed

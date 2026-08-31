@@ -457,17 +457,17 @@ tbody tr:hover td {
 }
 
 .performance-table tr.highlight-row td {
-  background: color-mix(in srgb, var(--highlight-green) 17%, var(--surface));
-  color: var(--ink);
+  background: var(--surface);
+  color: var(--highlight-green);
   font-weight: 800;
 }
 
 .performance-table tr.highlight-row td.best {
-  color: #087a3d;
+  color: var(--highlight-green);
 }
 
 .performance-table tr.highlight-row:hover td {
-  background: color-mix(in srgb, var(--highlight-green) 23%, var(--surface));
+  background: var(--surface);
 }
 
 .chart {

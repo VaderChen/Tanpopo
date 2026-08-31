@@ -17,6 +17,7 @@ public enum GGUFMaterializationKind: String, Codable, Hashable, Sendable {
     case directInt8
     case directInt16
     case directInt32
+    case dequantizedFP32
     case quantized4
     case quantized8
     case quantizedMXFP4
@@ -24,19 +25,30 @@ public enum GGUFMaterializationKind: String, Codable, Hashable, Sendable {
     case requantized8
 }
 
+/// K-quant super-block 是否直接沿用來源布局，由 profile 決定；
+/// 沿用時該張量固定 group 32，其餘張量仍用全域 group。
+///
 /// GGUF 重新量化的通用策略。`.automatic` 以 INT8 處理低位元來源，
 /// 作為 fastGGUF 關閉時的穩健預設；`.quality` 將可解碼權重展開為 FP32，
-/// 僅供精度診斷；`.speed` 採用 INT4 與自動 group 大小的效能策略。
+/// 僅供精度診斷；`.speed` 直接保留可無損映射的來源 block，
+/// 必須二次量化的低位元來源則至少使用 INT8。這項規則來自來源
+/// block 格式與轉換語意，不依賴模型名稱。
 public enum GGUFQuantizationProfile: String, Codable, Hashable, Sendable {
     case automatic = "auto"
     case quality
     case speed
+    /// Beta：K-quant super-block 直接沿用來源布局（4-bit，group 32），
+    /// 不做第二次量化。速度較快但實測精度低於 speed，預設不啟用。
+    case speedPassthrough = "speed-passthrough"
 }
 
 public struct GGUFTypeSupport: Codable, Hashable, Sendable {
     public let storageType: GGUFStorageType
     public let materialization: GGUFMaterializationKind
+    /// 是否保留來源量化的數值表示；不代表來源位元組可零拷貝使用。
+    /// 例如 MXFP4 會保留量化值，但仍須重新封裝成 MLX 權重布局。
     public let preservesSourceQuantization: Bool
+    /// 是否需要建立不同於來源 GGUF block 的 MLX 權重布局。
     public let requiresConversion: Bool
 
     public init(
@@ -96,6 +108,13 @@ public enum GGUFStoragePolicy {
         "F8_E5M2",
         "FLOAT8_E4M3FN",
         "FLOAT8_E5M2"
+    ]
+
+    /// 能完整解碼成 FP32 參考權重的 GGUF block。集中在 storage policy
+    /// 內，避免新呼叫端忘記 quality 的診斷語意。
+    private static let fp32ReferenceSourceTypes: Set<String> = [
+        "Q4_0", "Q4_1", "Q8_0", "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K",
+        "Q1_0", "Q2_0",
     ]
 
     private static let supportByType: [String: GGUFTypeSupport] = [
@@ -160,50 +179,54 @@ public enum GGUFStoragePolicy {
             requiresConversion: true
         ),
         "Q1_0": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
         "Q2_0": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
         "Q2_K": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
         "Q3_K": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
+        // Q4_K 的 32 元素 sub-block 與 MLX affine group 32 同構：
+        //   w = (d * sc) * q - (dmin * m)  ≡  w = q * scale + bias
+        // 量化值可原樣沿用，只需把階層式 scale 改寫成扁平的 (scale, bias)，
+        // 因此不算二次量化。此路徑必須搭配 group 32。
         "Q4_K": GGUFTypeSupport(
             storageType: .int4,
-            materialization: .requantized4,
-            preservesSourceQuantization: false,
-            requiresConversion: true
+            materialization: .quantized4,
+            preservesSourceQuantization: true,
+            requiresConversion: false
         ),
         "IQ4_NL": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
         "IQ3_S": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
         "IQ4_XS": GGUFTypeSupport(
-            storageType: .int4,
-            materialization: .requantized4,
+            storageType: .int8,
+            materialization: .requantized8,
             preservesSourceQuantization: false,
             requiresConversion: true
         ),
@@ -231,37 +254,58 @@ public enum GGUFStoragePolicy {
     ) -> GGUFTypeSupport? {
         let normalized = sourceType.uppercased()
         guard let support = supportByType[normalized] else { return nil }
-        if profile == .automatic {
-            // 保守模式不直接沿用 Q4 block 的執行布局，而是把低位元來源
-            // 統一重新量化為 INT8。這能降低二次量化誤差，也避免把「來源
-            // 格式可解析」誤當成「來源 block 可直接作為 MLX 執行布局」。
-            switch normalized {
-            case "Q4_0", "Q4_1", "Q1_0", "Q2_0", "Q2_K", "Q3_K", "Q4_K",
-                 "IQ4_NL", "IQ3_S", "IQ4_XS":
-                return GGUFTypeSupport(
-                    storageType: .int8,
-                    materialization: .requantized8,
-                    preservesSourceQuantization: false,
-                    requiresConversion: true
-                )
-            default:
-                return support
-            }
-        }
-        if profile == .quality {
-            return support
-        }
-        switch normalized {
-        case "Q5_K", "Q6_K":
+        if profile == .quality, fp32ReferenceSourceTypes.contains(normalized) {
             return GGUFTypeSupport(
-                storageType: .int4,
-                materialization: .requantized4,
+                storageType: .fp32,
+                materialization: .dequantizedFP32,
                 preservesSourceQuantization: false,
                 requiresConversion: true
             )
-        default:
-            return support
         }
+        // 只要來源 block 必須轉成另一種 affine 布局，就不再壓回
+        // INT4。這同時覆蓋 Q1～Q6 K-quant 與 IQ 格式，也避免未來擴充
+        // 新格式時忘記更新型別清單。MXFP4 雖需重新封裝，但能保留來源
+        // 量化值，因此先以 preservesSourceQuantization 判斷。
+        // K-quant super-block 雖然能無損沿用（基礎表如實描述格式），但沿用等於把
+        // 該張量的位元寬度從 INT8 降到 INT4，實測精度低於重新量化為 INT8，
+        // 因此只有明確選用 speed-passthrough 才採用，其餘策略一律升 INT8。
+        if support.preservesSourceQuantization,
+           usesSuperBlockLayout(normalized),
+           profile != .speedPassthrough {
+            return GGUFTypeSupport(
+                storageType: .int8,
+                materialization: .requantized8,
+                preservesSourceQuantization: false,
+                requiresConversion: true
+            )
+        }
+        let requiresINT8Requantization = !support.preservesSourceQuantization
+            && support.requiresConversion
+        // 保守模式額外將可直接沿用的 4-bit block 展開後量化為
+        // INT8；快速模式則保留這些來源 block，維持格式原有精度。
+        let conservativeQ4Promotion = profile == .automatic
+            && support.materialization == .quantized4
+        if requiresINT8Requantization || conservativeQ4Promotion {
+            return GGUFTypeSupport(
+                storageType: .int8,
+                materialization: .requantized8,
+                preservesSourceQuantization: false,
+                requiresConversion: true
+            )
+        }
+        return support
+    }
+
+    /// 來源 block 大於 MLX 單一 affine group 的格式（K-quant super-block）。
+    ///
+    /// 這類格式的 sub-block 是 32 元素，無損沿用時必須固定 group 32；它們也沒有
+    /// group 64 的退路——32 元素 block 的 Q4_0／Q8_0 在 group 64 時可以改走重新
+    /// 量化，super-block 格式一旦選擇沿用就只能是 32。判斷依來源 block 結構，
+    /// 不依模型名稱。
+    private static let superBlockSourceTypes: Set<String> = ["Q4_K"]
+
+    static func usesSuperBlockLayout(_ sourceType: String) -> Bool {
+        superBlockSourceTypes.contains(sourceType.uppercased())
     }
 
     public static func isMaterializable(_ sourceType: String) -> Bool {

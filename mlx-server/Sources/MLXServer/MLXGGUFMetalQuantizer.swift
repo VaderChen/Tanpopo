@@ -33,6 +33,50 @@ enum MLXGGUFMetalQuantizer {
         outputNames: ["wq", "scales", "biases"],
         source: """
             uint block = thread_position_in_grid.x;
+            if (sourceType == 12) {
+                // Q4_K：256 元素 super-block（144 bytes）。每個 super-block 由 8 個
+                // 32 元素 sub-block 組成，各自帶 6-bit 的 scale 與 min，正好對應
+                // MLX affine group 32 的一組 (scale, bias)：
+                //   w = (d * sc) * q - (dmin * m)  ≡  w = q * scale + bias
+                // 量化值原樣保留，只改寫 scale 的階層表示，不做第二次量化。
+                uint raw_offset = block * 144;
+                uint scale_base = raw_offset + 4;
+                uint quant_base = raw_offset + 16;
+                float d = load_f16(raw, raw_offset);
+                float dmin = load_f16(raw, raw_offset + 2);
+                for (uint j = 0; j < 8; ++j) {
+                    uint sc;
+                    uint m;
+                    if (j < 4) {
+                        sc = uint(raw[scale_base + j]) & 63u;
+                        m = uint(raw[scale_base + j + 4]) & 63u;
+                    } else {
+                        sc = (uint(raw[scale_base + j + 4]) & 15u)
+                            | ((uint(raw[scale_base + j - 4]) >> 6) << 4);
+                        m = (uint(raw[scale_base + j + 4]) >> 4)
+                            | ((uint(raw[scale_base + j]) >> 6) << 4);
+                    }
+                    scales[block * 8 + j] = bfloat(d * float(sc));
+                    biases[block * 8 + j] = bfloat(-dmin * float(m));
+                }
+                for (uint k = 0; k < 4; ++k) {
+                    for (uint nibble = 0; nibble < 2; ++nibble) {
+                        uint sub = k * 2 + nibble;
+                        for (uint word = 0; word < 4; ++word) {
+                            uint result = 0;
+                            for (uint idx = 0; idx < 8; ++idx) {
+                                uchar byte = raw[quant_base + k * 32 + word * 8 + idx];
+                                uint value = nibble == 0
+                                    ? (uint(byte) & 15u)
+                                    : (uint(byte) >> 4);
+                                result |= value << (idx * 4);
+                            }
+                            wq[block * 32 + sub * 4 + word] = result;
+                        }
+                    }
+                }
+                return;
+            }
             uint source_bytes = sourceType == 8 ? 34 : sourceType == 3 ? 20 : 18;
             uint raw_offset = block * source_bytes;
             float scale = load_f16(raw, raw_offset);
@@ -483,15 +527,19 @@ enum MLXGGUFMetalQuantizer {
         targetWeightShape: [Int],
         targetScaleShape: [Int]
     ) throws -> (wq: MLXArray, scales: MLXArray, biases: MLXArray) {
-        guard sourceType == 2 || sourceType == 3 || sourceType == 8 else {
+        guard sourceType == 2 || sourceType == 3 || sourceType == 8 || sourceType == 12 else {
             throw MLXGGUFLoaderError.invalidTensor("GGUF type (sourceType)")
         }
+        // Q4_K 的 super-block 是 256 元素；其餘保留型別是 32 元素 block。
+        let elementsPerBlock = sourceType == 12 ? 256 : 32
         let elementCount = sourceShape.reduce(1, *)
-        guard elementCount > 0, elementCount % 32 == 0 else {
+        guard elementCount > 0, elementCount % elementsPerBlock == 0 else {
             throw MLXGGUFLoaderError.invalidTensor("GGUF type (sourceType)")
         }
-        let blockCount = elementCount / 32
-        let bytesPerBlock = sourceType == 8 ? 34 : sourceType == 3 ? 20 : 18
+        let blockCount = elementCount / elementsPerBlock
+        let bytesPerBlock = sourceType == 12
+            ? 144
+            : sourceType == 8 ? 34 : sourceType == 3 ? 20 : 18
         guard raw.count == blockCount * bytesPerBlock else {
             throw MLXGGUFLoaderError.invalidTensor("GGUF type (sourceType)")
         }
