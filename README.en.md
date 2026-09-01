@@ -34,7 +34,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 ## Public test reports
 
 - [Model compatibility report](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): documents the supported scope and compatibility boundaries for native MLX, MLX loading GGUF, llama.cpp GGUF, multimodal projection, KV Cache quantization, and speculative decoding.
-- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares paired 4B, 9B, and 27B models across native MLX, llama.cpp+GGUF, and MLX + Fast GGUF Modes 1–3, including fixed 100-question results, throughput, conversion cache, and process RAM.
+- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares paired 4B, 9B, and 27B models across native MLX, llama.cpp + GGUF, and MLX + Fast GGUF Modes 1–3, including fixed 100-question results, throughput, conversion cache, and process RAM.
 
 Both HTML reports support `AUTO`, Traditional Chinese, and English. Their results are reproducible snapshots for the stated date, hardware, runtime versions, and samples—not a promise that every model or device will behave identically, nor a compatibility, speed, or accuracy guarantee for Fast GGUF.
 

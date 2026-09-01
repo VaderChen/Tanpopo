@@ -42,7 +42,7 @@
 ## 公開測試報告
 
 - [模型相容性報告](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：整理原生 MLX、MLX 直讀 GGUF、llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援範圍及相容性邊界。
-- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以 4B、9B、27B 配對模型比較原生 MLX、llama.cpp+GGUF、MLX + Fast GGUF Mode 1／2／3，如實列出固定 100 題結果、生成速度、轉換快取及程序 RAM。
+- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以 4B、9B、27B 配對模型比較原生 MLX、llama.cpp + GGUF、MLX + Fast GGUF Mode 1／2／3，如實列出固定 100 題結果、生成速度、轉換快取及程序 RAM。
 
 兩份 HTML 均可切換 `AUTO`、繁體中文與英文。報告數據是標示日期、硬體、Runtime 版本與樣本下的可重現測試快照，不代表所有模型或裝置都會得到相同結果，也不構成 Fast GGUF 的相容性、速度或精度保證。
 

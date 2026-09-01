@@ -34,7 +34,7 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 ## 公開テストレポート
 
 - [モデル互換性レポート](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：ネイティブ MLX、MLX による GGUF 読み込み、llama.cpp GGUF、マルチモーダル投影、KV Cache 量子化、推測デコードの対応範囲と互換性境界をまとめています。
-- [MLX と GGUF 変換の読み込み速度および演算精度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：4B、9B、27B の対応モデルを、ネイティブ MLX、llama.cpp+GGUF、MLX + Fast GGUF Mode 1／2／3 の固定 100 問、生成速度、変換キャッシュ、プロセス RAM で比較します。
+- [MLX と GGUF 変換の読み込み速度および演算精度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：4B、9B、27B の対応モデルを、ネイティブ MLX、llama.cpp + GGUF、MLX + Fast GGUF Mode 1／2／3 の固定 100 問、生成速度、変換キャッシュ、プロセス RAM で比較します。
 
 両 HTML レポートは `AUTO`、繁体字中国語、英語を切り替えられます。結果は記載された日付、ハードウェア、Runtime バージョン、サンプルでの再現可能なスナップショットであり、すべてのモデルやデバイスで同じ結果になること、また Fast GGUF の互換性、速度、精度を保証するものではありません。
 
