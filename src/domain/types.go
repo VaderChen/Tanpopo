@@ -10,7 +10,7 @@ const (
 	// Mode 2：低位元來源重新量化為 INT8／group 64，保守路徑。
 	FastGGUFStrategyMode1 = "mode1"
 	FastGGUFStrategyMode2 = "mode2"
-	// Mode 3：一律重新量化為 INT4／group 64，頻寬最低。
+	// Mode 3：一律重新量化為 INT4／group 32，頻寬最低。
 	FastGGUFStrategyMode3 = "mode3"
 
 	// 舊設定值：default 對應保守路徑；beta1／beta2 都併入 Mode 1。
@@ -96,6 +96,11 @@ type ModelFile struct {
 	DFlashSupported      bool      `json:"dflash_supported"`
 	DFlashDraft          bool      `json:"dflash_draft"`
 	DFlashVariant        string    `json:"dflash_variant,omitempty"`
+	MTPSupported         bool      `json:"mtp_supported"`
+	MTPEmbedded          bool      `json:"mtp_embedded,omitempty"`
+	MTPDraft             bool      `json:"mtp_draft"`
+	MTPBlockSize         int       `json:"mtp_block_size,omitempty"`
+	DraftKind            string    `json:"draft_kind,omitempty"`
 	ConversionCached     bool      `json:"conversion_cached,omitempty"`
 	ConversionCacheBytes int64     `json:"conversion_cache_bytes,omitempty"`
 	ConversionCacheCount int       `json:"conversion_cache_count,omitempty"`
@@ -144,6 +149,7 @@ type LlamaStatus struct {
 	Model                   string    `json:"model,omitempty"`
 	MMProj                  string    `json:"mmproj,omitempty"`
 	DraftModel              string    `json:"draft_model,omitempty"`
+	DraftKind               string    `json:"draft_kind,omitempty"`
 	DFlashEnabled           bool      `json:"dflash_enabled"`
 	MMapEnabled             bool      `json:"mmap_enabled"`
 	FastGGUF                bool      `json:"fast_gguf"`

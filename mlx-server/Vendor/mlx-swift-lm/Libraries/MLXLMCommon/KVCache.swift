@@ -1397,8 +1397,50 @@ public class ArraysCache: BaseKVCache {
 
 /// Simple cache for Mamba-style state space models
 public class MambaCache: ArraysCache {
+    private struct SpeculativeCheckpoint {
+        var state: [MLXArray?]
+        var offset: Int
+        var leftPadding: MLXArray?
+        var lengths: MLXArray?
+    }
+
+    private var speculativeCheckpoint: SpeculativeCheckpoint?
+
     public init(leftPadding: [Int]? = nil) {
         super.init(size: 2, leftPadding: leftPadding)
+    }
+
+    /// Save the recurrent state at the last unconditionally committed token
+    /// inside a speculative verification pass.
+    package func saveSpeculativeCheckpoint(
+        convState: MLXArray,
+        recurrentState: MLXArray,
+        advancedBy tokenCount: Int
+    ) {
+        speculativeCheckpoint = SpeculativeCheckpoint(
+            state: [convState, recurrentState],
+            offset: offset,
+            leftPadding: leftPadding.map { $0 - tokenCount },
+            lengths: lengths.map { $0 - tokenCount })
+    }
+
+    package var hasSpeculativeCheckpoint: Bool {
+        speculativeCheckpoint != nil
+    }
+
+    @discardableResult
+    package func restoreSpeculativeCheckpoint() -> Bool {
+        guard let checkpoint = speculativeCheckpoint else { return false }
+        cache = checkpoint.state
+        offset = checkpoint.offset
+        leftPadding = checkpoint.leftPadding
+        lengths = checkpoint.lengths
+        speculativeCheckpoint = nil
+        return true
+    }
+
+    package func discardSpeculativeCheckpoint() {
+        speculativeCheckpoint = nil
     }
 
     public override func copy() -> any KVCache {
@@ -1872,6 +1914,42 @@ public func trimPromptCache(_ cache: [KVCache], numTokens: Int) -> Int {
     guard canTrimPromptCache(cache), !cache.isEmpty else { return 0 }
     cache.dropFirst().forEach { $0.trim(numTokens) }
     return cache.first?.trim(numTokens) ?? 0
+}
+
+/// Rewind a one-token speculative tail in a hybrid attention/recurrent cache.
+/// Attention entries trim normally; Mamba entries restore the checkpoint the
+/// model captured after the round's committed bonus token.
+@discardableResult
+package func rewindSpeculativePromptCache(
+    _ cache: [KVCache], numTokens: Int
+) -> Int {
+    guard numTokens == 1,
+        cache.allSatisfy({ entry in
+            if entry.isTrimmable {
+                return entry.offset >= numTokens
+            }
+            return (entry as? MambaCache)?.hasSpeculativeCheckpoint == true
+        })
+    else { return 0 }
+
+    for entry in cache {
+        if entry.isTrimmable {
+            guard entry.trim(numTokens) == numTokens else {
+                preconditionFailure("Speculative cache validation and rewind diverged")
+            }
+        } else {
+            guard (entry as? MambaCache)?.restoreSpeculativeCheckpoint() == true else {
+                preconditionFailure("Missing recurrent speculative checkpoint")
+            }
+        }
+    }
+    return numTokens
+}
+
+package func discardSpeculativePromptCacheCheckpoints(_ cache: [KVCache]) {
+    for case let entry as MambaCache in cache {
+        entry.discardSpeculativeCheckpoint()
+    }
 }
 
 // MARK: - Type Aliases

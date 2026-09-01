@@ -18,6 +18,7 @@ actor MLXRuntime {
     private var container: ModelContainer?
     private var memoryGuard: Task<Void, Never>?
     private var dflashDrafter: (any DFlashDrafterModel)?
+    private var mtpDrafterContainer: MTPDrafterContainer?
 
     init(configuration: ServerConfiguration) throws {
         self.configuration = configuration
@@ -145,6 +146,49 @@ actor MLXRuntime {
                 "DFlash loaded variant=\(drafter.dflashDescriptor.variant.rawValue) draft=\(draftDirectory.lastPathComponent) block_size=\(min(configuration.dflashBlockSize, drafter.dflashDescriptor.blockSize))\n",
                 stderr
             )
+        }
+
+        if configuration.mtpEnabled {
+            await Qwen35TextMTPRegistration.register()
+            await Qwen35VLMMTPRegistration.register()
+            await Gemma4AssistantRegistration.register()
+
+            let draftContainer: MTPDrafterContainer
+            let draftDescription: String
+            if let draftPath = configuration.mtpDraftPath {
+                let draftDirectory = URL(fileURLWithPath: draftPath, isDirectory: true)
+                draftContainer = try await MTPDrafterModelFactory.shared.loadContainer(
+                    from: draftDirectory,
+                    using: #huggingFaceTokenizerLoader())
+                draftDescription = draftDirectory.lastPathComponent
+            } else if let ggufWeightURL {
+                draftContainer = try await MLXGGUFModelLoader.loadEmbeddedMTPDrafterContainer(
+                    from: modelDirectory,
+                    weightURL: ggufWeightURL,
+                    mmprojURL: ggufMMProjURL,
+                    quantizationGroupSize: configuration.ggufGroupSize,
+                    quantizationProfile: configuration.ggufProfile,
+                    recurrentPromotion: configuration.ggufRecurrentPromotion,
+                    memoryMapped: configuration.memoryMappingEnabled)
+                draftDescription = "embedded:\(ggufWeightURL.lastPathComponent)"
+            } else {
+                throw MTPCompatibilityError.incompatibleConfiguration(
+                    "原生 MLX Target 必須指定 --mtp-draft；內嵌 MTP 僅適用於含預測層的 GGUF")
+            }
+            guard let container else {
+                throw APIError.invalidRequest("MLX target model 尚未載入。")
+            }
+            _ = try await draftContainer.perform { draftContext in
+                try await container.perform(nonSendable: draftContext.model) {
+                    targetContext, drafter in
+                    try drafter.validate(target: targetContext.model)
+                    return true
+                }
+            }
+            mtpDrafterContainer = draftContainer
+            fputs(
+                "MTP loaded draft=\(draftDescription) requested_block_size=\(configuration.mtpBlockSize)\n",
+                stderr)
         }
     }
 
@@ -287,6 +331,23 @@ actor MLXRuntime {
         )
         let wiredMemoryTicket = memoryMapPlan?.inferenceTicket()
 
+        if mtpDrafterContainer != nil,
+            let fallbackReason = mtpFallbackReason(parameters: parameters)
+        {
+            fputs("MTP fallback to standard generation: \(fallbackReason)\n", stderr)
+            return try await container.generate(
+                input: prepared,
+                parameters: parameters,
+                wiredMemoryTicket: wiredMemoryTicket)
+        }
+        if let mtpDrafterContainer {
+            return try await container.generate(
+                input: prepared,
+                parameters: parameters,
+                mtpDrafterContainer: mtpDrafterContainer,
+                blockSize: configuration.mtpBlockSize,
+                wiredMemoryTicket: wiredMemoryTicket)
+        }
         if dflashDrafter != nil,
            let fallbackReason = dflashFallbackReason(parameters: parameters) {
             fputs("DFlash fallback to standard generation: \(fallbackReason)\n", stderr)
@@ -322,6 +383,16 @@ actor MLXRuntime {
         return nil
     }
 
+    private func mtpFallbackReason(parameters: GenerateParameters) -> String? {
+        if parameters.maxKVSize != nil {
+            return "MTP 目前不支援 rotating target KV Cache"
+        }
+        if parameters.kvBits != nil || parameters.kvScheme != nil {
+            return "MTP 目前不支援量化 target KV Cache"
+        }
+        return nil
+    }
+
     private func generationLog(_ info: GenerateCompletionInfo) -> String {
         var fields = [
             "generation",
@@ -332,9 +403,10 @@ actor MLXRuntime {
         if let proposed = info.proposedDraftTokens,
            let accepted = info.acceptedDraftTokens {
             let rate = proposed > 0 ? Double(accepted) / Double(proposed) : 0
-            fields.append("dflash_proposed=\(proposed)")
-            fields.append("dflash_accepted=\(accepted)")
-            fields.append("dflash_acceptance=\(String(format: "%.3f", rate))")
+            let prefix = mtpDrafterContainer == nil ? "dflash" : "mtp"
+            fields.append("\(prefix)_proposed=\(proposed)")
+            fields.append("\(prefix)_accepted=\(accepted)")
+            fields.append("\(prefix)_acceptance=\(String(format: "%.3f", rate))")
         }
         return fields.joined(separator: " ") + "\n"
     }

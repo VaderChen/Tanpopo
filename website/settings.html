@@ -6,9 +6,9 @@
   <title>系統設定 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260831-48">
-  <script src="/assets/common.js?v=20260831-67" defer></script>
-  <script src="/assets/settings.js?v=20260831-32" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
+  <script src="/assets/common.js?v=20260901-71" defer></script>
+  <script src="/assets/settings.js?v=20260901-33" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -284,7 +284,7 @@
                   <label class="field">
                     <span>轉換策略</span>
                     <select id="defaultFastGGUFStrategy">
-                      <option value="mode1">Mode 1（均衡。預設）</option>
+                      <option value="mode1">Mode 1（均衡 · 預設）</option>
                       <option value="mode2">Mode 2（較高精度）</option>
                       <option value="mode3">Mode 3（最快）</option>
                     </select>
@@ -669,10 +669,13 @@
                     </div>
                   </dl>
                   <p id="appUpdateSummary" class="about-update-summary" role="status" aria-live="polite">正在檢查更新…</p>
+                  <p id="linuxZIPUpdateStatus" class="about-update-summary" role="status" aria-live="polite" hidden></p>
                 </div>
               </div>
               <div class="settings-actions about-actions">
                 <a id="githubReleaseLink" class="button secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>查看新版</a>
+                <input id="linuxZIPUpdateInput" type="file" accept=".zip,application/zip" hidden>
+                <button id="linuxZIPUpdateButton" class="button secondary" type="button" hidden>透過 ZIP 更新</button>
                 <button id="checkUpdateButton" class="button primary" type="button">檢查更新</button>
               </div>
             </div>

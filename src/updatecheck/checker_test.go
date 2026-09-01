@@ -88,6 +88,9 @@ func TestCompareVersions(t *testing.T) {
 		{"1.0.0", "1.0.0-rc.1", 1},
 		{"2.0", "2.0.1", -1},
 		{"v1.26.0830", "1.26.0829", 1},
+		{"v1.26.0901-build-1507", "1.26.0901-build-1430", 1},
+		{"v1.26.0901-build-1430", "1.26.0901-build-1507", -1},
+		{"v1.26.0901-build-1507", "1.26.0901-build-1507", 0},
 	}
 	for _, test := range tests {
 		actual, err := CompareVersions(test.candidate, test.current)

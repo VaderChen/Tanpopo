@@ -7,33 +7,34 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 ## Highlights
 
 - Start, stop, restore, and inspect local model runtimes from one web interface.
-- Scan nested GGUF files and complete MLX model directories without exposing full directory paths in model selectors. On Apple Silicon, `mlx-server` can load supported GGUF models directly without a safetensors conversion step.
-- **Fast GGUF mode** is enabled by default when `mlx-server` loads GGUF. Its model-name-independent tensor capability policy selects INT4, INT8, BF16, and group sizing, then persists converted weights in `.fgguf`. System settings provide Default, Beta 1, and Beta 2 fast strategies. This general mechanism benefits most GGUF models that mlx-server can parse, but it does not guarantee that every architecture, quantization, or custom checkpoint will load, run faster, or preserve identical accuracy; validate important workloads before relying on it.
+- Scan nested GGUF files and complete MLX model directories. GGUF, MLX, and mmproj selectors are alphabetized and display `model name (directory name)` while preserving the full safe path internally. Non-macOS systems hide the Apple Silicon-only `mlx-server` option.
+- **Fast GGUF mode** is enabled by default when `mlx-server` loads GGUF. Its model-name-independent tensor capability policy selects INT4, INT8, BF16, and group sizing, then persists converted weights in `.fgguf`. System settings provide Mode 1 (balanced default), Mode 2 (higher accuracy), and Mode 3 (fastest). This general mechanism benefits most GGUF models that mlx-server can parse, but it does not guarantee that every architecture, quantization, or custom checkpoint will load, run faster, or preserve identical accuracy.
 - Group mlx-server targets by GGUF and MLX. Language models not yet declared compatible by the runtime remain selectable in an **Untested (N)** group and are validated by an actual load attempt.
 - Download public, gated, or private Hugging Face GGUF files and MLX repositories.
 - Pick popular GGUF or MLX models from a separate JSON catalog. Each format is grouped into 8B-class, 30B-class, and 70B-and-above tiers, with model names sorted alphabetically inside each tier. The quick picker fills in the Runtime, repository, revision, and GGUF filename without hard-coding model entries in JavaScript.
 - When the server supports byte ranges, download large files in 64 MiB segments with at most four workers; otherwise fall back to one stream. Completed queue entries are removed automatically. The desktop app can open the destination folder, while browser mode keeps that action disabled.
-- Save reusable launch profiles for context size, GPU layers, threads, KV cache, MTP, and DFlash.
+- Save reusable launch profiles for context size, GPU layers, threads, KV cache, MTP, and DFlash. Apple Silicon includes native MLX DFlash and MLX MTP profiles.
 - Keep the independent DFlash and MMap switches in a compact Advanced settings popover so new options do not continuously lengthen the page.
 - Detect DFlash support and require a compatible Draft model before enabling it. The separate MMap switch supports both llama-server and Apple Silicon mlx-server, using file-backed paging to reduce model-loading memory pressure.
-- KV Cache, MMap, and DFlash are integrated end to end across feature defaults, launch profiles, runtime switches, compatibility preflight, runtime arguments, persisted state, and error reporting. Availability still depends on the runtime and model; DFlash requires a compatible Target/Draft pair and is mutually exclusive with KV Cache quantization.
+- KV Cache, MMap, DFlash, and MTP are integrated end to end across feature defaults, launch profiles, runtime switches, compatibility preflight, runtime arguments, persisted state, and error reporting. Speculative decoding modes are mutually exclusive with one another and with KV Cache quantization.
 - Automatically discover and download a matching DFlash Draft from the same or a separate Hugging Face repository, verified through metadata and model configuration instead of a hard-coded model list.
 - Use an ephemeral local chat with Markdown, math rendering, and separated reasoning from API fields, `<think>` blocks, or `<|channel|>` thought channels. The reasoning panel opens by default while generation is active, shows animated dots, and collapses automatically when generation finishes; token counts and output tokens per second remain visible.
-- Starting a model immediately opens a loading notice explaining that large models may require conversion. Test a running model through an animated dialog, then inspect input/output tokens, generation speed, elapsed time, or an explicit loading/connection error. Main-page refreshes use a separate compact progress dialog.
+- Starting a model immediately opens a loading notice explaining that large models may require conversion. Runtime testing supports one run, three repeated runs with average and median throughput, or a long-output run requiring at least 500 output tokens.
 - Use a real OpenAI-compatible per-token SSE stream from MLX; disconnecting or cancelling the client immediately cancels the matching generation task.
 - Protect the model API with access keys, an IP allowlist, both, or neither.
-- Restore the selected Runtime and running state before admin sign-in after restarting Tanpopo.
+- Restore the selected Runtime and running state before admin sign-in after restarting Tanpopo. A signed **Remember me** cookie also remains valid across service restarts and is invalidated by credential changes.
 - Choose `AUTO`, Traditional Chinese, English, Japanese, or Korean for the management interface.
 - Choose among Dandelion, Sky Blue, Sakura Pink, and the dark Midnight Purple theme.
 - View CPU, GPU, MEMORY, and network status in a bottom bar refreshed every three seconds. Utilization uses muted green, yellow, and red bands at 50% and 80%.
 - Inspect read-only OS, kernel, architecture, hostname, CPU, GPU, memory, network interface, and reachable management URL details under **System settings → System information**. Loopback URLs are omitted from shared URL lists.
-- Check the latest stable GitHub Release at startup and every hour, notify when an update is available, and expose the current version, manual update check, and clickable repository URL under **System settings → About**.
+- Check the latest stable GitHub Release at startup and every hour, including the build number for multiple releases on the same day. On Linux, an authenticated administrator can upload an official release ZIP under **System settings → About** to validate, install, and restart automatically.
+- Linux packages include a Vulkan-enabled llama.cpp build path, dependency and GPU-permission checks, a reusable `build-llama-server.sh`, and DRM GPU-utilization fallback when ROCm tools are unavailable.
 - On macOS, run as a native AppKit/WKWebView app and optionally remain in the system menu bar.
 
 ## Public test reports
 
 - [Model compatibility report](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): documents the supported scope and compatibility boundaries for native MLX, MLX loading GGUF, llama.cpp GGUF, multimodal projection, KV Cache quantization, and speculative decoding.
-- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares an unconverted native MLX file with MLX + Default Fast Conversion, MLX + Beta 1, and MLX + Beta 2 on the same model. It reports the fixed 100-question results, generation speed, source-model and conversion-cache storage, and peak and average process RAM without applying a public selection judgment.
+- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares paired 4B, 9B, and 27B models across native MLX, llama.cpp+GGUF, and MLX + Fast GGUF Modes 1–3, including fixed 100-question results, throughput, conversion cache, and process RAM.
 
 Both HTML reports support `AUTO`, Traditional Chinese, and English. Their results are reproducible snapshots for the stated date, hardware, runtime versions, and samples—not a promise that every model or device will behave identically, nor a compatibility, speed, or accuracy guarantee for Fast GGUF.
 
@@ -61,7 +62,9 @@ TANPOPO_UI=shell ./run.command  # Force foreground shell mode
 TANPOPO_UI=gui ./run.command    # Force the native UI where supported
 ```
 
-The application version uses `1.YY.MMDD build HHmm`. `run.command`, `run.sh`, `build.command`, and `pack.command` all derive `1.YY.MMDD` directly from the current `Asia/Taipei` date and `build HHmm` from their execution time. They do not read, validate, or modify the root `VERSION`, so running or packaging on a new day requires no manual date edit. Set `TANPOPO_VERSION` only when intentionally rebuilding a historical release, and use `TANPOPO_BUILD` when a fixed build number is required; generated packages record the effective version. The root `VERSION` remains only as version metadata and for compatibility with older workflows. Tanpopo checks the latest stable GitHub Release once at startup and then hourly; the same UI session reports each new version only once. **System settings → About** shows the current and latest versions, last check time, a manual check button, and a clickable [GitHub repository URL](https://github.com/VaderChen/Tanpopo). Update checks compare only `1.YY.MMDD`; drafts and prereleases are not treated as the latest version.
+The application version uses `1.YY.MMDD build HHmm`, and GitHub tags use `v1.YY.MMDD-build-HHmm`. `run.command`, `run.sh`, `build.command`, and `pack.command` derive both values in the `Asia/Taipei` time zone. Set `TANPOPO_VERSION` or `TANPOPO_BUILD` only when intentionally producing a fixed release. Update checks compare both the date version and build number, so a later release from the same day is detected; drafts and prereleases are not treated as latest.
+
+Official Linux x64 packages check and install missing compiler, CMake, Vulkan header, shader compiler, and GPU permission prerequisites. They use a packaged Vulkan runtime when present, otherwise build the pinned llama.cpp source locally through `build-llama-server.sh`.
 
 ## Model runtimes
 
@@ -81,17 +84,17 @@ Launch profiles select Q8 or Q4 KV Cache. A separate Advanced settings switch de
 
 **Fast GGUF mode** is the general GGUF optimization entry point for mlx-server and is enabled by default when a GGUF target is selected. A separate **Fast GGUF strategy** card in System settings stores both the default toggle and one of three strategies:
 
-- **Default**: `speed + group auto + recurrent controls`; automatic grouping resolves to 64 and K-Quant tensors are requantized to INT8.
-- **Beta 1**: `speed-passthrough + group 32 + recurrent controls`; representable Q4_K source 4-bit sub-blocks are reused and other tensors use group 32.
-- **Beta 2**: `speed-passthrough + group 64 + recurrent controls`; Q4_K reuse matches Beta 1 while other tensors use group 64.
+- **Mode 1 (balanced default)**: reuse representable K-Quant source 4-bit blocks at their required group 32; use group 64 for the remaining low-bit tensors.
+- **Mode 2 (higher accuracy)**: requantize low-bit sources to INT8 with group 64.
+- **Mode 3 (fastest)**: requantize low-bit sources to INT4 with strategy-controlled group 32, regardless of a manual group-size argument.
 
 Disabling Fast GGUF uses the general `auto + group auto + recurrent off` conversion path. Every strategy follows tensor dtype, shape, source blocks, and architecture metadata rather than model filenames. The 32-element group in reused Q4_K data is defined by the source sub-block format and does not imply global group 32. The `quality` profile uses FP32 reference weights for diagnostics and is not a normal performance mode.
 
-The strategy applies without per-model special cases and helps most GGUF models that mlx-server can parse, but it is not a compatibility, speed, or accuracy guarantee. Architecture contracts, GGUF metadata, tokenizers, tensor layouts, quantization methods, and custom checkpoint changes can all affect the result. Untested models may still fail to load, show no speed gain, or produce quality differences. Disable Fast GGUF for comparison and validate generation quality before deployment. GGUF targets use standard MLX generation; DFlash continues to require an MLX safetensors target and a compatible Draft model.
+The strategy applies without per-model special cases and helps most GGUF models that mlx-server can parse, but it is not a compatibility, speed, or accuracy guarantee. DFlash continues to require an MLX safetensors target and a compatible Draft model. MTP supports compatible native MLX Target/Draft pairs and GGUF files whose architecture metadata and tensor contract expose embedded prediction layers; pairing is validated from metadata and shapes rather than filenames.
 
 For mlx-server, enabling KV Cache quantization applies the profile's Q8 or Q4 mode with a group size of 64 and delayed quantization after 2,048 tokens. The profile Context Size becomes the quantized KV Cache limit.
 
-KV Cache, MMap, and DFlash are first-class Tanpopo features rather than undocumented command-line flags. Settings persist model-feature defaults, launch profiles define detailed parameters, and the runtime page can override them for one load. The backend validates incompatible combinations, builds the runtime arguments, persists state, and reports failures to the UI. End-to-end integration does not mean every model supports every feature: cache formats and MMap behavior depend on the runtime, while DFlash requires a compatible Target/Draft pair.
+KV Cache, MMap, DFlash, and MTP are first-class Tanpopo features rather than undocumented command-line flags. Settings persist model-feature defaults, launch profiles define detailed parameters, and the runtime page can override them for one load. The backend validates incompatible combinations, builds the runtime arguments, persists state, and reports failures to the UI.
 
 Supported compatibility endpoints include:
 

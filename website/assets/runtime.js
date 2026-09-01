@@ -3,7 +3,18 @@
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
   const RUNTIME_TEST_TIMEOUT_MS = 180000;
+  const RUNTIME_TEST_REPEAT_TIMEOUT_MS = 540000;
+  const RUNTIME_TEST_LONG_TIMEOUT_MS = 600000;
   const RUNTIME_TEST_RETRY_MS = 750;
+  const RUNTIME_TEST_REPEAT_COUNT = 3;
+  const RUNTIME_TEST_LONG_MIN_TOKENS = 500;
+  const RUNTIME_TEST_LONG_MAX_TOKENS = 768;
+  const RUNTIME_TEST_PROMPT = "Write one compact English paragraph of approximately 100 words about the benefits of running AI models locally. Do not use headings or lists.";
+  const RUNTIME_TEST_LONG_PROMPT = "Write a continuous English essay of at least 900 words about practical ways to run AI models locally. Keep writing until the response limit is reached. Do not use headings or lists, and do not conclude early.";
+  const MODEL_NAME_COLLATOR = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
   const state = {
     settings: null,
     models: [],
@@ -22,8 +33,32 @@
     return state.commands.find((command) => command.id === byId("commandSelect").value) || null;
   }
 
+  function commandUsesMTP(command = selectedCommand()) {
+    return command?.runtime === MLX_RUNTIME && (command.extra_args || []).some((argument) =>
+      /^--mtp-(?:draft|block-size)(?:=|$)/.test(String(argument || "").trim())
+    );
+  }
+
   function selectedRuntime() {
     return byId("runtimeSelect").value || LLAMA_RUNTIME;
+  }
+
+  async function filterRuntimeOptionsForPlatform() {
+    try {
+      let osName = "";
+      for (let attempt = 0; attempt < 5 && !osName; attempt += 1) {
+        const systemInfo = await api("/api/system/info");
+        osName = String(systemInfo?.os_name || "").trim().toLowerCase();
+        if (!osName && attempt < 4) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+      }
+      if (!osName || osName === "macos" || osName === "darwin") return;
+      byId("runtimeSelect").querySelector(`option[value="${MLX_RUNTIME}"]`)?.remove();
+      byId("runtimeSelect").value = LLAMA_RUNTIME;
+    } catch (_error) {
+      // 平台資訊暫時不可用時保留原有選項；後端仍會拒絕不支援的平台。
+    }
   }
 
   function isMLXGGUFModel(model) {
@@ -64,7 +99,11 @@
   }
 
   function isDFlashDraftModel(model) {
-    return Boolean(model.dflash_draft);
+    return Boolean(model.dflash_draft || model.draft_kind === "dflash");
+  }
+
+  function isMTPDraftModel(model) {
+    return Boolean(model.mtp_draft || model.draft_kind === "mtp");
   }
 
   function selectedModel() {
@@ -113,6 +152,27 @@
     return normalized.split("/").pop() || "—";
   }
 
+  function displayModelOptionLabel(path) {
+    const normalized = String(path || "")
+      .replace(/^gguf:/, "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
+    if (!normalized) return "—";
+    const parts = normalized.split("/").filter(Boolean);
+    const modelName = parts[parts.length - 1] || normalized;
+    const directoryName = parts[parts.length - 2] || modelName;
+    return `${modelName} (${directoryName})`;
+  }
+
+  function compareModelsByDisplayName(left, right) {
+    const nameOrder = MODEL_NAME_COLLATOR.compare(
+      displayModelName(left?.path),
+      displayModelName(right?.path)
+    );
+    if (nameOrder !== 0) return nameOrder;
+    return MODEL_NAME_COLLATOR.compare(String(left?.path || ""), String(right?.path || ""));
+  }
+
   function openAIBaseURL(value) {
     const root = String(value || "").trim().replace(/\/+$/, "");
     if (!root) return "";
@@ -138,7 +198,7 @@
 
   function modelTokens(path) {
     const ignored = new Set([
-      "model", "models", "gguf", "mlx", "draft", "dflash", "dflash1", "dflash2",
+      "model", "models", "gguf", "mlx", "draft", "dflash", "dflash1", "dflash2", "mtp",
       "bf16", "fp16", "f16", "q4", "q5", "q6", "q8", "k", "m", "s"
     ]);
     return String(path || "")
@@ -155,40 +215,50 @@
 
   function matchedDraftModel() {
     const command = selectedCommand();
+    const wantsMTP = commandUsesMTP(command);
+    const candidates = state.draftModels.filter(wantsMTP ? isMTPDraftModel : isDFlashDraftModel);
     const configuredPath = String(command?.draft_model || "").trim();
     if (configuredPath) {
-      return state.draftModels.find((model) => model.path === configuredPath) || null;
+      return candidates.find((model) => model.path === configuredPath) || null;
     }
     const target = selectedModel();
-    if (!target || !state.draftModels.length) return null;
+    if (!target || !candidates.length) return null;
+    if (wantsMTP && target.mtp_embedded) return null;
+    if (wantsMTP ? !target.mtp_supported : !target.dflash_supported) return null;
     const targetDirectory = pathDirectory(target.path);
     const targetTokens = new Set(modelTokens(target.path));
     const preferredVariant = preferredDFlashVariant();
     let best = null;
     let bestScore = -1;
-    state.draftModels.forEach((draft) => {
+    candidates.forEach((draft) => {
       let score = 0;
       const draftDirectory = pathDirectory(draft.path);
       if (targetDirectory && draftDirectory === targetDirectory) score += 100;
       const sharedTokens = modelTokens(draft.path).filter((token) => targetTokens.has(token));
       score += sharedTokens.length * 8;
-      if (preferredVariant && draft.dflash_variant === preferredVariant) score += 12;
-      if (!preferredVariant && draft.dflash_variant === "dflash1") score += 3;
+      if (!wantsMTP && preferredVariant && draft.dflash_variant === preferredVariant) score += 12;
+      if (!wantsMTP && !preferredVariant && draft.dflash_variant === "dflash1") score += 3;
       if (score > bestScore) {
         best = draft;
         bestScore = score;
       }
     });
-    if (bestScore > 0 || state.draftModels.length === 1) return best;
+    if (bestScore > 0 || candidates.length === 1) return best;
     return null;
   }
 
-  function promptDraftDownload() {
+  function promptDraftDownload(mode = "DFlash") {
     byId("dflashToggle").checked = false;
     renderDFlashControl(state.runtime);
     renderKVCacheQuantizationControl(state.runtime);
-    showMessage("找不到配對的 DFlash Draft，請先下載後再啟用。", "error");
-    if (window.confirm("找不到配對的 DFlash Draft 模型。是否前往「模型下載」？")) {
+    const message = mode === "MTP"
+      ? t("找不到配對的 MTP Draft，請先下載後再啟用。")
+      : t("找不到配對的 DFlash Draft，請先下載後再啟用。");
+    const confirmation = mode === "MTP"
+      ? t("找不到配對的 MTP Draft 模型。是否前往「模型下載」？")
+      : t("找不到配對的 DFlash Draft 模型。是否前往「模型下載」？");
+    showMessage(message, "error");
+    if (window.confirm(confirmation)) {
       window.location.assign("/download.html");
     }
   }
@@ -211,13 +281,13 @@
         : Promise.resolve({ models: [] })
     ]);
     state.models = payload.models || [];
-    state.mmprojModels = state.models.filter(isMMProjModel);
+    state.mmprojModels = state.models.filter(isMMProjModel).sort(compareModelsByDisplayName);
     state.draftModels = runtimeName === LLAMA_RUNTIME
       ? state.models.filter(isDFlashDraftModel)
       : (draftPayload.models || []);
-    state.mainModels = state.models.filter(
-      (model) => !isMMProjModel(model) && !isDFlashDraftModel(model)
-    );
+    state.mainModels = state.models
+      .filter((model) => !isMMProjModel(model) && !isDFlashDraftModel(model))
+      .sort(compareModelsByDisplayName);
     const registeredModels = registeredMainModels();
     const untestedModels = untestedMainModels();
 
@@ -244,7 +314,7 @@
         models.forEach((model) => {
           const option = document.createElement("option");
           option.value = model.path;
-          option.textContent = displayModelName(model.path);
+          option.textContent = displayModelOptionLabel(model.path);
           group.append(option);
         });
         modelSelect.append(group);
@@ -255,7 +325,7 @@
         untestedModels.forEach((model) => {
           const option = document.createElement("option");
           option.value = model.path;
-          option.textContent = `${String(model.format || "").toUpperCase()} · ${displayModelName(model.path)}`;
+          option.textContent = displayModelOptionLabel(model.path);
           group.append(option);
         });
         modelSelect.append(group);
@@ -264,7 +334,7 @@
       registeredModels.forEach((model) => {
         const option = document.createElement("option");
         option.value = model.path;
-        option.textContent = displayModelName(model.path);
+        option.textContent = displayModelOptionLabel(model.path);
         modelSelect.append(option);
       });
     }
@@ -281,7 +351,7 @@
     state.mmprojModels.forEach((model) => {
       const option = document.createElement("option");
       option.value = model.path;
-      option.textContent = displayModelName(model.path);
+      option.textContent = displayModelOptionLabel(model.path);
       mmprojSelect.append(option);
     });
     if (previousMMProj && state.mmprojModels.some((model) => model.path === previousMMProj)) {
@@ -323,7 +393,7 @@
     commands.forEach((command) => {
       const option = document.createElement("option");
       option.value = command.id;
-      option.textContent = command.name;
+      option.textContent = t(command.name);
       select.append(option);
     });
     const persistedID = state.runtime?.running || !state.selectionTouched
@@ -372,11 +442,39 @@
     const describe = (statusText) => `${description} ${t(statusText)}`;
     const running = Boolean(status?.running);
     if (running) {
-      toggle.checked = Boolean(status.draft_model);
+      const runningDFlash = status.draft_kind === "dflash" || (
+        Boolean(status.dflash_enabled) && Boolean(status.draft_model)
+      );
+      toggle.checked = runningDFlash;
       toggle.disabled = true;
-      meta.textContent = describe(status.draft_model
+      meta.textContent = describe(runningDFlash
         ? `已啟用，Draft：${displayModelName(status.draft_model)}`
-        : "本次啟動未使用 DFlash。");
+        : (status.draft_kind === "mtp"
+          ? (status.draft_model
+            ? `本次使用 MTP Draft：${displayModelName(status.draft_model)}。`
+            : "本次使用 GGUF 內嵌 MTP 預測層。")
+          : "本次啟動未使用 DFlash。"));
+      return;
+    }
+
+    if (commandUsesMTP()) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      const target = selectedModel();
+      if (target && !target.mtp_supported) {
+        meta.textContent = describe(target.architecture
+          ? `模型架構 ${target.architecture} 不支援 MTP。`
+          : "無法確認模型架構，MTP 不可用。");
+        return;
+      }
+      if (target?.mtp_embedded) {
+        meta.textContent = describe("啟動參數已選用 MTP，將使用 GGUF 內嵌預測層。");
+        return;
+      }
+      const draft = matchedDraftModel();
+      meta.textContent = describe(draft
+        ? `啟動參數已選用 MTP，Draft：${displayModelName(draft.path)}。`
+        : "啟動參數已選用 MTP，但尚未找到配對的 Draft。");
       return;
     }
 
@@ -496,6 +594,13 @@
       meta.textContent = describe(quantization
         ? `本次啟動已使用 KV Cache ${quantizationLabel}。`
         : "本次啟動未使用 KV Cache 量化。");
+      return;
+    }
+
+    if (commandUsesMTP()) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      meta.textContent = describe("MTP 已由啟動參數啟用；兩者不可同時使用。");
       return;
     }
 
@@ -623,6 +728,8 @@
     // 使用者觸發，避免健康端點受 Access Key 保護時永遠無法測試。
     byId("testRuntimeButton").disabled = !running || state.testing;
     byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
+    byId("repeatRuntimeTestButton").disabled = !running || state.testing;
+    byId("longRuntimeTestButton").disabled = !running || state.testing;
     renderDFlashControl(status);
     renderFastGGUFControl(status);
     renderMMapControl(status);
@@ -634,30 +741,49 @@
     const usage = result.usage || {};
     const success = !result.error;
     const speed = Number(usage.tokens_per_second || 0);
-    byId("runtimeTestStatus").textContent = success ? t("模型服務運作正常") : t(result.error);
+    const isRepeated = result.mode === "repeat" && Array.isArray(result.runs);
+    const isLong = result.mode === "long";
+    const hasUsage = Number.isFinite(Number(usage.completion_tokens));
+    byId("runtimeTestStatus").textContent = success
+      ? t(isRepeated ? "已完成 3 次效能測試" : isLong ? "長輸出測試完成" : "模型服務運作正常")
+      : t(result.error);
     byId("runtimeTestStatus").className = `runtime-test-status ${success ? "success" : "error"}`;
     byId("runtimeTestRuntime").textContent = result.runtime || state.runtime?.runtime || "—";
     byId("runtimeTestModel").textContent = displayModelName(state.runtime?.model);
-    byId("runtimeTestPromptTokens").textContent = success ? Number(usage.prompt_tokens || 0).toLocaleString() : "—";
-    byId("runtimeTestCompletionTokens").textContent = success ? Number(usage.completion_tokens || 0).toLocaleString() : "—";
-    byId("runtimeTestSpeed").textContent = success && Number.isFinite(speed) && speed > 0
+    byId("runtimeTestPromptTokens").textContent = hasUsage
+      ? (isRepeated ? usage.prompt_token_summary : Number(usage.prompt_tokens || 0).toLocaleString())
+      : "—";
+    byId("runtimeTestCompletionTokens").textContent = hasUsage
+      ? (isRepeated ? usage.completion_token_summary : Number(usage.completion_tokens || 0).toLocaleString())
+      : "—";
+    byId("runtimeTestSpeedLabel").textContent = t(isRepeated ? "平均生成速度" : "生成速度");
+    byId("runtimeTestSpeed").textContent = hasUsage && Number.isFinite(speed) && speed > 0
       ? `${speed.toFixed(1)} tokens/sec`
       : "—";
-    byId("runtimeTestElapsed").textContent = success && Number.isFinite(result.elapsedSeconds)
+    byId("runtimeTestMedianRow").hidden = !isRepeated || !hasUsage;
+    byId("runtimeTestMedianSpeed").textContent = isRepeated && Number.isFinite(result.medianTokensPerSecond)
+      ? `${result.medianTokensPerSecond.toFixed(1)} tokens/sec`
+      : "—";
+    byId("runtimeTestElapsed").textContent = Number.isFinite(result.elapsedSeconds)
       ? `${result.elapsedSeconds.toFixed(2)} sec`
       : "—";
     if (!dialog.open) dialog.showModal();
   }
 
-  function showRuntimeTestLoading() {
+  function showRuntimeTestLoading(mode = "single", currentRun = 1) {
     const dialog = byId("runtimeTestDialog");
-    byId("runtimeTestStatus").textContent = t("正在測試模型效能…");
+    byId("runtimeTestStatus").textContent = mode === "repeat"
+      ? `${t("正在進行重複測試")} ${currentRun}/${RUNTIME_TEST_REPEAT_COUNT}…`
+      : t(mode === "long" ? "正在進行長輸出測試（至少 500 Tokens）…" : "正在測試模型效能…");
     byId("runtimeTestStatus").className = "runtime-test-status testing";
     byId("runtimeTestRuntime").textContent = state.runtime?.runtime || "—";
     byId("runtimeTestModel").textContent = displayModelName(state.runtime?.model);
     byId("runtimeTestPromptTokens").textContent = "—";
     byId("runtimeTestCompletionTokens").textContent = "—";
+    byId("runtimeTestSpeedLabel").textContent = t(mode === "repeat" ? "平均生成速度" : "生成速度");
     byId("runtimeTestSpeed").textContent = "—";
+    byId("runtimeTestMedianRow").hidden = true;
+    byId("runtimeTestMedianSpeed").textContent = "—";
     byId("runtimeTestElapsed").textContent = "—";
     if (!dialog.open) dialog.showModal();
   }
@@ -798,7 +924,7 @@
     ].some((fragment) => message.includes(fragment));
   }
 
-  async function requestRuntimeTest(timeoutMilliseconds = RUNTIME_TEST_TIMEOUT_MS) {
+  async function requestRuntimeTest(timeoutMilliseconds = RUNTIME_TEST_TIMEOUT_MS, options = {}) {
     const controller = new AbortController();
     const timeout = window.setTimeout(
       () => controller.abort(),
@@ -811,9 +937,9 @@
         body: JSON.stringify({
           messages: [{
             role: "user",
-            content: "Write one compact English paragraph of approximately 100 words about the benefits of running AI models locally. Do not use headings or lists."
+            content: options.prompt || RUNTIME_TEST_PROMPT
           }],
-          max_tokens: 128
+          max_tokens: Number(options.maxTokens || 128)
         })
       });
     } finally {
@@ -821,17 +947,18 @@
     }
   }
 
-  async function waitAndRunRuntimeTest(startedAt) {
+  async function waitAndRunRuntimeTest(startedAt, options = {}) {
     let waitingForModel = false;
+    const totalTimeoutMilliseconds = Number(options.timeoutMilliseconds || RUNTIME_TEST_TIMEOUT_MS);
     while (true) {
-      const remainingMilliseconds = RUNTIME_TEST_TIMEOUT_MS - (performance.now() - startedAt);
+      const remainingMilliseconds = totalTimeoutMilliseconds - (performance.now() - startedAt);
       if (remainingMilliseconds <= 0) {
         throw new Error(t(waitingForModel
           ? "模型載入逾時，請查看日誌後重新啟動服務"
           : "模型效能測試逾時，請稍後再試"));
       }
       try {
-        return await requestRuntimeTest(remainingMilliseconds);
+        return await requestRuntimeTest(remainingMilliseconds, options);
       } catch (error) {
         if (error?.name === "AbortError") {
           throw new Error(t(waitingForModel
@@ -840,7 +967,7 @@
         }
         if (!isRuntimeLoadingError(error)) throw error;
         waitingForModel = true;
-        if (performance.now() - startedAt >= RUNTIME_TEST_TIMEOUT_MS) {
+        if (performance.now() - startedAt >= totalTimeoutMilliseconds) {
           throw new Error(t("模型載入逾時，請查看日誌後重新啟動服務"));
         }
 
@@ -854,6 +981,83 @@
         byId("runtimeTestStatus").className = "runtime-test-status testing";
         await wait(RUNTIME_TEST_RETRY_MS);
       }
+    }
+  }
+
+  function median(values) {
+    const sorted = values.slice().sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[middle - 1] + sorted[middle]) / 2
+      : sorted[middle];
+  }
+
+  function repeatedTokenSummary(runs, key) {
+    const values = runs.map((result) => Number(result.usage?.[key] || 0));
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return `${values.map((value) => value.toLocaleString()).join(" · ")} = ${total.toLocaleString()}`;
+  }
+
+  async function runRuntimeTest(mode = "single") {
+    if (!state.runtime?.running || state.testing) return;
+    state.testing = true;
+    renderRuntime(state.runtime);
+    showRuntimeTestLoading(mode);
+    const startedAt = performance.now();
+    try {
+      if (mode === "repeat") {
+        const runs = [];
+        for (let index = 0; index < RUNTIME_TEST_REPEAT_COUNT; index += 1) {
+          showRuntimeTestLoading(mode, index + 1);
+          runs.push(await waitAndRunRuntimeTest(startedAt, {
+            timeoutMilliseconds: RUNTIME_TEST_REPEAT_TIMEOUT_MS
+          }));
+        }
+        const speeds = runs
+          .map((result) => Number(result.usage?.tokens_per_second || 0))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        if (speeds.length !== RUNTIME_TEST_REPEAT_COUNT) {
+          throw new Error(t("Runtime 未回傳完整的速度資料"));
+        }
+        showRuntimeTestResult({
+          mode,
+          runs,
+          runtime: runs[0]?.runtime,
+          usage: {
+            prompt_tokens: runs.reduce((sum, result) => sum + Number(result.usage?.prompt_tokens || 0), 0),
+            completion_tokens: runs.reduce((sum, result) => sum + Number(result.usage?.completion_tokens || 0), 0),
+            prompt_token_summary: repeatedTokenSummary(runs, "prompt_tokens"),
+            completion_token_summary: repeatedTokenSummary(runs, "completion_tokens"),
+            tokens_per_second: speeds.reduce((sum, value) => sum + value, 0) / speeds.length
+          },
+          medianTokensPerSecond: median(speeds),
+          elapsedSeconds: (performance.now() - startedAt) / 1000
+        });
+        return;
+      }
+
+      const options = mode === "long"
+        ? {
+            prompt: RUNTIME_TEST_LONG_PROMPT,
+            maxTokens: RUNTIME_TEST_LONG_MAX_TOKENS,
+            timeoutMilliseconds: RUNTIME_TEST_LONG_TIMEOUT_MS
+          }
+        : {};
+      const result = await waitAndRunRuntimeTest(startedAt, options);
+      const completionTokens = Number(result.usage?.completion_tokens || 0);
+      showRuntimeTestResult({
+        ...result,
+        mode,
+        error: mode === "long" && completionTokens < RUNTIME_TEST_LONG_MIN_TOKENS
+          ? `${t("長輸出測試未達 500 Tokens")}（${completionTokens.toLocaleString()} Tokens）`
+          : "",
+        elapsedSeconds: (performance.now() - startedAt) / 1000
+      });
+    } catch (error) {
+      showRuntimeTestResult({ mode, error: error.message });
+    } finally {
+      state.testing = false;
+      renderRuntime(state.runtime);
     }
   }
 
@@ -885,13 +1089,19 @@
   byId("startButton").addEventListener("click", async () => {
     const button = byId("startButton");
     const runtimeName = selectedRuntime();
-    const dflashEnabled = byId("dflashToggle").checked;
+    const mtpEnabled = runtimeName === MLX_RUNTIME && commandUsesMTP();
+    const dflashEnabled = !mtpEnabled && byId("dflashToggle").checked;
     const mmapEnabled = byId("mmapToggle").checked;
     const fastGGUFEnabled = byId("fastGGUFToggle").checked;
     const kvCacheQuantizationEnabled = byId("kvCacheQuantizationToggle").checked;
-    const draftModel = dflashEnabled ? matchedDraftModel() : null;
-    if (dflashEnabled && !draftModel) {
-      promptDraftDownload();
+    const embeddedMTP = mtpEnabled && Boolean(selectedModel()?.mtp_embedded);
+    if (mtpEnabled && !selectedModel()?.mtp_supported) {
+      showMessage(t("選定的 Target 模型不支援 MTP，請改用相容的 MLX 模型或內嵌 MTP 的 GGUF。"), "error");
+      return;
+    }
+    const draftModel = (dflashEnabled || (mtpEnabled && !embeddedMTP)) ? matchedDraftModel() : null;
+    if ((dflashEnabled || (mtpEnabled && !embeddedMTP)) && !draftModel) {
+      promptDraftDownload(mtpEnabled ? "MTP" : "DFlash");
       return;
     }
     button.disabled = true;
@@ -967,23 +1177,15 @@
   });
 
   byId("testRuntimeButton").addEventListener("click", async () => {
-    if (!state.runtime?.running || state.testing) return;
-    state.testing = true;
-    renderRuntime(state.runtime);
-    showRuntimeTestLoading();
-    const startedAt = performance.now();
-    try {
-      const result = await waitAndRunRuntimeTest(startedAt);
-      showRuntimeTestResult({
-        ...result,
-        elapsedSeconds: (performance.now() - startedAt) / 1000
-      });
-    } catch (error) {
-      showRuntimeTestResult({ error: error.message });
-    } finally {
-      state.testing = false;
-      renderRuntime(state.runtime);
-    }
+    await runRuntimeTest("single");
+  });
+
+  byId("repeatRuntimeTestButton").addEventListener("click", async () => {
+    await runRuntimeTest("repeat");
+  });
+
+  byId("longRuntimeTestButton").addEventListener("click", async () => {
+    await runRuntimeTest("long");
   });
 
   const closeRuntimeTestDialog = () => byId("runtimeTestDialog").close();
@@ -1151,6 +1353,7 @@
     const minimumVisibleTime = openRefreshDialog();
     let initializeError = null;
     try {
+      await filterRuntimeOptionsForPlatform();
       await loadSettings();
       await loadRuntime();
       await loadCommands(false);

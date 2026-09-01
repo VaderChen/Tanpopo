@@ -21,7 +21,7 @@ type fileData struct {
 }
 
 const (
-	currentFileVersion = 10
+	currentFileVersion = 13
 	defaultContextSize = 256 * 1024
 )
 
@@ -108,6 +108,31 @@ func NewStore(path string, fallback domain.StartupCommand) (*Store, error) {
 				data.Commands[index].Name = "MLX DFlash 1（Greedy，Block 5）"
 				data.Commands[index].UpdatedAt = now
 			}
+			if data.Version < 11 && data.Commands[index].ID == "mtp" && argumentsEqual(
+				data.Commands[index].ExtraArgs,
+				[]string{
+					"--spec-type", "draft-mtp",
+					"--spec-draft-n-max", "2",
+					"--flash-attn", "on",
+					"--jinja",
+				},
+			) {
+				data.Commands[index].ExtraArgs = mtpArguments()
+				data.Commands[index].UpdatedAt = now
+			}
+			if data.Version < 12 && data.Commands[index].ID == "mtp" && argumentsEqual(
+				data.Commands[index].ExtraArgs,
+				[]string{
+					"--spec-type", "draft-mtp",
+					"--spec-draft-n-max", "4",
+					"--parallel", "1",
+					"--flash-attn", "on",
+					"--jinja",
+				},
+			) {
+				data.Commands[index].ExtraArgs = mtpArguments()
+				data.Commands[index].UpdatedAt = now
+			}
 		}
 		for _, preset := range builtinCommands(fallback, now)[1:] {
 			nameKey := strings.ToLower(preset.Name)
@@ -137,6 +162,28 @@ func hasArgument(arguments []string, expected string) bool {
 	return false
 }
 
+func argumentsEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func mtpArguments() []string {
+	return []string{
+		"--spec-type", "draft-mtp",
+		"--spec-draft-n-max", "2",
+		"--parallel", "1",
+		"--flash-attn", "on",
+		"--jinja",
+	}
+}
+
 func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.StartupCommand {
 	base := fallback
 	base.ID = "default"
@@ -162,12 +209,7 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 			"--reasoning-budget", "0",
 			"--jinja",
 		}),
-		newPreset(base, "mtp", "MTP（256K）", []string{
-			"--spec-type", "draft-mtp",
-			"--spec-draft-n-max", "2",
-			"--flash-attn", "on",
-			"--jinja",
-		}),
+		newPreset(base, "mtp", "MTP（256K）", mtpArguments()),
 		newPreset(base, "dflash", "DFlash（256K，需 Draft GGUF）", []string{
 			"--spec-type", "draft-dflash",
 			"--spec-draft-n-max", "15",
@@ -232,6 +274,23 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 			Threads:     0,
 			ExtraArgs: []string{
 				"--no-thinking",
+				"--prefill-step-size", "2048",
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:          "mlx-mtp",
+			Name:        "MLX MTP（Greedy，Block 2）",
+			Runtime:     domain.RuntimeMLXServer,
+			ServerHost:  "0.0.0.0",
+			ServerPort:  8080,
+			ContextSize: defaultContextSize,
+			GPULayers:   -1,
+			Threads:     0,
+			ExtraArgs: []string{
+				"--temperature", "0",
+				"--mtp-block-size", "2",
 				"--prefill-step-size", "2048",
 			},
 			CreatedAt: now,

@@ -6,9 +6,9 @@
   <title>Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260831-48">
-  <script src="/assets/common.js?v=20260831-67" defer></script>
-  <script src="/assets/runtime.js?v=20260831-3" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
+  <script src="/assets/common.js?v=20260901-71" defer></script>
+  <script src="/assets/runtime.js?v=20260901-8" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -275,11 +275,16 @@
           <div><dt>模型</dt><dd id="runtimeTestModel">—</dd></div>
           <div><dt>輸入 Tokens</dt><dd id="runtimeTestPromptTokens">—</dd></div>
           <div><dt>輸出 Tokens</dt><dd id="runtimeTestCompletionTokens">—</dd></div>
-          <div class="runtime-test-speed"><dt>生成速度</dt><dd id="runtimeTestSpeed">—</dd></div>
+          <div class="runtime-test-speed"><dt id="runtimeTestSpeedLabel">生成速度</dt><dd id="runtimeTestSpeed">—</dd></div>
+          <div id="runtimeTestMedianRow" class="runtime-test-speed" hidden><dt>中位生成速度</dt><dd id="runtimeTestMedianSpeed">—</dd></div>
           <div><dt>測試時間</dt><dd id="runtimeTestElapsed">—</dd></div>
         </dl>
       </div>
       <footer class="runtime-test-actions">
+        <div class="runtime-test-rerun-actions">
+          <button id="repeatRuntimeTestButton" class="button secondary" type="button">重複 3 次測試</button>
+          <button id="longRuntimeTestButton" class="button secondary" type="button">長輸出測試</button>
+        </div>
         <button id="closeRuntimeTestButton" class="button primary" type="button">關閉視窗</button>
       </footer>
     </article>

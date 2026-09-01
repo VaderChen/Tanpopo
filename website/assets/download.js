@@ -169,9 +169,18 @@
     const list = document.createElement("div");
     list.className = "downloaded-model-list";
     if (!models.length) {
-      const empty = document.createElement("p");
-      empty.className = "empty-state downloaded-model-empty";
-      empty.textContent = t("目前沒有已下載模型。");
+      list.classList.add("is-empty");
+      const empty = document.createElement("div");
+      empty.className = "downloaded-model-empty";
+      const icon = document.createElement("span");
+      icon.className = "downloaded-model-empty-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4.5 7.25A1.75 1.75 0 0 1 6.25 5.5h3.4l1.8 2h6.3a1.75 1.75 0 0 1 1.75 1.75v7.5a1.75 1.75 0 0 1-1.75 1.75H6.25a1.75 1.75 0 0 1-1.75-1.75v-9.5Z"></path><path d="M8.5 13h7"></path></svg>';
+      const title = document.createElement("strong");
+      title.textContent = t("尚未下載模型");
+      const hint = document.createElement("span");
+      hint.textContent = t("下載完成後會顯示在這裡。");
+      empty.append(icon, title, hint);
       list.append(empty);
     } else {
       models.forEach((model) => {
@@ -216,12 +225,6 @@
         meta.className = "muted";
         meta.textContent = `${formatBytes(Number(model.size || 0))} · ${t("修改於")} ${formatTime(model.modified_at)}`;
         metaRow.append(meta);
-        if (model.runtime_untested) {
-          const badge = document.createElement("span");
-          badge.className = "downloaded-model-badge";
-          badge.textContent = t("尚未測試");
-          metaRow.append(badge);
-        }
         item.append(itemHeading, metaRow);
         list.append(item);
       });

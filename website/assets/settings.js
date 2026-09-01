@@ -8,6 +8,9 @@
   let netPassFormHydrated = false;
   let netPassPollBusy = false;
   let disableAuthenticationConfirmed = false;
+  let linuxZIPUpdateBusy = false;
+  let linuxZIPUpdatePollTimer = 0;
+  let linuxZIPUpdateReloadPending = false;
   const settingsPaneHashes = {
     settingsGeneralPane: "general",
     settingsModelSourcePane: "model-source",
@@ -452,12 +455,132 @@
     }
   }
 
+  function scheduleLinuxZIPUpdatePoll() {
+    window.clearTimeout(linuxZIPUpdatePollTimer);
+    linuxZIPUpdatePollTimer = window.setTimeout(loadLinuxZIPUpdateStatus, 1500);
+  }
+
+  function renderLinuxZIPUpdateStatus(status = {}) {
+    const button = byId("linuxZIPUpdateButton");
+    const summary = byId("linuxZIPUpdateStatus");
+    const available = status.available !== false;
+    const state = String(status.state || "idle");
+    const active = ["preparing", "restarting"].includes(state);
+    button.dataset.backendAvailable = String(available);
+    button.hidden = !available;
+    button.disabled = active || linuxZIPUpdateBusy;
+    button.textContent = t(active || linuxZIPUpdateBusy ? "上傳與更新中…" : "透過 ZIP 更新");
+    summary.className = "about-update-summary";
+
+    if (!available || state === "idle") {
+      summary.hidden = true;
+      return;
+    }
+    summary.hidden = false;
+    if (state === "failed") {
+      linuxZIPUpdateBusy = false;
+      button.disabled = false;
+      button.textContent = t("透過 ZIP 更新");
+      summary.classList.add("error");
+      summary.textContent = `${t("ZIP 更新失敗")}：${t(String(status.message || ""))}`;
+      return;
+    }
+    if (state === "completed") {
+      summary.classList.add("updating");
+      summary.textContent = t(linuxZIPUpdateBusy
+        ? "ZIP 更新完成，即將重新載入頁面。"
+        : String(status.message || "ZIP 更新完成，服務已重新啟動。"));
+      if (linuxZIPUpdateBusy && !linuxZIPUpdateReloadPending) {
+        linuxZIPUpdateReloadPending = true;
+        window.setTimeout(() => location.reload(), 1500);
+      }
+      return;
+    }
+    summary.classList.add("updating");
+    summary.textContent = t(String(status.message || "更新程序已啟動，正在準備安裝。"));
+  }
+
+  async function loadLinuxZIPUpdateStatus() {
+    if (byId("linuxZIPUpdateButton").hidden && !linuxZIPUpdateBusy) return;
+    try {
+      const status = await api("/api/app-update/status");
+      renderLinuxZIPUpdateStatus(status);
+      if (["preparing", "restarting"].includes(String(status.state || ""))) {
+        linuxZIPUpdateBusy = true;
+        scheduleLinuxZIPUpdatePoll();
+      }
+    } catch (_error) {
+      if (!linuxZIPUpdateBusy) return;
+      const summary = byId("linuxZIPUpdateStatus");
+      summary.hidden = false;
+      summary.className = "about-update-summary updating";
+      summary.textContent = t("正在等待服務完成更新並重新啟動…");
+      scheduleLinuxZIPUpdatePoll();
+    }
+  }
+
+  async function uploadLinuxZIPUpdate(file) {
+    if (!file || !String(file.name || "").toLowerCase().endsWith(".zip")) {
+      showMessage("請選擇 ZIP 檔案", "error");
+      return;
+    }
+    if (!window.confirm(t("確定要上傳並套用這個 ZIP 更新嗎？"))) return;
+
+    const button = byId("linuxZIPUpdateButton");
+    const summary = byId("linuxZIPUpdateStatus");
+    linuxZIPUpdateBusy = true;
+    button.disabled = true;
+    button.textContent = t("上傳與更新中…");
+    summary.hidden = false;
+    summary.className = "about-update-summary updating";
+    summary.textContent = t("正在上傳並驗證更新 ZIP…");
+    const form = new FormData();
+    form.append("update_zip", file, file.name);
+    try {
+      const response = await fetch("/api/app-update/upload", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Accept": "application/json" },
+        body: form
+      });
+      const text = await response.text();
+      let payload = {};
+      if (text) {
+        try { payload = JSON.parse(text); } catch (_) { payload = {}; }
+      }
+      if (response.status === 401) {
+        location.replace("/login.html");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || `${t("請求失敗")} (${response.status})`);
+      }
+      renderLinuxZIPUpdateStatus(payload);
+      scheduleLinuxZIPUpdatePoll();
+    } catch (error) {
+      linuxZIPUpdateBusy = false;
+      button.disabled = false;
+      button.textContent = t("透過 ZIP 更新");
+      summary.className = "about-update-summary error";
+      summary.textContent = `${t("ZIP 更新失敗")}：${error.message}`;
+    }
+  }
+
   function systemInfoValue(value) {
     const text = String(value || "").trim();
     return text || "—";
   }
 
   function renderSystemInfo(info) {
+    const isLinux = String(info.platform || "").toLowerCase() === "linux";
+    const zipUpdateButton = byId("linuxZIPUpdateButton");
+    zipUpdateButton.hidden = !isLinux || zipUpdateButton.dataset.backendAvailable === "false";
+    if (isLinux && zipUpdateButton.dataset.initialized !== "true") {
+      zipUpdateButton.dataset.initialized = "true";
+      byId("linuxZIPUpdateStatus").textContent = t("請選擇 Tanpopo 發布 ZIP。更新期間服務會短暫中斷，完成後將自動重新啟動。");
+      loadLinuxZIPUpdateStatus();
+    }
     byId("systemOSName").textContent = systemInfoValue(info.os_name);
     byId("systemOSVersion").textContent = systemInfoValue(info.os_version);
     byId("systemOSBuild").textContent = systemInfoValue(info.os_build);
@@ -933,6 +1056,13 @@
   });
 
   byId("checkUpdateButton").addEventListener("click", () => loadAppVersion(true));
+  byId("linuxZIPUpdateButton").addEventListener("click", () => byId("linuxZIPUpdateInput").click());
+  byId("linuxZIPUpdateInput").addEventListener("change", async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) await uploadLinuxZIPUpdate(file);
+  });
 
   byId("authenticationEnabled").addEventListener("change", async () => {
     const toggle = byId("authenticationEnabled");

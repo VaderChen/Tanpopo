@@ -19,3 +19,18 @@ func TestCurrentIncludesBuildNumber(t *testing.T) {
 		t.Fatalf("Release 版本不應包含 build 編號：%s", actual)
 	}
 }
+
+func TestTagIncludesBuildNumber(t *testing.T) {
+	originalVersion := Version
+	originalBuild := Build
+	t.Cleanup(func() {
+		Version = originalVersion
+		Build = originalBuild
+	})
+
+	Version = "1.26.0901"
+	Build = "1507"
+	if actual := Tag(); actual != "1.26.0901-build-1507" {
+		t.Fatalf("Tag 應包含 build 編號：%s", actual)
+	}
+}

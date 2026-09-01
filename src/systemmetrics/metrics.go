@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"net"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type NetworkInterface struct {
 
 // SystemInfo 是不含敏感憑證的本機硬體與作業系統摘要。
 type SystemInfo struct {
+	Platform       string             `json:"platform"`
 	OSName         string             `json:"os_name"`
 	OSVersion      string             `json:"os_version"`
 	OSBuild        string             `json:"os_build"`
@@ -111,6 +113,7 @@ func (c *Collector) collect(ctx context.Context) {
 
 func (c *Collector) collectInfo(ctx context.Context) {
 	info := collectPlatformInfo(ctx)
+	info.Platform = runtime.GOOS
 	info.Network = collectNetworkInterfaces()
 	info.CollectedAt = time.Now()
 	c.mu.Lock()

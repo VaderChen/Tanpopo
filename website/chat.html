@@ -6,12 +6,12 @@
   <title>簡易對話 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260829-30">
+  <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
   <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css?v=0.18.4">
   <script src="/assets/vendor/markdown-it/markdown-it.min.js?v=15.0.1" defer></script>
   <script src="/assets/vendor/katex/katex.min.js?v=0.18.4" defer></script>
   <script src="/assets/vendor/katex/contrib/auto-render.min.js?v=0.18.4" defer></script>
-  <script src="/assets/common.js?v=20260829-47" defer></script>
+  <script src="/assets/common.js?v=20260901-71" defer></script>
   <script src="/assets/chat.js?v=20260829-6" defer></script>
 </head>
 <body>
@@ -35,50 +35,40 @@
 
   <main class="page-shell chat-page-shell">
     <div id="globalMessage" class="toast page-toast" role="status" aria-live="polite" hidden></div>
-    <section class="section-block">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">PLAYGROUND</p>
-          <h2>簡易對話</h2>
+    <section class="panel chat-panel" aria-label="模型對話">
+      <div class="chat-toolbar">
+        <div class="chat-runtime-state">
+          <span id="chatStatusDot" class="chat-runtime-dot" aria-hidden="true"></span>
+          <div>
+            <strong id="chatStatusLabel">讀取模型狀態中…</strong>
+            <p id="chatStatusMeta">請稍候</p>
+          </div>
         </div>
-        <p class="section-note">只存在目前頁面，重新整理後即清除</p>
+        <button id="clearChatButton" class="button secondary compact" type="button" disabled>清除對話</button>
       </div>
 
-      <section class="panel chat-panel" aria-label="模型對話">
-        <div class="chat-toolbar">
-          <div class="chat-runtime-state">
-            <span id="chatStatusDot" class="chat-runtime-dot" aria-hidden="true"></span>
-            <div>
-              <strong id="chatStatusLabel">讀取模型狀態中…</strong>
-              <p id="chatStatusMeta">請稍候</p>
-            </div>
-          </div>
-          <button id="clearChatButton" class="button secondary compact" type="button" disabled>清除對話</button>
+      <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-label="對話內容">
+        <div id="chatEmptyState" class="chat-empty-state">
+          <strong>開始一段本機對話</strong>
+          <p>訊息只會傳送給目前執行中的模型，不會保存對話紀錄。</p>
         </div>
+      </div>
 
-        <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-label="對話內容">
-          <div id="chatEmptyState" class="chat-empty-state">
-            <strong>開始一段本機對話</strong>
-            <p>訊息只會傳送給目前執行中的模型，不會保存對話紀錄。</p>
-          </div>
+      <form id="chatForm" class="chat-composer">
+        <label for="chatInput">訊息</label>
+        <div class="chat-input-row">
+          <textarea id="chatInput" rows="2" maxlength="65536" placeholder="輸入訊息；Enter 傳送，Shift + Enter 換行" required disabled></textarea>
+          <button id="sendChatButton" class="button primary chat-send-button" type="submit" disabled>傳送</button>
         </div>
-
-        <form id="chatForm" class="chat-composer">
-          <label for="chatInput">訊息</label>
-          <div class="chat-input-row">
-            <textarea id="chatInput" rows="2" maxlength="65536" placeholder="輸入訊息；Enter 傳送，Shift + Enter 換行" required disabled></textarea>
-            <button id="sendChatButton" class="button primary chat-send-button" type="submit" disabled>傳送</button>
-          </div>
-          <details class="chat-runtime-key">
-            <summary>模型 API 金鑰（選用）</summary>
-            <label class="field" for="chatRuntimeKey">
-              <span>僅在 Runtime 啟用金鑰驗證時填寫</span>
-              <input id="chatRuntimeKey" type="password" maxlength="256" autocomplete="off" spellcheck="false">
-            </label>
-          </details>
-          <p id="chatComposerHint" class="helper">請先於「執行狀態」啟動模型服務。</p>
-        </form>
-      </section>
+        <details class="chat-runtime-key">
+          <summary>模型 API 金鑰（選用）</summary>
+          <label class="field" for="chatRuntimeKey">
+            <span>僅在 Runtime 啟用金鑰驗證時填寫</span>
+            <input id="chatRuntimeKey" type="password" maxlength="256" autocomplete="off" spellcheck="false">
+          </label>
+        </details>
+        <p id="chatComposerHint" class="helper">請先於「執行狀態」啟動模型服務。</p>
+      </form>
     </section>
   </main>
 </body>

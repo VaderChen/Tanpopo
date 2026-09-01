@@ -13,7 +13,7 @@ import (
 	"LlamaLoader/src/domain"
 )
 
-const runtimeStateVersion = 5
+const runtimeStateVersion = 6
 
 // persistedRuntimeState 只保存重建模型服務所需的相對模型名稱與參數 ID，
 // 不保存 Runtime 二進位檔或模型根目錄等本機絕對路徑。
@@ -24,6 +24,7 @@ type persistedRuntimeState struct {
 	Model                   string    `json:"model,omitempty"`
 	MMProj                  string    `json:"mmproj,omitempty"`
 	DraftModel              string    `json:"draft_model,omitempty"`
+	DraftKind               string    `json:"draft_kind,omitempty"`
 	DFlashEnabled           bool      `json:"dflash_enabled"`
 	MMapEnabled             bool      `json:"mmap_enabled"`
 	FastGGUF                bool      `json:"fast_gguf"`
@@ -136,6 +137,7 @@ func normalizeRuntimeState(state persistedRuntimeState) persistedRuntimeState {
 	state.Model = filepath.ToSlash(strings.TrimSpace(state.Model))
 	state.MMProj = filepath.ToSlash(strings.TrimSpace(state.MMProj))
 	state.DraftModel = filepath.ToSlash(strings.TrimSpace(state.DraftModel))
+	state.DraftKind = strings.ToLower(strings.TrimSpace(state.DraftKind))
 	state.StartupCommandID = strings.TrimSpace(state.StartupCommandID)
 	state.StartupCommandName = strings.TrimSpace(state.StartupCommandName)
 	state.KVCacheQuantization = strings.ToLower(strings.TrimSpace(state.KVCacheQuantization))
@@ -145,9 +147,19 @@ func normalizeRuntimeState(state persistedRuntimeState) persistedRuntimeState {
 		state.FastGGUF = false
 		state.SkipGGUFConversionCache = false
 	}
-	if !state.DFlashEnabled {
+	if state.DFlashEnabled {
+		state.DraftKind = "dflash"
+	}
+	if state.DraftKind != "dflash" && state.DraftKind != "mtp" {
+		state.DraftKind = ""
+	}
+	if state.DraftKind == "dflash" && !state.DFlashEnabled {
+		state.DraftKind = ""
+	}
+	if state.DraftKind == "" {
 		state.DraftModel = ""
-	} else {
+	}
+	if state.DraftKind != "" {
 		state.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
 	return state
@@ -171,16 +183,19 @@ func validateRuntimeState(state persistedRuntimeState) error {
 	if state.DesiredRunning && (state.Model == "" || state.StartupCommandID == "") {
 		return errors.New("執行狀態缺少模型或啟動參數 ID")
 	}
-	if state.DFlashEnabled && state.DraftModel == "" {
-		return errors.New("DFlash 狀態缺少 Draft 模型")
+	if state.DraftKind != "" && state.DraftModel == "" {
+		return errors.New("推測解碼狀態缺少 Draft 模型")
+	}
+	if state.DraftKind == "mtp" && state.Runtime != domain.RuntimeMLXServer {
+		return errors.New("MTP 狀態僅支援 mlx-server")
 	}
 	if state.KVCacheQuantization != domain.KVCacheQuantizationNone &&
 		state.KVCacheQuantization != domain.KVCacheQuantizationQ8 &&
 		state.KVCacheQuantization != domain.KVCacheQuantizationQ4 {
 		return errors.New("KV Cache 量化狀態只支援 Q8 或 Q4")
 	}
-	if state.DFlashEnabled && state.KVCacheQuantization != domain.KVCacheQuantizationNone {
-		return errors.New("DFlash 與 KV Cache 量化狀態不可同時啟用")
+	if state.DraftKind != "" && state.KVCacheQuantization != domain.KVCacheQuantizationNone {
+		return errors.New("推測解碼與 KV Cache 量化狀態不可同時啟用")
 	}
 	return nil
 }

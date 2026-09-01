@@ -20,6 +20,7 @@ import (
 
 	"LlamaLoader/src/accesscontrol"
 	"LlamaLoader/src/api"
+	"LlamaLoader/src/appupdate"
 	"LlamaLoader/src/appversion"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/desktopui"
@@ -36,7 +37,23 @@ func main() {
 	}
 	agentPath := flag.String("config", agentDefault, "服務設定檔路徑")
 	samplePath := flag.String("sample-config", sampleDefault, "預設設定範本路徑")
+	applyUpdatePayload := flag.String("apply-linux-update", "", "內部使用：套用 Linux ZIP 更新內容")
+	updateTarget := flag.String("update-target", "", "內部使用：目前安裝目錄")
+	updateWorkspace := flag.String("update-workspace", "", "內部使用：更新暫存目錄")
+	updateParentPID := flag.Int("update-parent-pid", 0, "內部使用：等待結束的主服務 PID")
 	flag.Parse()
+
+	if strings.TrimSpace(*applyUpdatePayload) != "" {
+		if err := appupdate.Apply(appupdate.ApplyOptions{
+			PayloadDir: *applyUpdatePayload,
+			TargetDir:  *updateTarget,
+			Workspace:  *updateWorkspace,
+			ParentPID:  *updateParentPID,
+		}); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	if err := run(*agentPath, *samplePath); err != nil {
 		log.Fatal(err)

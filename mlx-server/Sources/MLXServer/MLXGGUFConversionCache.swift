@@ -79,6 +79,11 @@ enum MLXGGUFConversionCache {
         }
     }
 
+    /// 診斷開關：轉換後不重新載入剛寫出的 FGGUF，直接沿用記憶體中的權重。
+    /// 可省下一次完整讀取，代價是首次啟動與快取命中走不同的材料化路徑。
+    static let skipReloadAfterStore =
+        ProcessInfo.processInfo.environment["TANPOPO_GGUF_SKIP_RELOAD"] == "1"
+
     static func makePlan(
         cacheDirectory: String?,
         weightURL: URL,

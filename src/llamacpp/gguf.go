@@ -91,10 +91,11 @@ func readGGUFStringMetadata(path, expectedKey string) (string, error) {
 
 // ggufModelProfile 是判斷「這個 GGUF 是不是語言模型」需要的最小欄位集合。
 type ggufModelProfile struct {
-	Architecture   string
-	HasBlockCount  bool
-	HasTokenizer   bool
-	HasPoolingType bool
+	Architecture       string
+	HasBlockCount      bool
+	HasTokenizer       bool
+	HasPoolingType     bool
+	NextNPredictLayers int
 }
 
 // encoderOnlyGGUFArchitectures 是只能產生向量、不能生成文字的架構。
@@ -179,12 +180,65 @@ func readGGUFModelProfile(path string) (ggufModelProfile, error) {
 			profile.HasTokenizer = true
 		case strings.HasSuffix(key, ".pooling_type"):
 			profile.HasPoolingType = true
+		case strings.HasSuffix(key, ".nextn_predict_layers"):
+			value, supported, err := readGGUFIntegerMetadata(reader, valueType)
+			if err != nil {
+				return profile, err
+			}
+			if supported {
+				if value > 0 && value <= int64(int(^uint(0)>>1)) {
+					profile.NextNPredictLayers = int(value)
+				}
+				continue
+			}
 		}
 		if err := skipGGUFValue(reader, valueType, 0); err != nil {
 			return profile, err
 		}
 	}
 	return profile, nil
+}
+
+func readGGUFIntegerMetadata(reader io.Reader, valueType uint32) (int64, bool, error) {
+	switch valueType {
+	case ggufTypeUint8:
+		var value uint8
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeInt8:
+		var value int8
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeUint16:
+		var value uint16
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeInt16:
+		var value int16
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeUint32:
+		var value uint32
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeInt32:
+		var value int32
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return int64(value), true, err
+	case ggufTypeUint64:
+		var value uint64
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		if err != nil || value > uint64(^uint64(0)>>1) {
+			return 0, true, err
+		}
+		return int64(value), true, nil
+	case ggufTypeInt64:
+		var value int64
+		err := binary.Read(reader, binary.LittleEndian, &value)
+		return value, true, err
+	default:
+		return 0, false, nil
+	}
 }
 
 func skipGGUFValue(reader io.Reader, valueType uint32, depth int) error {

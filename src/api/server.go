@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"LlamaLoader/src/accesscontrol"
+	"LlamaLoader/src/appupdate"
 	"LlamaLoader/src/appversion"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/directorybrowser"
@@ -42,6 +43,7 @@ type Server struct {
 	downloads       *download.Manager
 	llama           *llamacpp.Manager
 	updates         *updatecheck.Checker
+	localUpdates    *appupdate.Manager
 	metrics         *systemmetrics.Collector
 	netPass         *netpass.Manager
 	credentialsMu   sync.Mutex
@@ -59,7 +61,7 @@ func NewServer(
 	llama *llamacpp.Manager,
 ) *Server {
 	updates := updatecheck.New(updatecheck.Options{
-		CurrentVersion: appversion.Release(),
+		CurrentVersion: appversion.Tag(),
 		DisplayVersion: appversion.Current(),
 		Repository:     appversion.RepositoryName(),
 	})
@@ -80,6 +82,7 @@ func NewServer(
 		downloads:       downloads,
 		llama:           llama,
 		updates:         updates,
+		localUpdates:    appupdate.NewManager(),
 		metrics:         metrics,
 		netPass:         netPass,
 	}
@@ -133,6 +136,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/netpass/stop", s.requireAPI(s.handleNetPassStop))
 	mux.HandleFunc("GET /api/app-version", s.handleAppVersion)
 	mux.HandleFunc("POST /api/app-version/check", s.requireAPI(s.handleAppVersionCheck))
+	mux.HandleFunc("GET /api/app-update/status", s.requireAPI(s.handleAppUpdateStatus))
+	mux.HandleFunc("POST /api/app-update/upload", s.requireAPI(s.handleAppUpdateUpload))
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
@@ -356,6 +361,45 @@ func (s *Server) handleAppVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAppVersionCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.updates.Check(r.Context(), true))
+}
+
+func (s *Server) handleAppUpdateStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.localUpdates.Status())
+}
+
+func (s *Server) handleAppUpdateUpload(w http.ResponseWriter, r *http.Request) {
+	if !s.sessions.AuthenticationEnabled() {
+		writeError(w, http.StatusForbidden, errors.New("透過 ZIP 更新前必須先開啟管理介面登入驗證"))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, appupdate.MaxUploadBytes+(1<<20))
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(strings.ToLower(err.Error()), "too large") {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeError(w, status, fmt.Errorf("讀取更新 ZIP 失敗: %w", err))
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	archive, header, err := r.FormFile("update_zip")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("請選擇 Tanpopo 發布 ZIP"))
+		return
+	}
+	defer archive.Close()
+	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(header.Filename)), ".zip") {
+		writeError(w, http.StatusBadRequest, errors.New("更新檔案必須是 ZIP"))
+		return
+	}
+	status, err := s.localUpdates.Start(archive)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, status)
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
@@ -640,7 +684,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if runtimeName == domain.RuntimeMLXServer {
 		if strings.TrimSpace(r.URL.Query().Get("role")) == "draft" {
-			models, err = llamacpp.ListMLXDFlashModels(settings.MLXModelDirectory)
+			models, err = llamacpp.ListMLXDraftModels(settings.MLXModelDirectory)
 		} else {
 			models, err = llamacpp.ListMLXRuntimeModels(
 				settings.MLXModelDirectory,

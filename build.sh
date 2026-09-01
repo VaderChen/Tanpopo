@@ -15,6 +15,8 @@ BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LLAMA_SOURCE_DIR="${LLAMA_CPP_SOURCE_DIR:-}"
 LLAMA_PREBUILT_DIR="${LLAMA_SERVER_PREBUILT_DIR:-${PROJECT_DIR}/llama-runtime/prebuilt}"
 RUNTIME_BUILD_SCRIPT="${PROJECT_DIR}/scripts/build-llama-server-runtime.sh"
+LLAMA_BUILD_ENTRY_SCRIPT="${PROJECT_DIR}/build-llama-server.sh"
+VULKAN_INSTALL_SCRIPT="${PROJECT_DIR}/scripts/install-linux-vulkan-dependencies.sh"
 LLAMA_PINNED_VERSION_FILE="${LLAMA_SERVER_VERSION_FILE:-}"
 DEFAULT_LLAMA_PLATFORMS=(darwin-arm64 linux-amd64)
 PACKAGED_LLAMA_PLATFORMS=()
@@ -236,6 +238,8 @@ require_file "agent.sample.properties"
 require_file "README.md"
 require_file "run.command"
 require_file "${RUNTIME_BUILD_SCRIPT}"
+require_file "${LLAMA_BUILD_ENTRY_SCRIPT}"
+require_file "${VULKAN_INSTALL_SCRIPT}"
 require_file "${MLX_BUILD_SCRIPT}"
 require_file "${MLX_SOURCE_DIR}/Package.swift"
 require_file "${MLX_VERSION_FILE}"
@@ -245,6 +249,7 @@ require_file "${LLAMA_SOURCE_DIR}/CMakeLists.txt"
 require_file "${LLAMA_SOURCE_DIR}/tools/server"
 require_command "go"
 require_command "tar"
+require_command "rsync"
 require_command "zip"
 require_command "unzip"
 
@@ -275,10 +280,15 @@ llama_prebuilt_is_current() {
   local platform="$1"
   local runtime_dir="${LLAMA_PREBUILT_DIR}/${platform}"
   local runtime_version=""
+  local runtime_backend=""
   if [[ -f "${runtime_dir}/VERSION" ]]; then
     runtime_version="$(tr -d '[:space:]' < "${runtime_dir}/VERSION")"
   fi
-  [[ -x "${runtime_dir}/bin/llama-server" && "${runtime_version}" == "${LLAMA_VERSION}" ]]
+  if [[ -f "${runtime_dir}/BACKEND" ]]; then
+    runtime_backend="$(tr -d '[:space:]' < "${runtime_dir}/BACKEND")"
+  fi
+  [[ -x "${runtime_dir}/bin/llama-server" && "${runtime_version}" == "${LLAMA_VERSION}" ]] || return 1
+  [[ "${platform}" != linux-* || "${runtime_backend}" == "vulkan" ]]
 }
 
 mlx_prebuilt_is_current() {
@@ -342,26 +352,35 @@ build_target() {
 
 copy_llama_source() {
   local destination="${PACKAGE_DIR}/llama-server/source"
+  local required_source_file=""
   mkdir -p "${destination}"
-  (
-    cd "${LLAMA_SOURCE_DIR}"
-    tar \
-      --exclude='./.git' \
-      --exclude='./.github' \
-      --exclude='./build' \
-      --exclude='./build-*' \
-      --exclude='./docs' \
-      --exclude='./examples' \
-      --exclude='./tests' \
-      --exclude='./media' \
-      --exclude='./models' \
-      --exclude='./pocs' \
-      --exclude='./prompts' \
-      -cf - .
-  ) | (
-    cd "${destination}"
-    tar -xf -
-  )
+  COPYFILE_DISABLE=1 /usr/bin/rsync -a \
+    --exclude='/.git/' \
+    --exclude='/.github/' \
+    --exclude='/build/' \
+    --exclude='/build-*/' \
+    --exclude='/docs/' \
+    --exclude='/examples/' \
+    --exclude='/tests/' \
+    --exclude='/media/' \
+    --exclude='/models/' \
+    --exclude='/pocs/' \
+    --exclude='/prompts/' \
+    "${LLAMA_SOURCE_DIR}/" "${destination}/"
+
+  for required_source_file in \
+    cmake/build-info.cmake \
+    common/build-info.cpp.in \
+    tools/mtmd/models/models.h; do
+    if [[ ! -f "${destination}/${required_source_file}" ]]; then
+      echo "llama.cpp 原始碼缺少必要檔案：${required_source_file}" >&2
+      exit 1
+    fi
+  done
+  if find "${destination}" -type f -name '._*' -print -quit | grep -q .; then
+    echo "llama.cpp 原始碼不可包含 AppleDouble 中繼檔" >&2
+    exit 1
+  fi
 }
 
 ensure_native_llama_prebuilt_runtime() {
@@ -375,10 +394,10 @@ ensure_native_llama_prebuilt_runtime() {
   fi
 
   echo "缺少目前主機的 llama-server ${LLAMA_VERSION}，開始原生編譯（${NATIVE_LLAMA_PLATFORM}）..."
-  "${RUNTIME_BUILD_SCRIPT}" \
-    "${LLAMA_SOURCE_DIR}" \
-    "${LLAMA_PREBUILT_DIR}/${NATIVE_LLAMA_PLATFORM}" \
-    "${LLAMA_VERSION}"
+  "${LLAMA_BUILD_ENTRY_SCRIPT}" \
+    --source "${LLAMA_SOURCE_DIR}" \
+    --output "${LLAMA_PREBUILT_DIR}/${NATIVE_LLAMA_PLATFORM}" \
+    --version "${LLAMA_VERSION}"
   if ! llama_prebuilt_is_current "${NATIVE_LLAMA_PLATFORM}"; then
     echo "目前主機的 llama-server Runtime 建立失敗：${NATIVE_LLAMA_PLATFORM}" >&2
     exit 1
@@ -477,6 +496,8 @@ copy_llama_source
 mkdir -p "${PACKAGE_DIR}/llama-server"
 printf '%s\n' "${LLAMA_VERSION}" > "${PACKAGE_DIR}/llama-server/VERSION"
 cp "${RUNTIME_BUILD_SCRIPT}" "${PACKAGE_DIR}/llama-server/build-local.sh"
+cp "${VULKAN_INSTALL_SCRIPT}" "${PACKAGE_DIR}/llama-server/install-vulkan-dependencies.sh"
+cp "${LLAMA_BUILD_ENTRY_SCRIPT}" "${PACKAGE_DIR}/build-llama-server.sh"
 for platform in "${DEFAULT_LLAMA_PLATFORMS[@]}"; do
   copy_available_prebuilt_runtime "${platform}"
 done
@@ -539,10 +560,24 @@ if [[ ! -f "${SOURCE_BINARY}" ]]; then
   exit 1
 fi
 
+VULKAN_INSTALL_SCRIPT="${DEPLOY_DIR}/llama-server/install-vulkan-dependencies.sh"
+if [[ "${PLATFORM}" == linux-* ]]; then
+  if [[ ! -x "${VULKAN_INSTALL_SCRIPT}" ]]; then
+    echo "部署包缺少 Linux Vulkan 安裝腳本：${VULKAN_INSTALL_SCRIPT}" >&2
+    exit 1
+  fi
+  "${VULKAN_INSTALL_SCRIPT}" dependencies
+fi
+
 LLAMA_BUNDLE_DIR="${DEPLOY_DIR}/llama-server"
+LLAMA_BUILD_SCRIPT="${DEPLOY_DIR}/build-llama-server.sh"
 LLAMA_VERSION="$(tr -d '[:space:]' < "${LLAMA_BUNDLE_DIR}/VERSION")"
 LLAMA_INSTALL_ROOT="${LLAMA_CPP_INSTALL_DIR:-${HOME}/services/llama.cpp}"
-LLAMA_VERSION_DIR="${LLAMA_INSTALL_ROOT}/versions/${LLAMA_VERSION}/${PLATFORM}"
+LLAMA_INSTALL_VARIANT="${PLATFORM}"
+if [[ "${PLATFORM}" == linux-* ]]; then
+  LLAMA_INSTALL_VARIANT="${PLATFORM}-vulkan"
+fi
+LLAMA_VERSION_DIR="${LLAMA_INSTALL_ROOT}/versions/${LLAMA_VERSION}/${LLAMA_INSTALL_VARIANT}"
 LLAMA_PREBUILT_DIR="${LLAMA_BUNDLE_DIR}/prebuilt/${PLATFORM}"
 
 if [[ ! -x "${LLAMA_VERSION_DIR}/bin/llama-server" ]]; then
@@ -560,10 +595,10 @@ if [[ ! -x "${LLAMA_VERSION_DIR}/bin/llama-server" ]]; then
     cp -R "${LLAMA_PREBUILT_DIR}/." "${STAGING_DIR}/"
   else
     echo "沒有 ${PLATFORM} 預編譯版本，開始在目前主機編譯 llama-server..."
-    "${LLAMA_BUNDLE_DIR}/build-local.sh" \
-      "${LLAMA_BUNDLE_DIR}/source" \
-      "${STAGING_DIR}" \
-      "${LLAMA_VERSION}"
+    "${LLAMA_BUILD_SCRIPT}" \
+      --source "${LLAMA_BUNDLE_DIR}/source" \
+      --output "${STAGING_DIR}" \
+      --version "${LLAMA_VERSION}"
   fi
 
   if [[ ! -x "${STAGING_DIR}/bin/llama-server" ]]; then
@@ -584,7 +619,7 @@ if [[ -e "${LLAMA_INSTALL_ROOT}/current" && ! -L "${LLAMA_INSTALL_ROOT}/current"
   exit 1
 fi
 CURRENT_TEMP="${LLAMA_INSTALL_ROOT}/.current.$$"
-ln -s "versions/${LLAMA_VERSION}/${PLATFORM}" "${CURRENT_TEMP}"
+ln -s "versions/${LLAMA_VERSION}/${LLAMA_INSTALL_VARIANT}" "${CURRENT_TEMP}"
 if [[ -L "${LLAMA_INSTALL_ROOT}/current" ]]; then
   rm "${LLAMA_INSTALL_ROOT}/current"
 fi
@@ -621,6 +656,16 @@ fi
 
 cp "${SOURCE_BINARY}" "${DEPLOY_DIR}/${APP_NAME}"
 chmod +x "${DEPLOY_DIR}/${APP_NAME}"
+if [[ "${PLATFORM}" == linux-* ]]; then
+  PERMISSION_STATUS=0
+  "${VULKAN_INSTALL_SCRIPT}" permissions || PERMISSION_STATUS=$?
+  if [[ "${PERMISSION_STATUS}" -eq 20 ]]; then
+    echo "Linux GPU 權限已更新；請重新登入後再次執行 run.sh。" >&2
+    exit 20
+  elif [[ "${PERMISSION_STATUS}" -ne 0 ]]; then
+    exit "${PERMISSION_STATUS}"
+  fi
+fi
 echo "已安裝 ${OS_NAME}/${ARCH_NAME} 執行檔：${DEPLOY_DIR}/${APP_NAME}"
 echo "已啟用 llama-server ${LLAMA_VERSION}：${LLAMA_INSTALL_ROOT}/current/bin/llama-server"
 EOF
@@ -660,10 +705,12 @@ EOF
 
 chmod +x \
   "${PACKAGE_DIR}/install.sh" \
+  "${PACKAGE_DIR}/build-llama-server.sh" \
   "${PACKAGE_DIR}/run.sh" \
   "${PACKAGE_DIR}/run.command" \
   "${PACKAGE_DIR}/desktop-ui/TanpopoUI" \
   "${PACKAGE_DIR}/llama-server/build-local.sh" \
+  "${PACKAGE_DIR}/llama-server/install-vulkan-dependencies.sh" \
   "${PACKAGE_DIR}/mlx-server/prebuilt/darwin-arm64/bin/mlx-server" \
   "${PACKAGE_DIR}/bin/${APP_NAME}_mac_arm64" \
   "${PACKAGE_DIR}/bin/${APP_NAME}_linux_x64" \
@@ -689,6 +736,7 @@ for required_path in \
   "README.md" \
   "agent.sample.properties" \
   "install.sh" \
+  "build-llama-server.sh" \
   "run.sh" \
   "run.command" \
   "website/login.html" \
@@ -707,7 +755,11 @@ for required_path in \
   "desktop-ui/TanpopoIcon.png" \
   "llama-server/VERSION" \
   "llama-server/build-local.sh" \
+  "llama-server/install-vulkan-dependencies.sh" \
   "llama-server/source/CMakeLists.txt" \
+  "llama-server/source/cmake/build-info.cmake" \
+  "llama-server/source/common/build-info.cpp.in" \
+  "llama-server/source/tools/mtmd/models/models.h" \
   "mlx-server/VERSION" \
   "mlx-server/source/Package.swift" \
   "mlx-server/prebuilt/darwin-arm64/bin/mlx-server" \

@@ -3,6 +3,32 @@
   "updated_at": "2026-08-29",
   "gguf": [
     {
+      "name": "Qwen 3.5 0.8B MTP · Q4_K_M",
+      "parameter_size_b": 0.8,
+      "repository": "unsloth/Qwen3.5-0.8B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-0.8B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "內含 MTP 預測層的超輕量 Qwen 3.5，適合低記憶體環境。",
+        "en": "An ultra-lightweight Qwen 3.5 model with embedded MTP prediction layers for memory-constrained systems.",
+        "ja": "MTP 予測レイヤーを内蔵し、低メモリ環境に適した超軽量 Qwen 3.5。",
+        "ko": "MTP 예측 계층을 내장한 초경량 Qwen 3.5 모델로, 메모리가 제한된 환경에 적합합니다."
+      }
+    },
+    {
+      "name": "Qwen 3.5 2B MTP · Q4_K_M",
+      "parameter_size_b": 2,
+      "repository": "unsloth/Qwen3.5-2B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-2B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "內含 MTP 預測層的小型 Qwen 3.5，兼顧低資源需求與生成速度。",
+        "en": "A compact Qwen 3.5 model with embedded MTP prediction layers, balancing low resource use and generation speed.",
+        "ja": "MTP 予測レイヤーを内蔵し、省リソースと生成速度を両立した小型 Qwen 3.5。",
+        "ko": "MTP 예측 계층을 내장해 낮은 자원 사용량과 생성 속도의 균형을 맞춘 소형 Qwen 3.5 모델입니다."
+      }
+    },
+    {
       "name": "Qwen 3.5 4B · Q4_K_M",
       "parameter_size_b": 4,
       "repository": "unsloth/Qwen3.5-4B-GGUF",
@@ -16,6 +42,19 @@
       }
     },
     {
+      "name": "Qwen 3.5 4B MTP · Q4_K_M",
+      "parameter_size_b": 4,
+      "repository": "unsloth/Qwen3.5-4B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "Qwen 3.5 4B 的完整 MTP 版本，GGUF 已內含預測層。",
+        "en": "The complete MTP edition of Qwen 3.5 4B, with prediction layers embedded in the GGUF.",
+        "ja": "予測レイヤーを GGUF に内蔵した Qwen 3.5 4B の完全な MTP 版。",
+        "ko": "예측 계층이 GGUF에 내장된 Qwen 3.5 4B의 완전한 MTP 버전입니다."
+      }
+    },
+    {
       "name": "Qwen 3.5 9B · Q4_K_M",
       "parameter_size_b": 9,
       "repository": "unsloth/Qwen3.5-9B-GGUF",
@@ -26,6 +65,45 @@
         "en": "The mid-sized Qwen 3.5 model, balancing quality and local resource use.",
         "ja": "品質とローカルリソースのバランスを取った Qwen 3.5 中型モデル。",
         "ko": "품질과 로컬 자원 사용의 균형을 맞춘 Qwen 3.5 중형 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.5 9B MTP · Q4_K_M",
+      "parameter_size_b": 9,
+      "repository": "unsloth/Qwen3.5-9B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-9B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "Qwen 3.5 9B 的完整 MTP 版本，兼顧品質與推測解碼能力。",
+        "en": "The complete MTP edition of Qwen 3.5 9B, balancing quality with speculative decoding capability.",
+        "ja": "品質と推測デコード能力を両立した Qwen 3.5 9B の完全な MTP 版。",
+        "ko": "품질과 추측 디코딩 기능의 균형을 맞춘 Qwen 3.5 9B의 완전한 MTP 버전입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.5 27B MTP · Q4_K_M",
+      "parameter_size_b": 27,
+      "repository": "unsloth/Qwen3.5-27B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-27B-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "內含 MTP 預測層的 Qwen 3.5 27B 高品質版本。",
+        "en": "A high-quality Qwen 3.5 27B model with embedded MTP prediction layers.",
+        "ja": "MTP 予測レイヤーを内蔵した高品質 Qwen 3.5 27B。",
+        "ko": "MTP 예측 계층을 내장한 고품질 Qwen 3.5 27B 모델입니다."
+      }
+    },
+    {
+      "name": "Qwen 3.5 35B-A3B MTP · UD-Q4_K_M",
+      "parameter_size_b": 35,
+      "repository": "unsloth/Qwen3.5-35B-A3B-MTP-GGUF",
+      "revision": "main",
+      "filename": "Qwen3.5-35B-A3B-UD-Q4_K_M.gguf",
+      "description": {
+        "zh-Hant": "內含 MTP 預測層的 35B-A3B MoE 版本，適合本機代理與工具工作。",
+        "en": "A 35B-A3B MoE model with embedded MTP prediction layers for local agentic and tool workloads.",
+        "ja": "MTP 予測レイヤーを内蔵し、ローカルのエージェントとツール処理に適した 35B-A3B MoE。",
+        "ko": "MTP 예측 계층을 내장한 35B-A3B MoE 모델로, 로컬 에이전트 및 도구 작업에 적합합니다."
       }
     },
     {
@@ -68,16 +146,16 @@
       }
     },
     {
-      "name": "Qwen 3.8 27B · UD-Q4_K_M",
+      "name": "Qwen 3.8 27B MTP · UD-Q4_K_M",
       "parameter_size_b": 27,
       "repository": "unsloth/Qwen3.8-27B-GGUF",
       "revision": "main",
       "filename": "Qwen3.8-27B-UD-Q4_K_M.gguf",
       "description": {
-        "zh-Hant": "目前 Qwen 3.8 的主流 27B 高品質版本。",
-        "en": "A current high-quality 27B model from the Qwen 3.8 family.",
-        "ja": "Qwen 3.8 系列の現行高品質 27B モデル。",
-        "ko": "Qwen 3.8 계열의 최신 고품질 27B 모델입니다."
+        "zh-Hant": "目前 Qwen 3.8 的主流 27B 高品質版本，GGUF 已內含 MTP 預測權重。",
+        "en": "A current high-quality Qwen 3.8 27B model whose GGUF already includes MTP prediction weights.",
+        "ja": "MTP 予測ウェイトを GGUF に内蔵した、現行の高品質 Qwen 3.8 27B。",
+        "ko": "MTP 예측 가중치가 GGUF에 이미 포함된 최신 고품질 Qwen 3.8 27B 모델입니다."
       }
     },
     {

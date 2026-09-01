@@ -476,6 +476,8 @@ enum MLXGGUFEmbeddedAssets {
             "max_position_embeddings": integer("qwen35.context_length", in: metadata) ?? 131_072,
             "partial_rotary_factor": 0.25,
             "full_attention_interval": integer("qwen35.full_attention_interval", in: metadata) ?? 4,
+            "mtp_num_hidden_layers": predictedLayers,
+            "mtp_use_dedicated_embeddings": false,
             "tie_word_embeddings": false,
             "attention_bias": false,
             "rope_parameters": [

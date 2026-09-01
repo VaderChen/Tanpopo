@@ -7,19 +7,19 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 ## 主な機能
 
 - モデル Runtime の起動、停止、状態復元、ログ確認を 1 つの管理画面で実行。
-- サブフォルダーを含む GGUF と完全な MLX モデルフォルダーを自動検出。Apple Silicon の `mlx-server` は、safetensors への事前変換なしで対応 GGUF を直接読み込めます。
-- **Fast GGUF モード**は `mlx-server` で GGUF を選択したとき既定で有効になり、モデル名に依存しない tensor 規則で INT4、INT8、BF16、group size を選択し、変換済みウェイトを `.fgguf` に永続保存します。システム設定では「既定、Beta 1、Beta 2」の三つの高速戦略を選択できます。mlx-server が解析できる多くの GGUF に有効ですが、すべてのアーキテクチャ、量子化形式、独自 checkpoint の読み込み、加速、同一精度を保証するものではありません。
+- サブフォルダーを含む GGUF と完全な MLX モデルフォルダーを自動検出。GGUF、MLX、mmproj はアルファベット順で「モデル名（ディレクトリ名）」と表示し、内部では完全な安全パスを保持します。macOS 以外では Apple Silicon 専用の `mlx-server` を表示しません。
+- **Fast GGUF モード**はモデル名に依存しない tensor 規則を使用し、Mode 1（バランス・既定）、Mode 2（高精度）、Mode 3（最速）の三戦略を提供します。
 - mlx-server のモデルを GGUF／MLX に分類。Runtime がまだ対応を明示していない言語モデルも選択可能な「未テスト（N）」グループに残し、起動時の実際の読み込みで互換性を確認します。
 - Hugging Face の公開、gated、private repository から GGUF または MLX モデルをダウンロード。
 - 外部 JSON カタログによる常用モデルのクイック選択。GGUF と MLX をそれぞれ 8B クラス、30B クラス、70B 以上に分類し、各グループ内ではモデル名のアルファベット順に表示します。Runtime、repository、revision、GGUF ファイル名を自動入力し、モデル情報は JavaScript に固定しません。
 - Server が Range をサポートする場合、大きなファイルを 64 MiB 単位、最大 4 Worker で並行ダウンロードし、非対応時は単一 Stream に自動で戻します。完了項目は自動的に消去されます。保存先を開く操作は Desktop App のみ有効で、Browser では無効です。
-- Context Size、GPU Layers、Threads、KV Cache、MTP、DFlash の起動プロファイルを保存。
+- Context Size、GPU Layers、Threads、KV Cache、MTP、DFlash の起動プロファイルを保存。Apple Silicon では MLX DFlash と MLX MTP も利用できます。
 - 独立した DFlash と MMap スイッチをコンパクトな「詳細設定」ポップオーバーにまとめ、項目が増えてもページが縦に伸び続けない構成。
 - DFlash の対応状況を検出し、有効化前に互換性のある Draft モデルの存在を確認。独立した MMap スイッチは llama-server と Apple Silicon mlx-server の両方に対応し、ファイルバックページでモデル読み込み時のメモリ負荷を抑えます。
-- KV Cache、MMap、DFlash は、機能既定値、起動 Profile、実行スイッチ、互換性事前検査、Runtime 引数、状態保存、エラー表示まで一貫して統合されています。実際の利用可否は Runtime とモデルに依存し、DFlash には互換 Target／Draft が必要で、KV Cache 量子化とは同時に有効化できません。
+- KV Cache、MMap、DFlash、MTP は、機能既定値、起動 Profile、互換性事前検査、Runtime 引数、状態保存、エラー表示まで一貫して統合されています。推測デコード同士、および KV Cache 量子化との同時利用はできません。
 - Hugging Face metadata とモデル設定を検証し、同一または別 repository の対応 DFlash Draft をモデル名の固定リストなしで自動検索・ダウンロード。
 - Markdown、数式、reasoning API フィールド、`<think>`、`<|channel|>` 思考チャンネルの分離表示に対応した一時的なローカルチャット。思考過程は生成中に既定で展開され、三点アニメーションを表示し、生成完了後に自動で折りたたまれます。Token 数と毎秒出力 Token 数も表示します。
-- モデル起動時には、大規模モデルで変換が必要な場合があることを知らせる読み込みダイアログを直ちに表示します。実行中モデルのテストではアニメーションダイアログを表示し、完了後に入出力 Token、生成速度、所要時間、または読み込み／接続エラーを表示。メイン画面の再読み込みには別の小型進捗ダイアログを使用します。
+- モデルテストは単回、3 回反復、500 出力 Token 以上の長文テストに対応し、反復テストでは平均速度と中央値を表示します。
 - MLX から Token 単位で送信する OpenAI 互換 SSE。クライアントの切断または Cancel は対応する生成 Task を直ちに停止。
 - モデル API にアクセスキー、IP 許可リスト、両方、または制限なしを設定可能。
 - Tanpopo 再起動時、管理画面へログインする前に Runtime と稼働状態を復元。
@@ -27,13 +27,14 @@ Tanpopo は Go で実装されたローカルモデルサービス管理ツー�
 - 蒲公英、晴空ブルー、桜ピンク、ダークテーマの深夜パープルという 4 種類の配色を選択可能。
 - 画面下部の状態バーで CPU、GPU、MEMORY、ネットワークを 3 秒ごとに更新し、50%／80% を境に低彩度の緑・黄・赤で表示。
 - 「システム設定 → システム情報」に OS、Kernel、Architecture、Host 名、CPU、GPU、Memory、Network interface、到達可能な管理 URL を読み取り専用で表示。Loopback URL は共有用一覧に表示しません。
-- 起動時と 1 時間ごとに GitHub の最新正式 Release を確認し、更新がある場合は通知。「システム設定 → このアプリについて」では現在のバージョン、手動更新確認、クリック可能な GitHub URL を表示。
+- 起動時と 1 時間ごとに GitHub の最新正式 Release を確認し、同日 Release の build 番号も比較します。Linux では認証済み管理者が正式 ZIP をアップロードし、検証、更新、再起動を自動実行できます。
+- Linux パッケージは Vulkan 対応 llama.cpp のビルド経路、依存関係と GPU 権限の確認、`build-llama-server.sh`、ROCm がない場合の DRM GPU 使用率取得を含みます。
 - macOS では AppKit／WKWebView のネイティブ UI とメニューバー常駐モードを提供。
 
 ## 公開テストレポート
 
 - [モデル互換性レポート](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：ネイティブ MLX、MLX による GGUF 読み込み、llama.cpp GGUF、マルチモーダル投影、KV Cache 量子化、推測デコードの対応範囲と互換性境界をまとめています。
-- [MLX と GGUF 変換の読み込み速度および演算精度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：同一モデルで未変換のネイティブ MLX、MLX + 既定高速変換、MLX + Beta 1、MLX + Beta 2 を比較し、固定 100 問、生成速度、元モデルと変換キャッシュの容量、プロセス RAM のピークと平均をそのまま公開しています。
+- [MLX と GGUF 変換の読み込み速度および演算精度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：4B、9B、27B の対応モデルを、ネイティブ MLX、llama.cpp+GGUF、MLX + Fast GGUF Mode 1／2／3 の固定 100 問、生成速度、変換キャッシュ、プロセス RAM で比較します。
 
 両 HTML レポートは `AUTO`、繁体字中国語、英語を切り替えられます。結果は記載された日付、ハードウェア、Runtime バージョン、サンプルでの再現可能なスナップショットであり、すべてのモデルやデバイスで同じ結果になること、また Fast GGUF の互換性、速度、精度を保証するものではありません。
 
@@ -63,7 +64,7 @@ TANPOPO_UI=shell ./run.command  # Shell モードを強制
 TANPOPO_UI=gui ./run.command    # 対応環境でネイティブ UI を強制
 ```
 
-アプリのバージョンは `1.YY.MMDD build HHmm` 形式です。`run.command`、`run.sh`、`build.command`、`pack.command` はすべて `Asia/Taipei` の当日から `1.YY.MMDD`、実行時刻から `build HHmm` を直接生成します。ルートの `VERSION` を読み取り、検証、変更しないため、日付をまたいだ実行や再パッケージでも手動の日付更新は不要です。過去版を意図して再作成する場合のみ `TANPOPO_VERSION` を、Build を固定する場合は `TANPOPO_BUILD` を指定してください。生成したパッケージには実際に使用した版号を書き込みます。ルートの `VERSION` はバージョン metadata と旧フロー互換のためだけに残ります。Tanpopo は起動直後と、その後 1 時間ごとに GitHub の最新正式 Release を確認し、同じ UI セッションでは同じ新バージョンを一度だけ通知します。「システム設定 → このアプリについて」では現在・最新バージョン、最終確認時刻、手動確認ボタン、クリック可能な [GitHub リポジトリ URL](https://github.com/VaderChen/Tanpopo) を表示します。更新確認では `1.YY.MMDD` のみを比較し、Draft と prerelease は最新版として扱いません。
+アプリ版は `1.YY.MMDD build HHmm`、GitHub Tag は `v1.YY.MMDD-build-HHmm` です。更新確認は日付版と build 番号の両方を比較するため、同日の後続 Release も検出します。Draft と prerelease は最新版として扱いません。
 
 ## モデル Runtime
 
@@ -83,17 +84,17 @@ MMap は実行状態ページの「詳細設定」ポップオーバーにある
 
 **Fast GGUF モード**は mlx-server の汎用 GGUF 最適化入口で、GGUF 選択時に既定で有効です。システム設定の独立した「Fast GGUF 戦略」カードで、既定スイッチと三つの戦略を保存します。
 
-- **既定**：`speed + group auto + recurrent controls`。auto は Group 64 に解決され、K-Quant は INT8 に再量子化されます。
-- **Beta 1**：`speed-passthrough + group 32 + recurrent controls`。表現可能な Q4_K の 4-bit sub-block を再利用し、その他の tensor は Group 32 を使用します。
-- **Beta 2**：`speed-passthrough + group 64 + recurrent controls`。Q4_K の再利用は Beta 1 と同じで、その他の tensor は Group 64 を使用します。
+- **Mode 1（バランス・既定）**：K-Quant の元 4-bit block を必要な Group 32 で再利用し、その他は Group 64 を使用します。
+- **Mode 2（高精度）**：低 bit の元ウェイトを INT8／Group 64 に再量子化します。
+- **Mode 3（最速）**：低 bit の元ウェイトを INT4／Group 32 に再量子化し、手動 Group Size の影響を受けません。
 
 Fast GGUF を無効にすると、一般の `auto + group auto + recurrent off` 変換を使用します。すべての戦略はモデル名ではなく tensor dtype、shape、source block、architecture metadata で判定します。Q4_K の 32 要素 Group は source sub-block 形式で定義され、全体を Group 32 にする意味ではありません。`quality` は FP32 参照ウェイトを使う診断用で、通常の性能モードではありません。
 
-この戦略はモデルごとの特例なしで、mlx-server が解析できる多くの GGUF に適用できますが、互換性、速度、精度を保証するものではありません。アーキテクチャ契約、GGUF metadata、Tokenizer、tensor layout、量子化方式、独自変更によっては、読み込み失敗、速度向上なし、品質差が発生します。異常時は Fast GGUF を無効にして比較し、実際の生成品質を検証してください。GGUF Target は通常の MLX 生成を使用し、DFlash は MLX safetensors Target と互換 Draft の組み合わせに限定されます。
+この戦略はモデル別の特例なしで適用されます。DFlash は互換 MLX Target／Draft を必要とし、MTP は互換するネイティブ MLX Target／Draft、または metadata と tensor 契約で内蔵予測層を確認できる GGUF を使用します。判定はファイル名ではなく architecture metadata と shape に基づきます。
 
 mlx-server で KV Cache 量子化を有効にすると、プロファイルの Q8 または Q4、group size 64、2,048 Token 後からの遅延量子化を使用します。プロファイルの Context Size が量子化 KV Cache の上限になります。
 
-KV Cache、MMap、DFlash は手動の隠しフラグではなく、Tanpopo の第一級機能です。システム設定でモデル機能の既定値を保存し、起動 Profile で詳細を定義し、実行画面で今回の読み込みだけ上書きできます。Backend は互換性と排他条件を検証し、Runtime 引数、状態保存、エラー表示まで処理します。ただし、すべてのモデルが全機能に対応する意味ではありません。KV Cache 形式と MMap は Runtime に依存し、DFlash には互換 Target／Draft が必要です。
+KV Cache、MMap、DFlash、MTP は手動の隠しフラグではなく、Tanpopo の第一級機能です。Backend は互換性と排他条件を検証し、Runtime 引数、状態保存、エラー表示まで処理します。
 
 主な互換エンドポイント：
 

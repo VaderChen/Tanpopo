@@ -1,18 +1,25 @@
 package session
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
-const cookieName = "llama_loader_session"
+const (
+	cookieName          = "llama_loader_session"
+	rememberTokenPrefix = "r1"
+)
 
-// Store 只保存記憶體 Session；帳號密碼仍以本機 agent.properties 為唯一來源。
+// Store 的一般 Session 只保存在記憶體；「記住我」使用帳號密碼衍生金鑰簽章，
+// 讓服務重啟後仍可驗證，且帳號或密碼變更後會立即失效。
 type Store struct {
 	mu                    sync.Mutex
 	account               string
@@ -42,15 +49,17 @@ func (s *Store) Login(w http.ResponseWriter, r *http.Request, account, password 
 		s.mu.Unlock()
 		return false
 	}
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
+	now := time.Now()
+	expires := now.Add(s.duration)
+	token, err := s.newTokenLocked(expires, remember)
+	if err != nil {
 		s.mu.Unlock()
 		return false
 	}
-	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
-	expires := time.Now().Add(s.duration)
-	s.pruneLocked(time.Now())
-	s.sessions[token] = expires
+	s.pruneLocked(now)
+	if !remember {
+		s.sessions[token] = expires
+	}
 	s.mu.Unlock()
 	cookie := &http.Cookie{
 		Name:     cookieName,
@@ -97,11 +106,13 @@ func (s *Store) Authenticated(r *http.Request) bool {
 		return false
 	}
 	expires, ok := s.sessions[cookie.Value]
-	if !ok || !expires.After(now) {
-		delete(s.sessions, cookie.Value)
-		return false
+	if ok && expires.After(now) {
+		return true
 	}
-	return true
+	if ok {
+		delete(s.sessions, cookie.Value)
+	}
+	return s.validRememberTokenLocked(cookie.Value, now)
 }
 
 func (s *Store) AuthenticationEnabled() bool {
@@ -138,6 +149,48 @@ func (s *Store) pruneLocked(now time.Time) {
 			delete(s.sessions, token)
 		}
 	}
+}
+
+func (s *Store) newTokenLocked(expires time.Time, remember bool) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", err
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	if !remember {
+		return nonce, nil
+	}
+	payload := strconv.FormatInt(expires.Unix(), 10) + "." + nonce
+	signature := s.signRememberPayloadLocked(payload)
+	return rememberTokenPrefix + "." + payload + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func (s *Store) validRememberTokenLocked(token string, now time.Time) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 4 || parts[0] != rememberTokenPrefix {
+		return false
+	}
+	expiresUnix, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || !time.Unix(expiresUnix, 0).After(now) {
+		return false
+	}
+	nonce, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || len(nonce) != 32 {
+		return false
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[3])
+	if err != nil || len(signature) != sha256.Size {
+		return false
+	}
+	expected := s.signRememberPayloadLocked(parts[1] + "." + parts[2])
+	return hmac.Equal(signature, expected)
+}
+
+func (s *Store) signRememberPayloadLocked(payload string) []byte {
+	key := sha256.Sum256([]byte("tanpopo-remember-v1\x00" + s.account + "\x00" + s.password))
+	mac := hmac.New(sha256.New, key[:])
+	_, _ = mac.Write([]byte(payload))
+	return mac.Sum(nil)
 }
 
 func secureEqual(left, right string) bool {

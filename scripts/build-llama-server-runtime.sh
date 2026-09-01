@@ -39,21 +39,33 @@ fi
 case "$(uname -s):$(uname -m)" in
   Darwin:arm64)
     PLATFORM="darwin-arm64"
+    BACKEND="metal"
     PLATFORM_ARGS=(-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON)
     ;;
   Linux:x86_64|Linux:amd64)
     PLATFORM="linux-amd64"
-    PLATFORM_ARGS=(-DGGML_METAL=OFF)
+    BACKEND="vulkan"
+    PLATFORM_ARGS=(-DGGML_METAL=OFF -DGGML_VULKAN=ON)
     ;;
   Linux:aarch64|Linux:arm64)
     PLATFORM="linux-arm64"
-    PLATFORM_ARGS=(-DGGML_METAL=OFF)
+    BACKEND="vulkan"
+    PLATFORM_ARGS=(-DGGML_METAL=OFF -DGGML_VULKAN=ON)
     ;;
   *)
     PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | tr '[:upper:]' '[:lower:]')"
+    BACKEND="cpu"
     PLATFORM_ARGS=(-DGGML_METAL=OFF)
     ;;
 esac
+
+if [[ "${BACKEND}" == "vulkan" ]]; then
+  require_command glslc
+  if [[ ! -r /usr/include/vulkan/vulkan.h ]]; then
+    echo "缺少 Vulkan headers；請先執行 install-linux-vulkan-dependencies.sh dependencies" >&2
+    exit 1
+  fi
+fi
 
 BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/llama-server-build.XXXXXX")"
 cleanup() {
@@ -103,5 +115,6 @@ cp "${SERVER_BINARY}" "${OUTPUT_DIR}/bin/llama-server"
 chmod +x "${OUTPUT_DIR}/bin/llama-server"
 printf '%s\n' "${LLAMA_VERSION}" > "${OUTPUT_DIR}/VERSION"
 printf '%s\n' "${PLATFORM}" > "${OUTPUT_DIR}/PLATFORM"
+printf '%s\n' "${BACKEND}" > "${OUTPUT_DIR}/BACKEND"
 
 echo "llama-server Runtime 已輸出：${OUTPUT_DIR}"

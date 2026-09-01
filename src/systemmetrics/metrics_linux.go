@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -232,7 +233,10 @@ func collectLinuxGPU(ctx context.Context) Metric {
 	if metric := collectNVIDIAGPU(ctx); metric.Available {
 		return metric
 	}
-	return collectAMDGPU(ctx)
+	if metric := collectAMDGPU(ctx); metric.Available {
+		return metric
+	}
+	return collectLinuxDRMGPU()
 }
 
 func collectNVIDIAGPU(ctx context.Context) Metric {
@@ -295,6 +299,37 @@ func collectAMDGPU(ctx context.Context) Metric {
 		return Metric{}
 	}
 	return Metric{Percent: sum / float64(count), Available: true, Device: strings.Join(names, ", ")}
+}
+
+// collectLinuxDRMGPU 使用核心 DRM 驅動公開的 sysfs 使用率作為後備來源。
+// 這可涵蓋未安裝 rocm-smi 的 AMD GPU，也適用於其他提供
+// gpu_busy_percent 的 Linux DRM 驅動。
+func collectLinuxDRMGPU() Metric {
+	paths, err := filepath.Glob("/sys/class/drm/card*/device/gpu_busy_percent")
+	if err != nil {
+		return Metric{}
+	}
+
+	var sum float64
+	var count int
+	devices := make([]string, 0, len(paths))
+	for _, path := range paths {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		percent, parseErr := strconv.ParseFloat(strings.TrimSpace(string(content)), 64)
+		if parseErr != nil {
+			continue
+		}
+		sum += percent
+		count++
+		devices = append(devices, filepath.Base(filepath.Dir(filepath.Dir(path))))
+	}
+	if count == 0 {
+		return Metric{}
+	}
+	return Metric{Percent: sum / float64(count), Available: true, Device: strings.Join(devices, ", ")}
 }
 
 func toString(value any) string {

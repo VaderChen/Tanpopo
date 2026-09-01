@@ -15,7 +15,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mmap-fastgguf-cache12"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -50,6 +50,9 @@ struct ServerConfiguration: Sendable {
     var accessControlPath: String?
     var dflashDraftPath: String?
     var dflashBlockSize = 5
+    var mtpEnabled = false
+    var mtpDraftPath: String?
+    var mtpBlockSize = 2
     // nil 代表自動策略，固定解析為 Group 64。Group 32 只接受使用者明確
     // 指定，維度不相容時直接回報，不做靜默降級。這是資料驅動的全模型
     // 策略，不依賴模型名稱或固定樣本。
@@ -160,6 +163,17 @@ struct ServerConfiguration: Sendable {
             case "--dflash-block-size":
                 result.dflashBlockSize = try parseInteger(
                     nextValue(for: option), option: option, range: 2...256)
+            case "--mtp-draft":
+                let value = try nextValue(for: option).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.mtpEnabled = true
+                result.mtpDraftPath = value
+            case "--mtp-block-size":
+                result.mtpEnabled = true
+                result.mtpBlockSize = try parseInteger(
+                    nextValue(for: option), option: option, range: 2...256)
             case "--gguf-group-size":
                 let rawValue = try nextValue(for: option).lowercased()
                 if rawValue == "auto" {
@@ -227,6 +241,9 @@ struct ServerConfiguration: Sendable {
         if let dflashDraftPath = result.dflashDraftPath {
             result.dflashDraftPath = NSString(string: dflashDraftPath).expandingTildeInPath
         }
+        if let mtpDraftPath = result.mtpDraftPath {
+            result.mtpDraftPath = NSString(string: mtpDraftPath).expandingTildeInPath
+        }
         if let ggufCacheDirectory = result.ggufCacheDirectory {
             result.ggufCacheDirectory = NSString(string: ggufCacheDirectory).expandingTildeInPath
         }
@@ -258,6 +275,17 @@ struct ServerConfiguration: Sendable {
                 isDraftDirectory.boolValue else {
                 throw ConfigurationError.invalidDraftDirectory(dflashDraftPath)
             }
+        }
+        if let mtpDraftPath = result.mtpDraftPath {
+            var isDraftDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: mtpDraftPath, isDirectory: &isDraftDirectory),
+                isDraftDirectory.boolValue else {
+                throw ConfigurationError.invalidDraftDirectory(mtpDraftPath)
+            }
+        }
+        if result.dflashDraftPath != nil, result.mtpDraftPath != nil {
+            throw ConfigurationError.conflictingDraftModes
         }
         if result.mmapReserveGB > 0, !result.memoryMappingEnabled {
             throw ConfigurationError.mmapReserveRequiresMMap
@@ -339,6 +367,8 @@ struct ServerConfiguration: Sendable {
                                    Tanpopo 金鑰與 IP 白名單策略快照
       --dflash-draft <模型目錄>    啟用原生 MLX DFlash 1／2（Qwen3／Qwen3.5）
       --dflash-block-size <數量>   DFlash block size，預設 5，且不超過訓練值
+      --mtp-draft <模型目錄>       啟用原生 MLX Multi-Token Prediction 草稿模型
+      --mtp-block-size <數量>      MTP 驗證區塊大小，預設 2，且不超過模型上限
     """
 }
 
@@ -350,6 +380,7 @@ enum ConfigurationError: LocalizedError {
     case missingValue(String)
     case invalidValue(String, String)
     case mmapReserveRequiresMMap
+    case conflictingDraftModes
     case unknownOption(String)
 
     var errorDescription: String? {
@@ -361,13 +392,15 @@ enum ConfigurationError: LocalizedError {
         case .invalidMMProjFile(let path):
             "mmproj 必須是可讀取的 GGUF 檔案，且只能搭配 GGUF 主模型：\(path)"
         case .invalidDraftDirectory(let path):
-            "DFlash draft 模型目錄不存在：\(path)"
+            "Draft 模型目錄不存在：\(path)"
         case .missingValue(let option):
             "啟動參數 \(option) 缺少數值。"
         case .invalidValue(let option, let value):
             "啟動參數 \(option) 的數值無效：\(value)"
         case .mmapReserveRequiresMMap:
             "--mmap-reserve-gb 必須搭配 --mmap。"
+        case .conflictingDraftModes:
+            "--dflash-draft 與 --mtp-draft 不可同時使用。"
         case .unknownOption(let option):
             "不支援的啟動參數：\(option)"
         }

@@ -15,23 +15,23 @@
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
-- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並以永久 `.fgguf` 快取避免重複轉換。系統設定可選擇「預設、Beta 1、Beta 2」三種快速策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
-- 執行狀態頁依所選 Runtime 提供模型下拉清單，不接受任意模型路徑。mlx-server 模型依 GGUF／MLX 分群；Runtime 尚未明確回報支援的語言模型會保留在可選取的「尚未測試（N）」群組，啟動後由 Runtime 實際驗證相容性。
-- KV Cache、MMap、DFlash 採全流程整合：涵蓋系統功能預設、啟動 Profile、執行開關、相容性預檢、Runtime 參數、狀態保存與錯誤回報。實際可用性仍依 Runtime 與模型能力決定；DFlash 必須有相容的 Target／Draft，並與 KV Cache 量化互斥。
+- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並以永久 `.fgguf` 快取避免重複轉換。系統設定提供 Mode 1（均衡・預設）、Mode 2（較高精度）與 Mode 3（最快）三種策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
+- 執行狀態頁依所選 Runtime 提供按字母排序的模型下拉清單，GGUF、MLX 與 mmproj 統一以「模型名稱（目錄名稱）」顯示，但實際提交值仍為完整安全路徑。非 macOS 平台會在啟動時直接隱藏 Apple Silicon 專用的 mlx-server 選項。
+- KV Cache、MMap、DFlash 與 MTP 採全流程整合：涵蓋系統功能預設、啟動 Profile、執行開關、相容性預檢、Runtime 參數、狀態保存與錯誤回報。實際可用性仍依 Runtime 與模型能力決定；DFlash／MTP 推測解碼不可彼此並用，也與 KV Cache 量化互斥。
 - 執行狀態頁將 DFlash 與 MMap 收納於「進階設定」泡泡；兩者仍為獨立開關，不會隨功能增加而持續拉長頁面。
 - DFlash 預設關閉；不支援的 Target 會禁用開關，勾選時會即時重新掃描並檢查配對 Draft。MMap 同樣預設關閉，同時支援 `llama-server` 與 Apple Silicon `mlx-server`，啟用後可利用磁碟分頁降低載入模型時的記憶體壓力。
 - 系統設定提供服務主機目錄瀏覽器，可由 Home、檔案系統或掛載磁碟選擇 GGUF／MLX 模型目錄，不需要作業系統 Automation 權限或外部工具。
 - 可建立多組啟動參數並指定 `llama-server` 或 `mlx-server` Runtime，執行時才與選定模型動態組合。
-- 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 Profile。
+- 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 與 MLX MTP Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
-- 按下「載入並啟動」會立即顯示模型載入提示，提醒大型模型可能需要轉換並耐心等候；Runtime 執行後可按「測試」送出實際生成請求，測試期間立即顯示動畫視窗，完成後列出輸入／輸出 Token、生成速度與測試時間，失敗或載入逾時也會回報明確原因。主頁重新整理期間另有小型進度視窗，避免畫面等待時沒有回饋。
+- 按下「載入並啟動」會立即顯示模型載入提示，提醒大型模型可能需要轉換並耐心等候；Runtime 執行後可進行單次測試、重複 3 次測試或至少 500 個輸出 Token 的長輸出測試。重複測試會顯示平均值與中位數，所有模式都會列出 Token、生成速度、測試時間與明確失敗原因。
 - 成功啟動後會保存 Runtime、Profile、模型、mmproj、DFlash 與 MMap 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
 - 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning、`<think>` 區段或 `<|channel|>` 思考通道時，會與最終回答分開顯示。思考過程在生成期間預設展開並顯示三點動畫，完成後自動收合；同時顯示輸入／輸出 Token 與每秒輸出 Token 數。
 - 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
 - 介面提供蒲公英、晴空藍、櫻花粉與深夜紫四種配色，其中深夜紫為深色主題；切換後立即預覽並保存。
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
 - 「系統設定 → 系統資訊」以唯讀方式顯示作業系統、Kernel、架構、主機名稱、CPU、GPU、記憶體、網路介面與目前可供其他裝置使用的管理網址；不顯示 loopback 管理網址。
-- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；發現新版時會顯示通知，「系統設定 → 關於」可查看目前版本、最新版本與 GitHub 專案網址，並可手動檢查更新。
+- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。Linux 可在「系統設定 → 關於」上傳正式發布 ZIP，驗證後自動更新並重新啟動服務；此功能要求管理登入驗證已開啟。
 - 原生選單與「系統設定 → 關於」會顯示 `1.YY.MMDD build HHmm` 版本、目前可達的管理頁面網址、可複製的模型 API `/v1` URL，以及 GitHub 快速連結；本機 `127.0.0.1` 管理網址不列入公開資訊清單。
 - llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 Tanpopo 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
@@ -42,7 +42,7 @@
 ## 公開測試報告
 
 - [模型相容性報告](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：整理原生 MLX、MLX 直讀 GGUF、llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援範圍及相容性邊界。
-- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以同一模型比較「原生MLX檔案未轉換、MLX + 預設快速轉換、MLX + Beta 1、MLX + Beta 2」，如實列出固定 100 題結果、生成速度、原始模型與轉換快取磁碟占用，以及程序 RAM 峰值與平均值。
+- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以 4B、9B、27B 配對模型比較原生 MLX、llama.cpp+GGUF、MLX + Fast GGUF Mode 1／2／3，如實列出固定 100 題結果、生成速度、轉換快取及程序 RAM。
 
 兩份 HTML 均可切換 `AUTO`、繁體中文與英文。報告數據是標示日期、硬體、Runtime 版本與樣本下的可重現測試快照，不代表所有模型或裝置都會得到相同結果，也不構成 Fast GGUF 的相容性、速度或精度保證。
 
@@ -55,7 +55,7 @@ cd /path/to/Tanpopo
 ./run.command
 ```
 
-`run.command` 會先呼叫 `build.command --runtime` 檢查目前平台的開發用 Runtime。版本相符且原始碼沒有更新時才直接沿用；缺少、版本不符或原始碼較新時，會由專案內鎖定的原始碼重新編譯 `llama-server`，Apple Silicon 也會一併處理 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime。
+`run.command` 會先呼叫 `build.command --runtime` 檢查目前平台的開發用 Runtime。版本相符且原始碼沒有更新時才直接沿用；缺少、版本不符或原始碼較新時，會由專案內鎖定的原始碼重新編譯 `llama-server`，Apple Silicon 也會一併處理 `mlx-server`，完成後才啟動 Go Service。Linux 不會嘗試編譯 Apple Silicon 專用的 MLX Runtime，正式安裝包則會檢查並安裝 Vulkan 建置相依套件，再建立或啟用 Vulkan Runtime。
 
 在本機 macOS 圖形登入工作階段，服務開始監聽後會自動彈出原生管理視窗，載入目前 Session 對應的登入頁或主畫面，不會呼叫 Safari、Chrome 等外部瀏覽器。系統設定的「常駐」預設關閉；切換開關時會立即獨立保存，開啟後 Tanpopo 會出現在系統選單列，關閉視窗只會隱藏 UI，Go Service 與模型 Runtime 繼續在後台執行。可從選單列重新顯示視窗，或選擇「結束 Tanpopo」完整停止服務。常駐關閉時，關閉視窗仍會正常停止 Go Service。Linux、SSH、無圖形登入工作階段及其他未提供原生 UI 的平台，會維持現有 Shell 前景執行方式。可用環境變數明確覆寫模式：
 
@@ -64,7 +64,7 @@ TANPOPO_UI=shell ./run.command  # 強制 Shell
 TANPOPO_UI=gui ./run.command    # 支援平台強制開啟原生視窗
 ```
 
-Tanpopo 的 APP 版本採用 `1.YY.MMDD build HHmm`。`run.command`、`run.sh`、`build.command` 與 `pack.command` 都會直接以 `Asia/Taipei` 的當日日期產生 `1.YY.MMDD`，並以執行時間產生 `build HHmm`；不讀取、不驗證，也不改寫根目錄 `VERSION`，跨日執行或重封裝不需要手動修改任何日期。只有要刻意重製歷史版本時才應設定 `TANPOPO_VERSION`，需要固定 Build 時則可設定 `TANPOPO_BUILD`；產出的部署包會寫入本次實際版號。根目錄 `VERSION` 僅保留為版本中繼資料與舊流程相容用途。程式啟動後會立即查詢 GitHub 最新正式 Release，之後每小時重新檢查；同一個介面工作階段對同一新版只通知一次。「系統設定 → 關於」會揭露目前 APP 版本、檢查時間及可點擊的 [GitHub 專案網址](https://github.com/VaderChen/Tanpopo)，也可按「檢查更新」強制重新查詢。更新偵測只比較 `1.YY.MMDD`，且不把草稿或 prerelease 當成最新版。
+Tanpopo 的 APP 版本採用 `1.YY.MMDD build HHmm`。`run.command`、`run.sh`、`build.command` 與 `pack.command` 都會直接以 `Asia/Taipei` 的當日日期產生 `1.YY.MMDD`，並以執行時間產生 `build HHmm`；不讀取、不驗證，也不改寫根目錄 `VERSION`，跨日執行或重封裝不需要手動修改任何日期。只有要刻意重製歷史版本時才應設定 `TANPOPO_VERSION`，需要固定 Build 時則可設定 `TANPOPO_BUILD`；產出的部署包會寫入本次實際版號，GitHub Tag 使用 `v1.YY.MMDD-build-HHmm`。程式啟動後會立即查詢 GitHub 最新正式 Release，之後每小時重新檢查；版本與 build 都會參與比較，因此同一天的後續 Release 仍可被偵測。同一個介面工作階段對同一新版只通知一次，Draft 與 prerelease 不列入最新版。
 
 如需強制重編兩個模型 Runtime，可執行：
 
@@ -80,16 +80,16 @@ http://127.0.0.1:10082
 
 區域網路內其他裝置可使用 `http://<主機區網 IP>:10082` 連線；實際可達範圍取決於主機防火牆與路由設定。
 
-初始登入資料由 `agent.sample.properties` 提供，僅供第一次本機啟動使用；正式使用、開放區域網路或啟用反向代理前必須先變更。可在「系統設定」即時修改管理帳號與密碼；保存後會撤銷所有既有 Session，並要求使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用瀏覽工作階段 Cookie；勾選後才會依 `session_hours` 建立持久 Cookie。兩種模式都只保存隨機 Session Token，不會把帳號或密碼寫入網站儲存空間。已登入的使用者也可切換登入開關，確認警告後會立即把停用狀態原子寫入 `agent.properties`，不必再輸入目前密碼或按另一個儲存按鈕；原帳密仍會保留供日後重新啟用。登入驗證關閉時，能連線至管理服務的使用者都可直接操作管理功能。
+初始登入資料由 `agent.sample.properties` 提供，僅供第一次本機啟動使用；正式使用、開放區域網路或啟用反向代理前必須先變更。可在「系統設定」即時修改管理帳號與密碼；保存後會撤銷所有既有 Session，並要求使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用只存在記憶體的瀏覽工作階段 Cookie；勾選後則建立以目前帳密衍生金鑰簽章的持久 Cookie，可跨 Tanpopo 服務重啟驗證，帳號或密碼一旦變更便立即失效。網站儲存空間不會保存帳號或密碼。
 
 ## llama-server Runtime
 
 本專案只管理 `llama-server`，不會把 llama.cpp 函式庫直接連結進 Go 程序。部署包會同時保存自訂 llama.cpp 的固定版本號、可建置原始碼，以及封裝時可取得的下列預編譯 Runtime：
 
 - macOS Apple Silicon（`darwin/arm64`，Metal）
-- Linux x64（`linux/amd64`，CPU）
+- Linux x64（`linux/amd64`，Vulkan）
 
-封裝器會自動建立目前主機平台的預編譯 Runtime；其他平台的預編譯檔若不存在則直接略過，不會讓封裝失敗。部署至未附預編譯 Runtime 的平台時，包含 Linux x64 或 Linux ARM64，安裝程式會從包內相同版本的原始碼原生編譯 `llama-server`，該目標主機必須安裝 C/C++ toolchain 與 CMake。預設安裝至：
+封裝器會自動建立目前主機平台的預編譯 Runtime；其他平台的預編譯檔若不存在則直接略過，不會讓封裝失敗。Linux 發布包包含 `build-llama-server.sh`、精簡 llama.cpp 原始碼及 Vulkan 相依套件檢查器；安裝時會依發行版安裝缺少的編譯工具、Vulkan headers／shader compiler，並處理 GPU 裝置群組權限。沒有預編譯檔時會在目標主機原生建立 Vulkan Runtime。
 
 ```text
 ~/services/llama.cpp/versions/<llama-server-version>/<platform>/bin/llama-server
@@ -147,13 +147,13 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 **快速GGUF模式（Fast GGUF）**是 mlx-server 的通用 GGUF 最佳化入口，選擇 GGUF 時預設開啟。系統設定的獨立「快速 GGUF 策略」卡片同時保存預設開關與策略選擇：
 
-- **預設**：`speed + group auto + recurrent controls`。Group auto 固定解析為 64；K-Quant 重新量化為 INT8。
-- **Beta 1**：`speed-passthrough + group 32 + recurrent controls`。可表示的 Q4_K 直接沿用來源 4-bit sub-block，其他張量使用 Group 32。
-- **Beta 2**：`speed-passthrough + group 64 + recurrent controls`。Q4_K 沿用方式與 Beta 1 相同，其他張量使用 Group 64。
+- **Mode 1（均衡・預設）**：K-Quant super-block 沿用來源 4-bit block，該張量固定 Group 32；其餘低位元張量使用 Group 64。
+- **Mode 2（較高精度）**：低位元來源重新量化為 INT8／Group 64，採較保守的數值路徑。
+- **Mode 3（最快）**：低位元來源重新量化為 INT4，策略固定 Group 32，不受手動 Group Size 參數影響。
 
 關閉快速GGUF模式時改走 `auto + group auto + recurrent off` 的一般 GGUF 轉換。所有策略都只依 tensor dtype、shape、來源 block 與架構 metadata 判定，不依模型檔名寫特例；Q4_K 沿用區段的 32 元素 Group 是來源格式本身的 sub-block，不代表全域改用 Group 32。`--gguf-profile quality` 會使用 FP32 參考權重，只適合誤差診斷，不是一般效能模式。
 
-Fast GGUF 的設計可套用於多數 mlx-server 能解析的 GGUF，不需要為每個模型寫特例；但它不是相容性或精度保證。模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂修改都可能影響結果，因此「尚未測試」模型仍可能啟動失敗、沒有速度收益或產生品質差異。遇到異常時可關閉快速GGUF模式比較，並以實際生成與精度測試決定是否採用。GGUF Target 使用一般 MLX 生成；DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft，以維持精確回退語意。
+Fast GGUF 的設計可套用於多數 mlx-server 能解析的 GGUF，不需要為每個模型寫特例；但它不是相容性或精度保證。模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂修改都可能影響結果。DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft；MTP 則支援相容的原生 MLX Target／Draft，以及包含可辨識 `nextn_predict_layers` 與預測層 tensor 契約的 GGUF 內嵌路徑。相容性由架構 metadata 與 shape 驗證，不依模型檔名判定。
 
 GGUF 轉換後的永久權重快取使用 Tanpopo 內部 `.fgguf` 容器，並直接儲存在原始 GGUF 的同一目錄：逐 tensor 判斷是否採 LZFSE 無損壓縮，沒有足夠容量收益的 tensor 保持 raw 與 MMap 對齊。此格式不是標準 GGUF，也不供其他 Runtime 交換使用；完整位元組配置、索引、壓縮門檻與相容策略請參考 [FGGUF 轉換快取格式](mlx-server/FGGUF-FORMAT.md)。既有 schema 2 safetensors 快取仍可由管理介面辨識與清除。已下載模型頁可用「清除快取」只移除該 GGUF 的所有轉換設定檔，原始模型不受影響；快速模式開關與三策略位於系統設定的獨立「快速 GGUF 策略」卡片。
 
@@ -175,7 +175,7 @@ POST /completion
 
 內建 MLX Profile 包含一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。Profile 的量化選單決定 Q8 或 Q4，執行狀態頁的 Switch 決定本次是否啟用；開啟時 Go 後端會加入 `--kv-bits`、`--kv-group-size 64`、`--quantized-kv-start 2048`，並把 Context Size 轉成 `--max-kv-size`。KV Cache 量化與 DFlash 不可同時啟用。其他常用原生參數包含 `--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 
-KV Cache、MMap 與 DFlash 都是 Tanpopo 的一級功能，不是只在文件中提供的手動旗標。系統設定可保存各功能的模型預設，啟動 Profile 定義細節，執行狀態頁可針對本次載入覆寫；後端會做互斥與相容性檢查、組合正確參數、保存狀態並將失敗原因回傳介面。完整整合不代表每個模型都支援所有功能：KV Cache 格式與 MMap 行為受 Runtime 限制，DFlash 需要相容 Target／Draft，且不支援的組合會被拒絕或安全回退。
+KV Cache、MMap、DFlash 與 MTP 都是 Tanpopo 的一級功能，不是只在文件中提供的手動旗標。系統設定可保存各功能的模型預設，啟動 Profile 定義細節，執行狀態頁可針對本次載入覆寫；後端會做互斥與相容性檢查、組合正確參數、保存狀態並將失敗原因回傳介面。完整整合不代表每個模型都支援所有功能：KV Cache 格式與 MMap 行為受 Runtime 限制，推測解碼需要相容 Target／Draft 或 GGUF 內嵌預測層。
 
 ### 原生 MLX DFlash 1／2
 
@@ -313,7 +313,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `data/startup_commands.json`
 
-由「啟動參數」頁保存多組模型 Runtime 啟動參數。每組 Profile 都可選擇 KV Cache Q8 或 Q4，以及 MMap 記憶體保留目標；是否實際套用量化由執行狀態頁的 Switch 控制。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1／2 Profile；Context 均預設 256K。舊版設定檔會自動把既有量化旗標遷移到新欄位。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
+由「啟動參數」頁保存多組模型 Runtime 啟動參數。每組 Profile 都可選擇 KV Cache Q8 或 Q4，以及 MMap 記憶體保留目標；是否實際套用量化由執行狀態頁的 Switch 控制。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1／2、MLX MTP Profile；Context 均預設 256K。舊版設定檔會自動遷移到目前參數格式。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
 
 ### `data/access_control.json`
 

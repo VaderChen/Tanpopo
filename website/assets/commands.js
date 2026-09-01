@@ -4,6 +4,12 @@
   const MLX_RUNTIME = "mlx-server";
   const state = { commands: [], modelsByRuntime: {}, selectedID: "" };
 
+  function commandUsesMTP(command) {
+    return command?.runtime === MLX_RUNTIME && (command.extra_args || []).some((argument) =>
+      /^--mtp-(?:draft|block-size)(?:=|$)/.test(String(argument || "").trim())
+    );
+  }
+
   function commandPayload() {
     return {
       runtime: byId("commandRuntime").value,
@@ -77,8 +83,10 @@
       "--model", isMLX ? "<選擇的 MLX 模型目錄或 GGUF>" : "<選擇的 GGUF>"
     ];
     if (command.draft_model) {
-      if (isMLX) args.push("--model-type", "text");
-      args.push(isMLX ? "--dflash-draft" : "--model-draft", command.draft_model);
+      if (isMLX && !commandUsesMTP(command)) args.push("--model-type", "text");
+      args.push(isMLX
+        ? (commandUsesMTP(command) ? "--mtp-draft" : "--dflash-draft")
+        : "--model-draft", command.draft_model);
     }
     args.push("--host", command.server_host || "<Host>", "--port", String(command.server_port || "<Port>"));
     if (isMLX) {
@@ -116,13 +124,13 @@
     byId("gpuLayersField").hidden = isMLX;
     byId("threadsField").hidden = isMLX;
     byId("commandDraftLabel").textContent = isMLX
-      ? "DFlash Draft 模型目錄（選用）"
+      ? "DFlash／MTP Draft 模型目錄（選用）"
       : "Draft GGUF（選用）";
     byId("commandDraftHelp").textContent = isMLX
-      ? "選擇 MLX 模型根目錄內、與 Target 相容的 DFlash Draft 目錄；留空時使用一般生成。支援 Qwen3／Qwen3.5 Target、DFlash 1／2、Greedy 與 lossless sampling。"
+      ? "選擇 MLX 模型根目錄內與 Target 相容的 Draft；含 --mtp-block-size 時使用 MTP，其他 Draft Profile 使用 DFlash。留空時使用一般生成。"
       : "DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。";
     byId("commandDraftModel").placeholder = isMLX
-      ? "例如 z-lab/Qwen3.8-27B-DFlash2"
+      ? "例如 mlx-community/qwen3-6-35b-a3b-mtp-4bit"
       : "例如 Qwen3-4B-DFlash.gguf";
     renderDraftOptions();
   }

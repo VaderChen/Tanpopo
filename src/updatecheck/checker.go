@@ -217,6 +217,7 @@ func (c *Checker) fetchLatestRelease(ctx context.Context) (githubRelease, error)
 type semanticVersion struct {
 	core       []int64
 	prerelease []string
+	build      int64
 }
 
 // CompareVersions 比較 GitHub tag 與目前版本；回傳 1 表示 candidate 較新。
@@ -237,13 +238,32 @@ func CompareVersions(candidate, current string) (int, error) {
 			return -1, nil
 		}
 	}
-	return comparePrerelease(candidateVersion.prerelease, currentVersion.prerelease), nil
+	if comparison := comparePrerelease(candidateVersion.prerelease, currentVersion.prerelease); comparison != 0 {
+		return comparison, nil
+	}
+	if candidateVersion.build > currentVersion.build {
+		return 1, nil
+	}
+	if candidateVersion.build < currentVersion.build {
+		return -1, nil
+	}
+	return 0, nil
 }
 
 func parseVersion(value string) (semanticVersion, error) {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(strings.TrimPrefix(value, "v"), "V")
 	if buildIndex := strings.Index(value, "+"); buildIndex >= 0 {
+		value = value[:buildIndex]
+	}
+	var build int64
+	if buildIndex := strings.LastIndex(value, "-build-"); buildIndex >= 0 {
+		buildText := value[buildIndex+len("-build-"):]
+		parsedBuild, err := strconv.ParseInt(buildText, 10, 64)
+		if err != nil || parsedBuild < 0 {
+			return semanticVersion{}, fmt.Errorf("%q 的 build 編號無法辨識", value)
+		}
+		build = parsedBuild
 		value = value[:buildIndex]
 	}
 	var prerelease []string
@@ -271,7 +291,7 @@ func parseVersion(value string) (semanticVersion, error) {
 			return semanticVersion{}, fmt.Errorf("%q 的 prerelease 格式錯誤", value)
 		}
 	}
-	return semanticVersion{core: core, prerelease: prerelease}, nil
+	return semanticVersion{core: core, prerelease: prerelease, build: build}, nil
 }
 
 func comparePrerelease(candidate, current []string) int {

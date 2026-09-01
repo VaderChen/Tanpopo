@@ -227,6 +227,30 @@ public final class ModelContainer: Sendable {
         }
     }
 
+    /// 使用獨立 MTP container 產生文字。Target 與 drafter 各自由自己的
+    /// serial container 管理；iterator 的可變 cache 仍為每次請求獨立建立。
+    public func generate(
+        input: consuming sending LMInput,
+        parameters: GenerateParameters,
+        mtpDrafterContainer: MTPDrafterContainer,
+        blockSize: Int = 2,
+        wiredMemoryTicket: WiredMemoryTicket? = nil
+    ) async throws -> AsyncStream<Generation> {
+        let input = SendableBox(input)
+        return try await mtpDrafterContainer.perform { drafterContext in
+            let drafter = SendableBox(drafterContext.model)
+            return try await self.context.read { targetContext in
+                try MLXLMCommon.generate(
+                    input: input.consume(),
+                    parameters: parameters,
+                    context: targetContext,
+                    mtpDrafter: drafter.consume(),
+                    blockSize: blockSize,
+                    wiredMemoryTicket: wiredMemoryTicket)
+            }
+        }
+    }
+
     /// Decode token IDs to a string.
     ///
     /// - Parameter tokenIds: Array of token IDs

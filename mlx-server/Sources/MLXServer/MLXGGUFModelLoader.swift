@@ -623,6 +623,7 @@ enum MLXGGUFLoader {
         stateSpaceParameterEncoding: GGUFStateSpaceParameterEncoding = .native,
         recurrentPromotion: GGUFRecurrentPromotionPolicy = .disabled,
         memoryMapped: Bool = false,
+        includingTensor: ((String) -> Bool)? = nil,
         progress: ((Int64, Int64) -> Void)? = nil
     ) throws -> [String: MLXArray] {
         guard targetGroupSize == nil || targetGroupSize == 32 || targetGroupSize == 64 else {
@@ -669,6 +670,9 @@ enum MLXGGUFLoader {
             defer {
                 completedTensorBytes += tensorByteCounts[tensorIndex]
                 progress?(completedTensorBytes, totalTensorBytes)
+            }
+            if let includingTensor, !includingTensor(tensor.name) {
+                continue
             }
             let shape = tensor.dimensions.reversed()
             let mlxShape = Array(shape)
@@ -3013,6 +3017,103 @@ enum MLXGGUFModelLoader {
         )
     }
 
+    /// 從 Target GGUF 的額外 NextN block 建立 MTP Drafter。
+    ///
+    /// 能力判斷完全依 GGUF metadata 與 tensor contract，不依檔名或模型展示名稱。
+    /// Qwen3.5/3.6 的 MTP GGUF 會把一般 Target layers 放在前段，最後的
+    /// `nextn_predict_layers` 個 block 與 `*.nextn.*` 參數則構成獨立 Drafter。
+    static func loadEmbeddedMTPDrafterContainer(
+        from directoryURL: URL,
+        weightURL: URL,
+        mmprojURL: URL?,
+        quantizationGroupSize: Int?,
+        quantizationProfile: GGUFQuantizationProfile,
+        recurrentPromotion: GGUFRecurrentPromotionPolicy,
+        memoryMapped: Bool
+    ) async throws -> MTPDrafterContainer {
+        let metadata = try MLXGGUFLoader.metadata(from: weightURL)
+        guard let architecture = metadata["general.architecture"]?.stringValue,
+              normalizedGGUFArchitecture(architecture) == "qwen35",
+              let predictedLayers = metadata["\(architecture).nextn_predict_layers"]?.integerValue,
+              predictedLayers > 0 else {
+            throw MTPCompatibilityError.incompatibleConfiguration(
+                "GGUF 未包含 Runtime 支援的內嵌 MTP 預測層")
+        }
+
+        let configurationData = try MLXGGUFEmbeddedAssets.configurationData(
+            weightURL: weightURL,
+            mmprojURL: mmprojURL)
+        guard let targetLayerCount = mainLayerCount(from: configurationData),
+              targetLayerCount > 0 else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        let tensorNames = try MLXGGUFLoader.tensorNames(from: weightURL)
+        let dedicatedEmbeddings = tensorNames.contains {
+            $0.hasPrefix("blk.\(targetLayerCount).nextn.embed_tokens.")
+        }
+        guard !tensorNames.contains(where: {
+            $0.hasPrefix("blk.\(targetLayerCount).nextn.shared_head_head.")
+        }) else {
+            throw MTPCompatibilityError.incompatibleConfiguration(
+                "這份 GGUF 使用獨立 MTP 輸出頭，Runtime 尚未支援該 tensor contract")
+        }
+        let draftConfigurationData = try embeddedMTPConfigurationData(
+            from: configurationData,
+            predictedLayers: predictedLayers,
+            dedicatedEmbeddings: dedicatedEmbeddings)
+        let draftModel = try await MTPDrafterTypeRegistry.shared.createModel(
+            configuration: draftConfigurationData,
+            modelType: "qwen3_5_mtp")
+
+        let strategy = try MLXGGUFLoader.quantizationStrategy(
+            from: [weightURL],
+            requestedGroupSize: quantizationGroupSize,
+            profile: quantizationProfile)
+        var weights = try MLXGGUFLoader.loadWeights(
+            from: weightURL,
+            targetGroupSize: strategy.groupSize,
+            quantizationProfile: quantizationProfile,
+            stateSpaceParameterEncoding: MLXGGUFArchitectureContract.resolve(
+                modelType: "qwen3_5_text").stateSpaceParameterEncoding,
+            recurrentPromotion: recurrentPromotion,
+            memoryMapped: memoryMapped,
+            includingTensor: { name in
+                guard let layer = ggufLayerIndex(in: name) else { return false }
+                return layer >= targetLayerCount
+                    && layer < targetLayerCount + predictedLayers
+            })
+        weights = applyArchitectureWeightLayout(
+            weights,
+            modelType: "qwen3_5_text",
+            configurationData: configurationData)
+        weights = try normalizeEmbeddedMTPWeights(
+            weights,
+            firstSourceLayer: targetLayerCount,
+            predictedLayers: predictedLayers)
+        weights = draftModel.sanitize(weights: weights)
+
+        quantizeGGUFModel(
+            draftModel,
+            weights: weights,
+            groupSize: strategy.groupSize)
+        let contract = MLXGGUFWeightContract.inspect(model: draftModel, weights: weights)
+        if !contract.isCompatible {
+            fputs(contract.logDescription() + "\n", stderr)
+        }
+        try draftModel.update(
+            parameters: ModuleParameters.unflattened(weights),
+            verify: [.all])
+        eval(draftModel)
+
+        return MTPDrafterContainer(
+            context: MTPDrafterContext(
+                configuration: ModelConfiguration(
+                    directory: directoryURL,
+                    tokenizerSource: nil,
+                    defaultPrompt: ""),
+                model: draftModel))
+    }
+
     private static func loadContainer(
         from directoryURL: URL,
         weightURL: URL,
@@ -3441,6 +3542,105 @@ enum MLXGGUFModelLoader {
         return textConfig["num_hidden_layers"] as? Int
     }
 
+    private static func embeddedMTPConfigurationData(
+        from configurationData: Data,
+        predictedLayers: Int,
+        dedicatedEmbeddings: Bool
+    ) throws -> Data {
+        guard var root = try JSONSerialization.jsonObject(with: configurationData)
+                as? [String: Any] else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        root["model_type"] = "qwen3_5_mtp"
+        if var text = root["text_config"] as? [String: Any] {
+            text["mtp_num_hidden_layers"] = predictedLayers
+            text["mtp_use_dedicated_embeddings"] = dedicatedEmbeddings
+            root["text_config"] = text
+        } else {
+            root["mtp_num_hidden_layers"] = predictedLayers
+            root["mtp_use_dedicated_embeddings"] = dedicatedEmbeddings
+        }
+        guard JSONSerialization.isValidJSONObject(root) else {
+            throw MLXGGUFLoaderError.invalidSize
+        }
+        return try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+    }
+
+    private static func normalizedGGUFArchitecture(_ architecture: String) -> String {
+        architecture.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    private static func ggufLayerIndex(in name: String) -> Int? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: true)
+        guard parts.count >= 3, parts[0] == "blk" else { return nil }
+        return Int(parts[1])
+    }
+
+    private static func normalizeEmbeddedMTPWeights(
+        _ weights: [String: MLXArray],
+        firstSourceLayer: Int,
+        predictedLayers: Int
+    ) throws -> [String: MLXArray] {
+        var normalized = [String: MLXArray]()
+        normalized.reserveCapacity(weights.count)
+        let sourceLayerPrefix = "model.layers."
+
+        for (name, value) in weights {
+            guard let sourceLayer = ggufLayerIndex(in: name),
+                  sourceLayer >= firstSourceLayer,
+                  sourceLayer < firstSourceLayer + predictedLayers else {
+                continue
+            }
+            let destinationName: String?
+            if name.contains(".nextn.") {
+                destinationName = embeddedMTPAuxiliaryName(
+                    name,
+                    firstSourceLayer: firstSourceLayer)
+            } else if let baseName = MLXGGUFWeightNameNormalizer.normalizedName(
+                name,
+                modelType: "qwen3_5_text") {
+                let expectedPrefix = "\(sourceLayerPrefix)\(sourceLayer)."
+                guard baseName.hasPrefix(expectedPrefix) else {
+                    throw MLXGGUFLoaderError.invalidTensor(name)
+                }
+                destinationName = "mtp.layers.\(sourceLayer - firstSourceLayer)."
+                    + baseName.dropFirst(expectedPrefix.count)
+            } else {
+                destinationName = nil
+            }
+            guard let destinationName else { continue }
+            guard normalized[destinationName] == nil else {
+                throw MLXGGUFLoaderError.duplicateWeight(destinationName)
+            }
+            normalized[destinationName] = value
+        }
+        return normalized
+    }
+
+    private static func embeddedMTPAuxiliaryName(
+        _ name: String,
+        firstSourceLayer: Int
+    ) -> String? {
+        let suffixes = [".scales", ".biases", ".weight", ".bias"]
+        guard let suffix = suffixes.first(where: { name.hasSuffix($0) }) else {
+            return nil
+        }
+        let base = String(name.dropLast(suffix.count))
+        let prefix = "blk.\(firstSourceLayer).nextn."
+        guard base.hasPrefix(prefix) else { return nil }
+        let component = String(base.dropFirst(prefix.count))
+        let destination: String
+        switch component {
+        case "eh_proj": destination = "mtp.fc"
+        case "enorm": destination = "mtp.pre_fc_norm_embedding"
+        case "hnorm": destination = "mtp.pre_fc_norm_hidden"
+        case "shared_head_norm": destination = "mtp.norm"
+        case "embed_tokens": destination = "mtp.embed_tokens"
+        default: return nil
+        }
+        return destination + suffix
+    }
+
     private static func isQwen35Architecture(_ modelType: String) -> Bool {
         modelType == "qwen3_5" || modelType == "qwen3_5_text"
     }
@@ -3784,7 +3984,7 @@ enum MLXGGUFModelLoader {
     }
 
     private static func quantizeGGUFModel(
-        _ model: LanguageModel,
+        _ model: BaseLanguageModel,
         weights: [String: MLXArray],
         groupSize: Int
     ) {

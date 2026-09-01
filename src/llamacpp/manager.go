@@ -60,6 +60,7 @@ func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath s
 			Model:                   saved.Model,
 			MMProj:                  saved.MMProj,
 			DraftModel:              saved.DraftModel,
+			DraftKind:               saved.DraftKind,
 			DFlashEnabled:           saved.DFlashEnabled,
 			MMapEnabled:             saved.MMapEnabled,
 			FastGGUF:                saved.FastGGUF,
@@ -85,8 +86,27 @@ func (m *Manager) Start(
 	if m.status.Running {
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
-	if dflashEnabled && kvCacheQuantizationEnabled {
-		return m.status, errors.New("DFlash 與 KV Cache 量化不可同時啟用")
+	mtpEnabled := startupCommand.Runtime == domain.RuntimeMLXServer &&
+		hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
+	settings := m.settings()
+	embeddedMTPTarget := false
+	if mtpEnabled {
+		modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
+		if err != nil {
+			return m.status, err
+		}
+		if isGGUF {
+			embeddedMTPTarget = isEmbeddedMTPGGUF(modelArgument)
+			if !embeddedMTPTarget {
+				return m.status, errors.New("這份 GGUF 未包含 mlx-server 支援的內嵌 MTP 預測層")
+			}
+		}
+	}
+	if dflashEnabled && mtpEnabled {
+		return m.status, errors.New("DFlash 與 MTP 不可同時啟用")
+	}
+	if (dflashEnabled || mtpEnabled) && kvCacheQuantizationEnabled {
+		return m.status, errors.New("Draft 推測解碼與 KV Cache 量化不可同時啟用")
 	}
 	if skipGGUFConversionCache && startupCommand.Runtime != domain.RuntimeMLXServer {
 		return m.status, errors.New("不建立轉換快取只適用於 mlx-server 載入 GGUF")
@@ -97,23 +117,28 @@ func (m *Manager) Start(
 	if !kvCacheQuantizationEnabled {
 		startupCommand.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
-	if dflashEnabled && startupCommand.Runtime == domain.RuntimeMLXServer {
+	if (dflashEnabled || mtpEnabled) && startupCommand.Runtime == domain.RuntimeMLXServer {
 		startupCommand.ExtraArgs = withoutDraftModelArguments(startupCommand.ExtraArgs)
 	} else {
 		startupCommand.ExtraArgs = withoutDFlashArguments(startupCommand.ExtraArgs)
 	}
 	startupCommand.DraftModel = ""
-	if dflashEnabled {
+	if embeddedMTPTarget {
+		draftModel = ""
+	} else if dflashEnabled || mtpEnabled {
 		draftModel = strings.TrimSpace(draftModel)
 		if draftModel == "" {
-			return m.status, errors.New("找不到可用的 DFlash Draft 模型，請先到「模型下載」取得配對的 Draft")
+			mode := "DFlash"
+			if mtpEnabled {
+				mode = "MTP"
+			}
+			return m.status, fmt.Errorf("找不到可用的 %s Draft 模型，請先到「模型下載」取得配對的 Draft", mode)
 		}
 		startupCommand.DraftModel = draftModel
-		if startupCommand.Runtime != domain.RuntimeMLXServer {
+		if dflashEnabled && startupCommand.Runtime != domain.RuntimeMLXServer {
 			startupCommand.ExtraArgs = append(startupCommand.ExtraArgs, "--spec-type", "draft-dflash")
 		}
 	}
-	settings := m.settings()
 	conversionExpected := false
 	if startupCommand.Runtime == domain.RuntimeMLXServer && !skipGGUFConversionCache {
 		inspectionContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -155,6 +180,11 @@ func (m *Manager) Start(
 	}
 	m.status.DesiredRunning = true
 	m.status.DFlashEnabled = dflashEnabled
+	if m.status.DraftModel == "" {
+		m.status.DraftKind = ""
+	} else if dflashEnabled {
+		m.status.DraftKind = "dflash"
+	}
 	m.status.MMapEnabled = mmapEnabled
 	m.status.FastGGUF = fastGGUFEnabled
 	m.status.SkipGGUFConversionCache = skipGGUFConversionCache
@@ -261,12 +291,18 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	m.done = done
 	m.stopping = false
 	m.status = domain.LlamaStatus{
-		Running:            true,
-		Runtime:            domain.RuntimeLlamaServer,
-		PID:                command.Process.Pid,
-		Model:              filepath.ToSlash(strings.TrimSpace(model)),
-		MMProj:             filepath.ToSlash(strings.TrimSpace(mmproj)),
-		DraftModel:         filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
+		Running:    true,
+		Runtime:    domain.RuntimeLlamaServer,
+		PID:        command.Process.Pid,
+		Model:      filepath.ToSlash(strings.TrimSpace(model)),
+		MMProj:     filepath.ToSlash(strings.TrimSpace(mmproj)),
+		DraftModel: filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
+		DraftKind: func() string {
+			if strings.TrimSpace(startupCommand.DraftModel) != "" {
+				return "dflash"
+			}
+			return ""
+		}(),
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
 		StartupCommandName: startupCommand.Name,
@@ -305,28 +341,48 @@ func (m *Manager) startMLXLocked(
 	if fastGGUFEnabled && !isGGUF {
 		return m.status, errors.New("快速GGUF模式只適用於 mlx-server 載入 GGUF")
 	}
-	if (isGGUF && isGGUFDFlashDraft(modelArgument)) || (!isGGUF && isMLXDFlashDraftDirectory(modelArgument)) {
-		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
+	if (isGGUF && isGGUFDFlashDraft(modelArgument)) ||
+		(!isGGUF && (isMLXDFlashDraftDirectory(modelArgument) || isMLXMTPDraftDirectory(modelArgument))) {
+		return m.status, errors.New("Draft 模型不可作為 Target 模型啟動")
 	}
 	mmprojArgument := selection.mmprojArgument
 	statusMMProj := selection.statusMMProj
 	var draftModelArgument string
+	var draftKind string
+	mtpEnabled := hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
+	if mtpEnabled && isGGUF {
+		if !isEmbeddedMTPGGUF(modelArgument) {
+			return m.status, errors.New("這份 GGUF 未包含 mlx-server 支援的內嵌 MTP 預測層")
+		}
+		draftKind = "mtp"
+	}
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
 		if isGGUF {
-			return m.status, errors.New("GGUF Target 目前使用一般 MLX 生成；DFlash 請搭配 MLX safetensors Target")
+			return m.status, errors.New("GGUF Target 目前不支援 MLX Draft 推測解碼；請搭配 MLX safetensors Target")
 		}
-		if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
-			return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
-		}
-		draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "DFlash Draft 模型")
+		draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "MLX Draft 模型")
 		if err != nil {
 			return m.status, err
 		}
-		if !isSupportedMLXDFlashDraftDirectory(draftModelArgument) {
-			return m.status, errors.New("只支援 Qwen3／Qwen3.5 的 DFlashDraftModel 或 DFlash2DraftModel")
+		switch {
+		case isSupportedMLXMTPDraftDirectory(draftModelArgument):
+			draftKind = "mtp"
+			if !isSupportedMLXMTPTargetDirectory(modelArgument) {
+				return m.status, errors.New("目前 Target MLX 模型架構不支援 MTP")
+			}
+			if err := validateMLXMTPPair(modelArgument, draftModelArgument); err != nil {
+				return m.status, err
+			}
+		case isSupportedMLXDFlashDraftDirectory(draftModelArgument):
+			draftKind = "dflash"
+			if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
+				return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
+			}
+		default:
+			return m.status, errors.New("指定的 MLX Draft 不是 Runtime 支援的 DFlash 或 MTP 模型")
 		}
 		if draftModelArgument == modelArgument {
-			return m.status, errors.New("DFlash Draft 模型不可與 Target 模型相同")
+			return m.status, errors.New("Draft 模型不可與 Target 模型相同")
 		}
 	}
 
@@ -342,10 +398,10 @@ func (m *Manager) startMLXLocked(
 	if isGGUF && skipGGUFConversionCache {
 		args = append(args, "--no-gguf-cache")
 	}
-	if draftModelArgument != "" {
+	if draftKind != "" {
 		// mlx-server 只要看到 rotating 或量化的 target KV Cache 就會整個退回標準
 		// 生成，而且只在 stderr 留一行訊息。受管 KV 量化已由 Start 的互斥檢查擋掉，
-		// 這裡再清掉啟動參數裡手動加的 rotating KV 旗標，避免 DFlash 靜默失效。
+		// 這裡再清掉啟動參數裡手動加的 rotating KV 旗標，避免 Draft 推測解碼靜默失效。
 		args = withoutMLXRotatingKVArguments(args)
 	}
 	args = withoutMLXMMapArguments(args)
@@ -362,12 +418,15 @@ func (m *Manager) startMLXLocked(
 		args = append(args, "--mmproj", mmprojArgument)
 	}
 	if draftModelArgument != "" {
-		// Qwen3.5 的完整 checkpoint 可能同時帶有 Vision 設定；DFlash 目前只使用
-		// language target，因此明確覆寫自動偵測結果。
-		args = append(args,
-			"--model-type", "text",
-			"--dflash-draft", draftModelArgument,
-		)
+		if draftKind == "mtp" {
+			args = append(args, "--mtp-draft", draftModelArgument)
+		} else {
+			// DFlash 目前只使用 language target，因此明確覆寫可能沿用的 Vision 設定。
+			args = append(args,
+				"--model-type", "text",
+				"--dflash-draft", draftModelArgument,
+			)
+		}
 	}
 	args = append(args,
 		"--host", startupCommand.ServerHost,
@@ -402,6 +461,7 @@ func (m *Manager) startMLXLocked(
 		Model:                   strings.TrimSpace(model),
 		MMProj:                  statusMMProj,
 		DraftModel:              filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
+		DraftKind:               draftKind,
 		Binary:                  binary,
 		StartupCommandID:        startupCommand.ID,
 		StartupCommandName:      startupCommand.Name,
@@ -709,6 +769,7 @@ func (m *Manager) persistStatusLocked(desiredRunning bool) error {
 		Model:                   m.status.Model,
 		MMProj:                  m.status.MMProj,
 		DraftModel:              m.status.DraftModel,
+		DraftKind:               m.status.DraftKind,
 		DFlashEnabled:           m.status.DFlashEnabled,
 		MMapEnabled:             m.status.MMapEnabled,
 		FastGGUF:                m.status.FastGGUF,
@@ -1096,6 +1157,8 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 			DFlashSupported: !isDraft && isSupportedDFlashTargetArchitecture(architecture),
 			DFlashDraft:     isDraft,
 			DFlashVariant:   ggufDFlashVariant(entry.Name(), isDraft),
+			MTPSupported:    !isDraft && profile.NextNPredictLayers > 0 && canonicalMLXGGUFArchitecture(architecture) == "qwen35",
+			MTPEmbedded:     !isDraft && profile.NextNPredictLayers > 0 && canonicalMLXGGUFArchitecture(architecture) == "qwen35",
 		})
 		if len(result) >= 5000 {
 			return io.EOF
@@ -1592,6 +1655,12 @@ func isSupportedMLXGGUFArchitecture(architecture string) bool {
 	}
 }
 
+func isEmbeddedMTPGGUF(path string) bool {
+	profile, err := readGGUFModelProfile(path)
+	return err == nil && profile.NextNPredictLayers > 0 &&
+		canonicalMLXGGUFArchitecture(profile.Architecture) == "qwen35"
+}
+
 // mlxRuntimeSupportInfo 是 mlx-server 回報的可載入模型型別。
 type mlxRuntimeSupportInfo struct {
 	available         bool
@@ -1759,10 +1828,15 @@ func isMMProjGGUF(path string) bool {
 	return strings.Contains(strings.ToLower(filepath.Base(path)), "mmproj")
 }
 
-// ListMLXDFlashModels 只列出目前原生 Swift Runtime 已支援的 DFlash Draft。
+// ListMLXDraftModels 只列出原生 Swift Runtime 已支援的 DFlash 與 MTP Draft。
 // Target 與 Draft 使用相同模型根目錄，但透過 role 分流避免 Draft 被誤選為主模型。
-func ListMLXDFlashModels(directory string) ([]domain.ModelFile, error) {
+func ListMLXDraftModels(directory string) ([]domain.ModelFile, error) {
 	return listMLXModels(directory, true)
+}
+
+// ListMLXDFlashModels 保留舊呼叫端相容性；回傳值已包含所有 MLX Draft 類型。
+func ListMLXDFlashModels(directory string) ([]domain.ModelFile, error) {
+	return ListMLXDraftModels(directory)
 }
 
 func normalizeModelArchitecture(architecture string) string {
@@ -1837,10 +1911,13 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 			return nil
 		}
 		architecture := normalizeModelArchitecture(configuration.ModelType)
-		isDraft := isMLXDFlashDraftConfiguration(configuration)
+		isDFlashDraft := isMLXDFlashDraftConfiguration(configuration)
+		isMTPDraft := isMLXMTPDraftConfiguration(configuration)
+		isDraft := isDFlashDraft || isMTPDraft
 		runtimeUntested := !isRunnableMLXModelType(configuration.ModelType)
 		if draftsOnly {
-			if !isSupportedMLXDFlashDraftConfiguration(configuration) {
+			if !isSupportedMLXDFlashDraftConfiguration(configuration) &&
+				!isSupportedMLXMTPDraftConfiguration(configuration) {
 				return filepath.SkipDir
 			}
 		} else if isDraft {
@@ -1880,8 +1957,20 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 			Architecture:    architecture,
 			RuntimeUntested: runtimeUntested,
 			DFlashSupported: !runtimeUntested && !isDraft && isSupportedDFlashTargetArchitecture(architecture),
-			DFlashDraft:     isDraft,
+			DFlashDraft:     isDFlashDraft,
 			DFlashVariant:   mlxDFlashVariant(configuration),
+			MTPSupported:    !runtimeUntested && !isDraft && isSupportedMLXMTPConfiguration(configuration),
+			MTPDraft:        isMTPDraft,
+			MTPBlockSize:    configuration.BlockSize,
+			DraftKind: func() string {
+				if isMTPDraft {
+					return "mtp"
+				}
+				if isDFlashDraft {
+					return "dflash"
+				}
+				return ""
+			}(),
 		})
 		if len(result) >= 5000 {
 			return io.EOF
@@ -1896,18 +1985,155 @@ func listMLXModels(directory string, draftsOnly bool) ([]domain.ModelFile, error
 }
 
 type mlxModelConfiguration struct {
-	Architectures []string        `json:"architectures"`
-	ModelType     string          `json:"model_type"`
-	TextConfig    json.RawMessage `json:"text_config"`
-	HiddenSize    int             `json:"hidden_size"`
-	LayerTypes    []string        `json:"layer_types"`
-	SlidingWindow int             `json:"sliding_window"`
-	DFlash        struct {
+	Architectures         []string        `json:"architectures"`
+	ModelType             string          `json:"model_type"`
+	TextConfig            json.RawMessage `json:"text_config"`
+	HiddenSize            int             `json:"hidden_size"`
+	BackboneHiddenSize    int             `json:"backbone_hidden_size"`
+	HiddenLayers          int             `json:"num_hidden_layers"`
+	VocabularySize        int             `json:"vocab_size"`
+	AttentionHeads        int             `json:"num_attention_heads"`
+	KVHeads               int             `json:"num_key_value_heads"`
+	FullAttentionInterval int             `json:"full_attention_interval"`
+	BlockSize             int             `json:"block_size"`
+	LayerTypes            []string        `json:"layer_types"`
+	SlidingWindow         int             `json:"sliding_window"`
+	DFlash                struct {
 		ConvolutionKernelSize int `json:"conv_kernel_size"`
 		ConvolutionGroupSize  int `json:"conv_group_size"`
 		SelectorRank          int `json:"selector_rank"`
 		SelectorTopK          int `json:"selector_top_k"`
 	} `json:"dflash_config"`
+}
+
+func (configuration mlxModelConfiguration) effectiveTextConfiguration() mlxModelConfiguration {
+	if len(configuration.TextConfig) == 0 || string(configuration.TextConfig) == "null" {
+		return configuration
+	}
+	var text mlxModelConfiguration
+	if json.Unmarshal(configuration.TextConfig, &text) != nil {
+		return configuration
+	}
+	if text.ModelType == "" {
+		text.ModelType = configuration.ModelType
+	}
+	if text.BlockSize == 0 {
+		text.BlockSize = configuration.BlockSize
+	}
+	return text
+}
+
+func isMLXMTPDraftConfiguration(configuration mlxModelConfiguration) bool {
+	switch normalizeModelArchitecture(configuration.ModelType) {
+	case "qwen3_5_mtp", "gemma4_assistant":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedMLXMTPDraftConfiguration(configuration mlxModelConfiguration) bool {
+	if !isMLXMTPDraftConfiguration(configuration) {
+		return false
+	}
+	text := configuration.effectiveTextConfiguration()
+	return text.HiddenSize > 0 && text.HiddenLayers > 0 && text.VocabularySize > 0
+}
+
+func isSupportedMLXMTPConfiguration(configuration mlxModelConfiguration) bool {
+	if isMLXMTPDraftConfiguration(configuration) || isMLXDFlashDraftConfiguration(configuration) {
+		return false
+	}
+	switch normalizeModelArchitecture(configuration.ModelType) {
+	case "qwen3_5", "qwen3_5_moe", "qwen3_5_text", "qwen3_5_moe_text", "gemma4", "gemma4_text":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMLXMTPDraftDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	return err == nil && isMLXMTPDraftConfiguration(configuration)
+}
+
+func isSupportedMLXMTPDraftDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	return err == nil && isSupportedMLXMTPDraftConfiguration(configuration)
+}
+
+func isSupportedMLXMTPTargetDirectory(directory string) bool {
+	configuration, err := readMLXModelConfiguration(directory)
+	return err == nil && isSupportedMLXMTPConfiguration(configuration)
+}
+
+func validateMLXMTPPair(targetDirectory, draftDirectory string) error {
+	target, err := readMLXModelConfiguration(targetDirectory)
+	if err != nil {
+		return fmt.Errorf("讀取 MTP Target 設定失敗: %w", err)
+	}
+	draft, err := readMLXModelConfiguration(draftDirectory)
+	if err != nil {
+		return fmt.Errorf("讀取 MTP Draft 設定失敗: %w", err)
+	}
+	if !isSupportedMLXMTPConfiguration(target) || !isSupportedMLXMTPDraftConfiguration(draft) {
+		return errors.New("MTP Target 或 Draft 架構不受支援")
+	}
+	target = target.effectiveTextConfiguration()
+	draftType := normalizeModelArchitecture(draft.ModelType)
+	draftText := draft.effectiveTextConfiguration()
+	targetType := normalizeModelArchitecture(target.ModelType)
+	if targetType == "" {
+		targetType = normalizeModelArchitecture(target.effectiveTextConfiguration().ModelType)
+	}
+
+	if draftType == "gemma4_assistant" {
+		if targetType != "gemma4" && targetType != "gemma4_text" {
+			return fmt.Errorf("MTP Draft 架構 %s 不支援 Target 架構 %s", draftType, targetType)
+		}
+		if target.VocabularySize <= 0 || draftText.VocabularySize <= 0 ||
+			target.VocabularySize != draftText.VocabularySize {
+			return fmt.Errorf(
+				"MTP Draft 與 Target 不相容：vocab_size target=%d draft=%d",
+				target.VocabularySize, draftText.VocabularySize,
+			)
+		}
+		if draft.BackboneHiddenSize > 0 &&
+			(target.HiddenSize <= 0 || target.HiddenSize != draft.BackboneHiddenSize) {
+			return fmt.Errorf(
+				"MTP Draft 與 Target 不相容：backbone_hidden_size target=%d draft=%d",
+				target.HiddenSize, draft.BackboneHiddenSize,
+			)
+		}
+		return nil
+	}
+
+	if draftType != "qwen3_5_mtp" ||
+		(targetType != "qwen3_5" && targetType != "qwen3_5_moe" &&
+			targetType != "qwen3_5_text" && targetType != "qwen3_5_moe_text") {
+		return fmt.Errorf("MTP Draft 架構 %s 不支援 Target 架構 %s", draftType, targetType)
+	}
+	draft = draftText
+	checks := []struct {
+		name          string
+		target, draft int
+	}{
+		{"hidden_size", target.HiddenSize, draft.HiddenSize},
+		{"vocab_size", target.VocabularySize, draft.VocabularySize},
+		{"num_hidden_layers", target.HiddenLayers, draft.HiddenLayers},
+		{"num_attention_heads", target.AttentionHeads, draft.AttentionHeads},
+		{"num_key_value_heads", target.KVHeads, draft.KVHeads},
+		{"full_attention_interval", target.FullAttentionInterval, draft.FullAttentionInterval},
+	}
+	for _, check := range checks {
+		if check.target <= 0 || check.draft <= 0 || check.target != check.draft {
+			return fmt.Errorf(
+				"MTP Draft 與 Target 不相容：%s target=%d draft=%d",
+				check.name, check.target, check.draft,
+			)
+		}
+	}
+	return nil
 }
 
 func readMLXModelConfiguration(directory string) (mlxModelConfiguration, error) {
@@ -2290,13 +2516,14 @@ func withoutDraftModelArguments(arguments []string) []string {
 	filtered := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
 		argument := strings.TrimSpace(arguments[index])
-		if argument == "--model-draft" || argument == "--dflash-draft" {
+		if argument == "--model-draft" || argument == "--dflash-draft" || argument == "--mtp-draft" {
 			if index+1 < len(arguments) {
 				index++
 			}
 			continue
 		}
-		if strings.HasPrefix(argument, "--model-draft=") || strings.HasPrefix(argument, "--dflash-draft=") {
+		if strings.HasPrefix(argument, "--model-draft=") || strings.HasPrefix(argument, "--dflash-draft=") ||
+			strings.HasPrefix(argument, "--mtp-draft=") {
 			continue
 		}
 		filtered = append(filtered, arguments[index])
