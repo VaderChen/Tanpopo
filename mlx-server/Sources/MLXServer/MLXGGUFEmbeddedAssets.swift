@@ -294,6 +294,83 @@ enum MLXGGUFEmbeddedAssets {
         throw MLXGGUFLoaderError.embeddedTokenizerUnavailable(weightURL)
     }
 
+    /// 建立可隨 Fast GGUF 保存的完整 Runtime 資產。外部 Hugging Face 資產若可
+    /// 正常解析就沿用，否則由 GGUF metadata 合成；因此不依模型名稱或儲存目錄。
+    static func fastGGUFRuntimeAssets(
+        directoryURL: URL,
+        weightURL: URL,
+        mmprojURL: URL?,
+        configurationData: Data
+    ) throws -> FastGGUFRuntimeAssets {
+        let metadata = try MLXGGUFLoader.metadata(from: weightURL)
+        let tokenizerDataURL = directoryURL.appendingPathComponent("tokenizer.json")
+        let tokenizerConfigurationURL = directoryURL.appendingPathComponent(
+            "tokenizer_config.json"
+        )
+        let tokenizerData: Config
+        if let external = try? config(from: Data(contentsOf: tokenizerDataURL)) {
+            tokenizerData = external
+        } else {
+            tokenizerData = try embeddedTokenizerData(from: metadata)
+        }
+        let baseTokenizerConfiguration: Config
+        if let external = try? config(from: Data(contentsOf: tokenizerConfigurationURL)) {
+            baseTokenizerConfiguration = external
+        } else {
+            baseTokenizerConfiguration = try embeddedTokenizerConfiguration(from: metadata)
+        }
+        let tokenizerConfiguration = configurationByAddingChatTemplate(
+            baseTokenizerConfiguration,
+            chatTemplate: chatTemplate(in: directoryURL)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        var processorData: Data?
+        if let mmprojURL {
+            let configuredProcessorURLs = [
+                directoryURL.appendingPathComponent("preprocessor_config.json"),
+                directoryURL.appendingPathComponent("processor_config.json")
+            ]
+            processorData = configuredProcessorURLs.compactMap {
+                try? Data(contentsOf: $0)
+            }.first
+            if processorData == nil {
+                processorData = try processorConfigurationData(mmprojURL: mmprojURL)
+            }
+        }
+        let generationURL = directoryURL.appendingPathComponent("generation_config.json")
+        return FastGGUFRuntimeAssets(
+            configurationData: configurationData,
+            tokenizerData: try encoder.encode(tokenizerData),
+            tokenizerConfigurationData: try encoder.encode(tokenizerConfiguration),
+            processorConfigurationData: processorData,
+            generationConfigurationData: try? Data(contentsOf: generationURL)
+        )
+    }
+
+    /// 從 Fast GGUF 內附的 tokenizer.json 與 tokenizer_config.json 建立 tokenizer。
+    static func tokenizer(
+        tokenizerData: Data,
+        tokenizerConfigurationData: Data
+    ) throws -> any MLXLMCommon.Tokenizer {
+        let data = try config(from: tokenizerData)
+        let configuration = configurationWithUnknownTokenFallback(
+            try config(from: tokenizerConfigurationData),
+            tokenizerData: data
+        )
+        do {
+            let upstream = try AutoTokenizer.from(
+                tokenizerConfig: configuration,
+                tokenizerData: data,
+                strict: false
+            )
+            return #adaptHuggingFaceTokenizer(upstream)
+        } catch {
+            throw MLXGGUFLoaderError.invalidText
+        }
+    }
+
     private static func chatTemplate(in directoryURL: URL) -> String? {
         let templateURL = directoryURL.appendingPathComponent("chat_template.jinja")
         guard let template = try? String(contentsOf: templateURL, encoding: .utf8),
@@ -789,20 +866,41 @@ enum MLXGGUFEmbeddedAssets {
             throw MLXGGUFLoaderError.invalidSize
         }
 
-        let kvHeads = integer("\(prefix).attention.head_count_kv", in: metadata)
-            ?? attentionHeads
-        let hasValueProjection = tensorNames.contains {
-            $0.hasPrefix("blk.") && $0.contains(".attn_v.")
+        let kvHeadKey = "\(prefix).attention.head_count_kv"
+        let kvHeadsByLayer: [Int]
+        if let scalar = metadata[kvHeadKey]?.integerValue {
+            kvHeadsByLayer = Array(repeating: scalar, count: hiddenLayers)
+        } else if let values = arrayOfIntegers(kvHeadKey, in: metadata),
+                  values.count == hiddenLayers {
+            kvHeadsByLayer = values
+        } else if metadata[kvHeadKey] == nil {
+            kvHeadsByLayer = Array(repeating: attentionHeads, count: hiddenLayers)
+        } else {
+            throw MLXGGUFLoaderError.unsupportedArchitectureVariant(
+                architecture: "gemma4",
+                reason: "head_count_kv 不是純量或完整的逐層陣列"
+            )
         }
+        let names = Set(tensorNames)
+        let fullAttentionValueProjections = (0..<(hiddenLayers - sharedKVLayers))
+            .filter {
+                layerTypes[$0] == "full_attention"
+                    && names.contains("blk.\($0).attn_k.weight")
+            }
+            .map { names.contains("blk.\($0).attn_v.weight") }
+        let attentionLayout = try MLXGGUFGemma4AttentionLayout.resolve(
+            layerTypes: layerTypes,
+            headCounts: kvHeadsByLayer,
+            globalValueProjectionPresence: fullAttentionValueProjections
+        )
         let hasOutputWeight = tensorNames.contains("output.weight")
-        return [
+        return attentionLayout.applying(to: [
             "model_type": "gemma4_text",
             "architectures": ["Gemma4ForCausalLM"],
             "hidden_size": hiddenSize,
             "num_hidden_layers": hiddenLayers,
             "intermediate_size": feedForwardLayout.intermediateSize,
             "num_attention_heads": attentionHeads,
-            "num_key_value_heads": kvHeads,
             "head_dim": slidingHeadDim,
             "global_head_dim": globalHeadDim,
             "rms_norm_eps": float(
@@ -817,7 +915,6 @@ enum MLXGGUFEmbeddedAssets {
                 ?? 512,
             "max_position_embeddings": integer("\(prefix).context_length", in: metadata)
                 ?? 131_072,
-            "attention_k_eq_v": !hasValueProjection,
             "final_logit_softcapping": float(
                 "\(prefix).final_logit_softcapping",
                 in: metadata
@@ -838,7 +935,7 @@ enum MLXGGUFEmbeddedAssets {
                     "rope_type": "proportional"
                 ]
             ]
-        ]
+        ])
     }
 
     private static func gemma4LayerTypes(

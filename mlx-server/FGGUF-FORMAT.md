@@ -1,16 +1,16 @@
-# FGGUF 轉換快取格式
+# Fast GGUF 格式
 
 ## 定位
 
-`.fgguf` 是 Tanpopo 為 `mlx-server` 設計的**內部轉換權重快取容器**。它保存 GGUF 經架構解析、tensor 轉換與 MLX 量化策略處理後的可執行權重，用來避免後續啟動重做相同轉換。
+`.fgguf` 是 Tanpopo 為 `mlx-server` 設計的 **Fast GGUF 內部權重容器**。它保存 GGUF 經架構解析、tensor 轉換與 MLX 量化策略處理後的可執行權重，用來避免後續啟動重做相同轉換。
 
-FGGUF 不是 GGUF 規格的延伸，也不是可交給 llama.cpp 或其他 GGUF 工具載入的模型交換格式。副檔名中的 `f` 代表 Tanpopo 的 fast／file-backed cache；所有讀寫端都必須先驗證 magic 與格式版本，不可只靠副檔名判斷。
+FGGUF 不是 GGUF 規格的延伸，也不是可交給 llama.cpp 或其他 GGUF 工具載入的模型交換格式。副檔名中的 `f` 代表 Tanpopo 的 fast／file-backed 儲存；所有讀寫端都必須先驗證 magic 與格式版本，不可只靠副檔名判斷。
 
 FGGUF 的容器壓縮是無損的。GGUF 來源到 MLX 權重之間是否重新量化，則由 `auto`、`quality`、`speed`、`speed-passthrough`、group size 與 recurrent promotion 等轉換策略決定，和容器壓縮是兩個獨立階段。
 
 ## Fast GGUF 的角色與保證範圍
 
-**快速GGUF模式（Fast GGUF）**是 Tanpopo／mlx-server 的通用 GGUF 最佳化入口，`.fgguf` 則是保存其轉換結果的快取容器；兩者不可混為一談。系統設定以獨立卡片保存快速模式開關與三種策略，不以模型檔名或固定模型清單套用特例：
+**快速GGUF模式（Fast GGUF）**是 Tanpopo／mlx-server 的通用 GGUF 最佳化入口，`.fgguf` 則是保存其轉換結果的持久化容器。系統設定以獨立卡片保存快速模式開關與三種策略，不以模型檔名或固定模型清單套用特例：
 
 | 介面策略 | Runtime 參數 | 權重處理 |
 | --- | --- | --- |
@@ -98,9 +98,11 @@ Qwen3.5-4B-Q4_0.tanpopo-a1b2c3d4e5f6789012345678-00001-of-00002.fgguf
 Qwen3.5-4B-Q4_0.tanpopo-a1b2c3d4e5f6789012345678-00002-of-00002.fgguf
 ```
 
-新快取的 shard 與 `<模型>.<cache-key>.fgguf.json` manifest 直接放在原始 GGUF 的同一目錄。manifest 使用 schema `3`，記錄 cache key、Runtime 版本、來源名稱、來源標準化完整路徑、轉換策略、未壓縮容量、實際儲存容量與 shard 清單。來源完整路徑讓管理介面的「清除快取」可精確定位原始 GGUF；schema `2` 的舊 manifest 只有來源檔名，僅在目前模型清單中檔名唯一時允許配對。
+Fast GGUF 的 shard 與 `<模型>.<cache-key>.fgguf.json` manifest 直接放在原始 GGUF 的同一目錄。manifest 使用 schema `4`，記錄 cache key、Runtime 版本、來源名稱、來源標準化完整路徑、轉換策略、未壓縮容量、實際儲存容量、shard 清單，以及獨立的 `config.json`、`tokenizer.json`、`tokenizer_config.json`、選用 Processor 與 Generation 設定檔名。所有資產都使用相同 cache-key 前綴，避免同目錄不同策略互相覆蓋。
 
-快取先寫入同目錄的隱藏暫存目錄，所有 shard 入位後才發布 manifest。讀取端只承認完整 manifest，因此中斷寫入不會被當成可用快取。若模型目錄不可寫，轉換會明確失敗，不會悄悄改存到其他磁碟。
+當原始 GGUF 已移除時，模型掃描器會把結構完整的 schema `4` Fast GGUF 當作 MLX 清單 fallback，仍以原模型名稱顯示並直接從 manifest 啟動。schema `3` 可在同目錄具有標準 Hugging Face `config.json`、`tokenizer.json` 與 `tokenizer_config.json` 時使用相容 fallback；缺少任一必要資產就不列出，避免產生無法啟動的選項。來源完整路徑仍供管理介面精確配對原模型。
+
+Fast GGUF 先寫入同目錄的隱藏暫存目錄，所有 shard 入位後才發布 manifest。讀取端只承認完整 manifest，因此中斷寫入不會被當成可用結果。若模型目錄不可寫，轉換會明確失敗，不會悄悄改存到其他磁碟。
 
 ## 讀取驗證
 
@@ -113,14 +115,16 @@ Qwen3.5-4B-Q4_0.tanpopo-a1b2c3d4e5f6789012345678-00002-of-00002.fgguf
 - `raw` tensor 必須符合 MMap 對齊要求；
 - LZFSE 解壓結果必須剛好等於 `rawBytes`。
 
-任何檢查失敗都不會嘗試猜測或部分載入。上層會把該快取視為無效，回到重新轉換流程。
+任何檢查失敗都不會嘗試猜測或部分載入。上層會把該 Fast GGUF 視為無效，回到重新轉換流程。
 
 ## 相容性與生命週期
 
-- 新建立的轉換快取使用 manifest schema `3` 與 `.fgguf` shard，並與原始 GGUF 同目錄儲存。
-- 舊 manifest schema `2` 與 `.safetensors` shard 不會被新版 Runtime 載入；管理介面仍可辨識並清除這些舊快取，避免混用不同容器布局。
-- 快取鍵仍涵蓋來源檔案內容特徵、Runtime 版本、量化 profile、group size 與 recurrent promotion；不同策略不會誤用彼此的權重。
-- 「清除快取」會刪除指定原始 GGUF 對應的所有 `.fgguf` shard 與 manifest，不刪除原始 GGUF、mmproj、Draft 或模型目錄。
+- 新建立的 Fast GGUF 使用 manifest schema `4`、`.fgguf` shard 與具 cache-key 前綴的 Runtime 資產，並與原始 GGUF 同目錄儲存。
+- schema `3` 的 `.fgguf` 可在同目錄 Runtime 資產完整時作為 fallback；來源 GGUF 尚在時，Runtime 也會自動將既有 schema `3` 補齊為 schema `4`。
+- 舊 manifest schema `2` 與 `.safetensors` shard 只保留管理清理相容性，不會作為來源已移除時的 fallback。
+- cache key 涵蓋來源檔案內容特徵、Runtime 版本、量化 profile、group size 與 recurrent promotion；不同策略不會誤用彼此的權重。
+- 「移除 Fast GGUF」會刪除指定原始 GGUF 對應的所有 `.fgguf` shard 與 manifest，不刪除原始 GGUF、mmproj、Draft 或模型目錄。
+- 「轉換後移除原 GGUF」只有在 Fast GGUF shard、manifest 與獨立啟動資產都已驗證完成，且 Runtime 已由該 Fast GGUF 成功載入後才會移除來源。
 - 模型服務正在使用該 GGUF 時，管理 API 會拒絕清除，必須先停止 Runtime。
 
 ## 限制

@@ -57,10 +57,135 @@ type BatchResult struct {
 	Warnings []string             `json:"warnings,omitempty"`
 }
 
+// RepositorySearchResult 是下載介面可直接套用的 Hugging Face Repository。
+// Revision 目前固定為 main，避免搜尋結果與尚未載入的分支資訊混用。
+type RepositorySearchResult struct {
+	Repository   string `json:"repository"`
+	Revision     string `json:"revision"`
+	Downloads    int64  `json:"downloads,omitempty"`
+	Likes        int64  `json:"likes,omitempty"`
+	LastModified string `json:"last_modified,omitempty"`
+}
+
+// SearchRepositories 依關鍵字搜尋 Hugging Face，並只保留目前 Runtime 可下載的模型格式。
+func (m *Manager) SearchRepositories(
+	ctx context.Context,
+	request Request,
+	query string,
+) ([]RepositorySearchResult, error) {
+	request = normalizeRequest(request)
+	query = strings.TrimSpace(query)
+	if query == "" || len([]rune(query)) > 100 || strings.ContainsAny(query, "\r\n\x00") {
+		return nil, errors.New("搜尋關鍵字格式錯誤")
+	}
+	if request.Runtime != domain.RuntimeLlamaServer && request.Runtime != domain.RuntimeMLXServer {
+		return nil, errors.New("runtime 僅支援 llama-server 或 mlx-server")
+	}
+	parsed, err := url.Parse(request.Endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, errors.New("Hugging Face Endpoint 格式錯誤")
+	}
+
+	repositories, err := m.searchRepositories(ctx, request, query)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]RepositorySearchResult, 0, 30)
+	seen := make(map[string]bool)
+	for _, repository := range repositories {
+		id := strings.TrimSpace(repository.ID)
+		key := strings.ToLower(id)
+		if !repositoryPattern.MatchString(id) || seen[key] || !repositorySupportsRuntime(repository, request.Runtime) {
+			continue
+		}
+		seen[key] = true
+		results = append(results, RepositorySearchResult{
+			Repository:   id,
+			Revision:     "main",
+			Downloads:    repository.Downloads,
+			Likes:        repository.Likes,
+			LastModified: repository.LastModified,
+		})
+		if len(results) == cap(results) {
+			break
+		}
+	}
+	return results, nil
+}
+
+func repositorySupportsRuntime(info repositoryInfo, runtime string) bool {
+	if runtime == domain.RuntimeMLXServer {
+		_, err := selectMLXRepositoryFiles(info)
+		return err == nil
+	}
+	for _, sibling := range info.Siblings {
+		if isPrimaryGGUFFilename(sibling.Filename) {
+			return true
+		}
+	}
+	return false
+}
+
+// ListGGUFFiles 讀取指定 Hugging Face repository 的主 GGUF 檔案。
+// mmproj、MTP 與 DFlash 等附屬 GGUF 由下載流程自動配對，不應混入主模型選單。
+func (m *Manager) ListGGUFFiles(ctx context.Context, request Request) ([]string, error) {
+	request = normalizeRequest(request)
+	if err := validateRepositoryLookup(request); err != nil {
+		return nil, err
+	}
+	info, err := m.fetchRepositoryInfo(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	files := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, sibling := range info.Siblings {
+		filename := strings.TrimSpace(strings.ReplaceAll(sibling.Filename, "\\", "/"))
+		if !isPrimaryGGUFFilename(filename) || seen[filename] {
+			continue
+		}
+		seen[filename] = true
+		files = append(files, filename)
+	}
+	sort.SliceStable(files, func(left, right int) bool {
+		return strings.ToLower(files[left]) < strings.ToLower(files[right])
+	})
+	if len(files) == 0 {
+		return nil, errors.New("repository 沒有可下載的 GGUF 主模型檔案")
+	}
+	return files, nil
+}
+
+func isPrimaryGGUFFilename(filename string) bool {
+	if filename == "" || !strings.EqualFold(path.Ext(filename), ".gguf") {
+		return false
+	}
+	if _, err := SafeJoin(".", filename); err != nil {
+		return false
+	}
+	normalized := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(filename, "\\", "/")))
+	segments := strings.Split(normalized, "/")
+	for _, segment := range segments[:len(segments)-1] {
+		switch strings.TrimSpace(segment) {
+		case "draft", "dflash", "mtp", "mmproj":
+			return false
+		}
+	}
+	base := path.Base(normalized)
+	return !strings.Contains(base, "mmproj") &&
+		!strings.HasPrefix(base, "draft-") &&
+		!strings.HasPrefix(base, "dflash-") &&
+		!strings.HasPrefix(base, "mtp-")
+}
+
 type repositoryInfo struct {
-	ID       string   `json:"id"`
-	Tags     []string `json:"tags"`
-	Siblings []struct {
+	ID           string   `json:"id"`
+	Tags         []string `json:"tags"`
+	Downloads    int64    `json:"downloads"`
+	Likes        int64    `json:"likes"`
+	LastModified string   `json:"lastModified"`
+	Siblings     []struct {
 		Filename string `json:"rfilename"`
 	} `json:"siblings"`
 	CardData struct {
@@ -1550,8 +1675,8 @@ func validateRequest(request Request) error {
 	if request.Runtime != domain.RuntimeLlamaServer && request.Runtime != domain.RuntimeMLXServer {
 		return errors.New("runtime 僅支援 llama-server 或 mlx-server")
 	}
-	if !repositoryPattern.MatchString(request.Repository) {
-		return errors.New("repository 必須為 owner/model 格式")
+	if err := validateRepositoryLookup(request); err != nil {
+		return err
 	}
 	if request.Filename == "" || request.Filename == "." {
 		return errors.New("filename 不可為空")
@@ -1559,18 +1684,32 @@ func validateRequest(request Request) error {
 	if request.ModelDirectory == "" {
 		return errors.New("請先設定模型存放目錄")
 	}
-	if strings.ContainsAny(request.Revision, "\r\n\x00") || request.Revision == "" {
-		return errors.New("revision 格式錯誤")
+	if _, err := SafeJoin(request.ModelDirectory, request.Filename); err != nil {
+		return err
+	}
+	_, err := SafeJoin(request.ModelDirectory, localDestination(request))
+	return err
+}
+
+func validateRepositoryLookup(request Request) error {
+	if err := ValidateRepositoryCoordinates(request.Repository, request.Revision); err != nil {
+		return err
 	}
 	parsed, err := url.Parse(request.Endpoint)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return errors.New("Hugging Face Endpoint 格式錯誤")
 	}
-	if _, err = SafeJoin(request.ModelDirectory, request.Filename); err != nil {
-		return err
+	return nil
+}
+
+func ValidateRepositoryCoordinates(repository, revision string) error {
+	if !repositoryPattern.MatchString(strings.TrimSpace(repository)) {
+		return errors.New("repository 必須為 owner/model 格式")
 	}
-	_, err = SafeJoin(request.ModelDirectory, localDestination(request))
-	return err
+	if strings.ContainsAny(revision, "\r\n\x00") || strings.TrimSpace(revision) == "" {
+		return errors.New("revision 格式錯誤")
+	}
+	return nil
 }
 
 func SafeJoin(base, relative string) (string, error) {

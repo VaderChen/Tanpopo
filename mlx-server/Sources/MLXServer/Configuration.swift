@@ -254,8 +254,11 @@ struct ServerConfiguration: Sendable {
         guard FileManager.default.fileExists(atPath: result.modelPath, isDirectory: &isDirectory) else {
             throw ConfigurationError.invalidModelPath(result.modelPath)
         }
-        let isGGUF = !isDirectory.boolValue
-            && URL(fileURLWithPath: result.modelPath).pathExtension.lowercased() == "gguf"
+        let modelFilename = URL(fileURLWithPath: result.modelPath).lastPathComponent.lowercased()
+        let isGGUF = !isDirectory.boolValue && (
+            URL(fileURLWithPath: result.modelPath).pathExtension.lowercased() == "gguf"
+                || modelFilename.hasSuffix(".fgguf.json")
+        )
         guard isDirectory.boolValue || isGGUF else {
             throw ConfigurationError.invalidModelPath(result.modelPath)
         }
@@ -342,9 +345,9 @@ struct ServerConfiguration: Sendable {
                                    （舊名 speed 對應 mode2、speed-passthrough 對應 mode1）
       --gguf-recurrent-promotion <off|controls|all>
                                    recurrent tensor 混合精度策略，預設 off
-      --gguf-cache-dir <目錄>      GGUF 轉換後權重的永久快取目錄
-      --no-gguf-cache              不讀寫永久快取，僅在本次啟動轉換權重
-      --inspect-gguf-cache         只輸出本次轉換與快取預檢 JSON，不啟動服務
+      --gguf-cache-dir <目錄>      Fast GGUF 的儲存目錄
+      --no-gguf-cache              不讀寫 Fast GGUF，僅在本次啟動轉換權重
+      --inspect-gguf-cache         只輸出本次轉換與 Fast GGUF 預檢 JSON，不啟動服務
       --mmap                        以檔案映射載入支援的模型權重
       --no-mmap                     關閉模型權重檔案映射（預設）
       --mmap-reserve-gb <數值>      記憶體保留目標：0、4、8、16、24、32、48、64、96 或 128 GB

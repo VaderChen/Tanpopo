@@ -48,42 +48,82 @@ type AgentConfig struct {
 
 // Settings 是管理畫面可即時保存的模型目錄與 Hugging Face 設定。
 type Settings struct {
-	ModelDirectory          string   `json:"model_directory"`
-	MLXModelDirectory       string   `json:"mlx_model_directory"`
-	ResidentMode            bool     `json:"resident_mode"`
-	DefaultFastGGUFEnabled  bool     `json:"default_fast_gguf_enabled"`
-	DefaultFastGGUFStrategy string   `json:"default_fast_gguf_strategy"`
-	DefaultKVCacheEnabled   bool     `json:"default_kv_cache_quantization_enabled"`
-	DefaultMMapEnabled      bool     `json:"default_mmap_enabled"`
-	DefaultDFlashEnabled    bool     `json:"default_dflash_enabled"`
-	UILanguage              string   `json:"ui_language"`
-	UITheme                 string   `json:"ui_theme"`
-	HuggingFaceEndpoint     string   `json:"huggingface_endpoint"`
-	HuggingFaceToken        string   `json:"huggingface_token,omitempty"`
-	DefaultRevision         string   `json:"default_revision"`
-	ServerHost              string   `json:"server_host"`
-	ServerPort              int      `json:"server_port"`
-	ContextSize             int      `json:"context_size"`
-	GPULayers               int      `json:"gpu_layers"`
-	Threads                 int      `json:"threads"`
-	ExtraArgs               []string `json:"extra_args"`
+	ModelDirectory          string                   `json:"model_directory"`
+	MLXModelDirectory       string                   `json:"mlx_model_directory"`
+	ResidentMode            bool                     `json:"resident_mode"`
+	DefaultFastGGUFEnabled  bool                     `json:"default_fast_gguf_enabled"`
+	DefaultFastGGUFStrategy string                   `json:"default_fast_gguf_strategy"`
+	DefaultKVCacheEnabled   bool                     `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled      bool                     `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled    bool                     `json:"default_dflash_enabled"`
+	RemoveOriginalGGUF      bool                     `json:"remove_original_gguf_after_conversion"`
+	AutoCalibrationEnabled  bool                     `json:"auto_performance_calibration_enabled"`
+	MemoryProtectionEnabled bool                     `json:"memory_pressure_protection_enabled"`
+	UILanguage              string                   `json:"ui_language"`
+	UITheme                 string                   `json:"ui_theme"`
+	HuggingFaceEndpoint     string                   `json:"huggingface_endpoint"`
+	HuggingFaceToken        string                   `json:"huggingface_token,omitempty"`
+	DefaultRevision         string                   `json:"default_revision"`
+	ServerHost              string                   `json:"server_host"`
+	ServerPort              int                      `json:"server_port"`
+	ContextSize             int                      `json:"context_size"`
+	GPULayers               int                      `json:"gpu_layers"`
+	Threads                 int                      `json:"threads"`
+	ExtraArgs               []string                 `json:"extra_args"`
+	DownloadFavorites       []DownloadFavorite       `json:"download_favorites,omitempty"`
+	PerformanceCalibrations []PerformanceCalibration `json:"performance_calibrations,omitempty"`
+}
+
+type DownloadFavorite struct {
+	Runtime    string `json:"runtime"`
+	Repository string `json:"repository"`
+	Revision   string `json:"revision"`
+}
+
+// PerformanceTuning 是校準後可安全套用於 Runtime 的受管效能參數。
+// 0 代表沿用啟動參數或 Runtime 預設值。
+type PerformanceTuning struct {
+	Threads         int `json:"threads,omitempty"`
+	BatchSize       int `json:"batch_size,omitempty"`
+	UBatchSize      int `json:"ubatch_size,omitempty"`
+	PrefillStepSize int `json:"prefill_step_size,omitempty"`
+}
+
+// PerformanceCalibration 依硬體、Runtime、模型及啟動參數保存一次校準結果。
+// Key 由後端產生，避免不同硬體或啟動參數誤用同一份結果。
+type PerformanceCalibration struct {
+	Key                       string            `json:"key"`
+	HardwareFingerprint       string            `json:"hardware_fingerprint"`
+	Runtime                   string            `json:"runtime"`
+	Model                     string            `json:"model"`
+	StartupCommandID          string            `json:"startup_command_id"`
+	StartupCommandFingerprint string            `json:"startup_command_fingerprint"`
+	Tuning                    PerformanceTuning `json:"tuning"`
+	AverageTokensPerSecond    float64           `json:"average_tokens_per_second"`
+	MedianTokensPerSecond     float64           `json:"median_tokens_per_second"`
+	Runs                      []float64         `json:"runs"`
+	UpdatedAt                 time.Time         `json:"updated_at"`
 }
 
 // PublicSettings 排除 Hugging Face Token 明文，僅回傳是否已設定。
 type PublicSettings struct {
-	ModelDirectory          string `json:"model_directory"`
-	MLXModelDirectory       string `json:"mlx_model_directory"`
-	ResidentMode            bool   `json:"resident_mode"`
-	DefaultFastGGUFEnabled  bool   `json:"default_fast_gguf_enabled"`
-	DefaultFastGGUFStrategy string `json:"default_fast_gguf_strategy"`
-	DefaultKVCacheEnabled   bool   `json:"default_kv_cache_quantization_enabled"`
-	DefaultMMapEnabled      bool   `json:"default_mmap_enabled"`
-	DefaultDFlashEnabled    bool   `json:"default_dflash_enabled"`
-	UILanguage              string `json:"ui_language"`
-	UITheme                 string `json:"ui_theme"`
-	HuggingFaceEndpoint     string `json:"huggingface_endpoint"`
-	HuggingFaceTokenSet     bool   `json:"huggingface_token_set"`
-	DefaultRevision         string `json:"default_revision"`
+	ModelDirectory          string             `json:"model_directory"`
+	MLXModelDirectory       string             `json:"mlx_model_directory"`
+	ResidentMode            bool               `json:"resident_mode"`
+	DefaultFastGGUFEnabled  bool               `json:"default_fast_gguf_enabled"`
+	DefaultFastGGUFStrategy string             `json:"default_fast_gguf_strategy"`
+	DefaultKVCacheEnabled   bool               `json:"default_kv_cache_quantization_enabled"`
+	DefaultMMapEnabled      bool               `json:"default_mmap_enabled"`
+	DefaultDFlashEnabled    bool               `json:"default_dflash_enabled"`
+	RemoveOriginalGGUF      bool               `json:"remove_original_gguf_after_conversion"`
+	AutoCalibrationEnabled  bool               `json:"auto_performance_calibration_enabled"`
+	MemoryProtectionEnabled bool               `json:"memory_pressure_protection_enabled"`
+	UILanguage              string             `json:"ui_language"`
+	UITheme                 string             `json:"ui_theme"`
+	HuggingFaceEndpoint     string             `json:"huggingface_endpoint"`
+	HuggingFaceTokenSet     bool               `json:"huggingface_token_set"`
+	DefaultRevision         string             `json:"default_revision"`
+	DownloadFavorites       []DownloadFavorite `json:"download_favorites"`
 }
 
 type ModelFile struct {
@@ -102,6 +142,7 @@ type ModelFile struct {
 	MTPBlockSize         int       `json:"mtp_block_size,omitempty"`
 	DraftKind            string    `json:"draft_kind,omitempty"`
 	ConversionCached     bool      `json:"conversion_cached,omitempty"`
+	FastGGUFFallback     bool      `json:"fast_gguf_fallback,omitempty"`
 	ConversionCacheBytes int64     `json:"conversion_cache_bytes,omitempty"`
 	ConversionCacheCount int       `json:"conversion_cache_count,omitempty"`
 }
@@ -141,33 +182,40 @@ type StartupCommand struct {
 }
 
 type LlamaStatus struct {
-	Running                 bool      `json:"running"`
-	Ready                   bool      `json:"ready"`
-	DesiredRunning          bool      `json:"desired_running"`
-	Runtime                 string    `json:"runtime"`
-	PID                     int       `json:"pid,omitempty"`
-	Model                   string    `json:"model,omitempty"`
-	MMProj                  string    `json:"mmproj,omitempty"`
-	DraftModel              string    `json:"draft_model,omitempty"`
-	DraftKind               string    `json:"draft_kind,omitempty"`
-	DFlashEnabled           bool      `json:"dflash_enabled"`
-	MMapEnabled             bool      `json:"mmap_enabled"`
-	FastGGUF                bool      `json:"fast_gguf"`
-	SkipGGUFConversionCache bool      `json:"skip_gguf_conversion_cache"`
-	ModelPreparation        string    `json:"model_preparation,omitempty"`
-	ModelPreparationDone    int64     `json:"model_preparation_completed_bytes,omitempty"`
-	ModelPreparationTotal   int64     `json:"model_preparation_total_bytes,omitempty"`
-	ModelPreparationPercent int       `json:"model_preparation_progress_percent,omitempty"`
-	ModelPreparationKnown   bool      `json:"model_preparation_progress_determinate"`
-	MMapReserveGB           int       `json:"mmap_reserve_gb"`
-	KVCacheQuantization     string    `json:"kv_cache_quantization,omitempty"`
-	Binary                  string    `json:"binary,omitempty"`
-	StartupCommandID        string    `json:"startup_command_id,omitempty"`
-	StartupCommandName      string    `json:"startup_command_name,omitempty"`
-	URL                     string    `json:"url"`
-	StartedAt               time.Time `json:"started_at,omitempty"`
-	StoppedAt               time.Time `json:"stopped_at,omitempty"`
-	LastError               string    `json:"last_error,omitempty"`
+	Running                       bool              `json:"running"`
+	Ready                         bool              `json:"ready"`
+	DesiredRunning                bool              `json:"desired_running"`
+	Runtime                       string            `json:"runtime"`
+	PID                           int               `json:"pid,omitempty"`
+	Model                         string            `json:"model,omitempty"`
+	MMProj                        string            `json:"mmproj,omitempty"`
+	DraftModel                    string            `json:"draft_model,omitempty"`
+	DraftKind                     string            `json:"draft_kind,omitempty"`
+	DFlashEnabled                 bool              `json:"dflash_enabled"`
+	MMapEnabled                   bool              `json:"mmap_enabled"`
+	FastGGUF                      bool              `json:"fast_gguf"`
+	SkipGGUFConversionCache       bool              `json:"skip_gguf_conversion_cache"`
+	ModelPreparation              string            `json:"model_preparation,omitempty"`
+	ModelPreparationDone          int64             `json:"model_preparation_completed_bytes,omitempty"`
+	ModelPreparationTotal         int64             `json:"model_preparation_total_bytes,omitempty"`
+	ModelPreparationPercent       int               `json:"model_preparation_progress_percent,omitempty"`
+	ModelPreparationKnown         bool              `json:"model_preparation_progress_determinate"`
+	MMapReserveGB                 int               `json:"mmap_reserve_gb"`
+	KVCacheQuantization           string            `json:"kv_cache_quantization,omitempty"`
+	EffectiveContextSize          int               `json:"effective_context_size,omitempty"`
+	MemoryProtectionApplied       bool              `json:"memory_pressure_protection_applied"`
+	MemoryProtectionActions       []string          `json:"memory_pressure_protection_actions,omitempty"`
+	EstimatedMemoryBytes          uint64            `json:"estimated_memory_bytes,omitempty"`
+	AvailableMemoryBytes          uint64            `json:"available_memory_bytes,omitempty"`
+	PerformanceCalibrationApplied bool              `json:"performance_calibration_applied"`
+	PerformanceTuning             PerformanceTuning `json:"performance_tuning,omitempty"`
+	Binary                        string            `json:"binary,omitempty"`
+	StartupCommandID              string            `json:"startup_command_id,omitempty"`
+	StartupCommandName            string            `json:"startup_command_name,omitempty"`
+	URL                           string            `json:"url"`
+	StartedAt                     time.Time         `json:"started_at,omitempty"`
+	StoppedAt                     time.Time         `json:"stopped_at,omitempty"`
+	LastError                     string            `json:"last_error,omitempty"`
 }
 
 // ModelConversionPreflight 是 mlx-server 對 GGUF 永久轉換快取的啟動前判斷。

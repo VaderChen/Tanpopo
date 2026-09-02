@@ -6,9 +6,9 @@
   <title>Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
-  <script src="/assets/common.js?v=20260901-71" defer></script>
-  <script src="/assets/runtime.js?v=20260901-8" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260902-57">
+  <script src="/assets/common.js?v=20260902-84" defer></script>
+  <script src="/assets/runtime.js?v=20260902-15" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -168,10 +168,13 @@
               </div>
             </div>
           </div>
-          <div class="button-row">
+          <div class="button-row runtime-actions">
             <button id="startButton" class="button primary" type="button">載入並啟動</button>
             <button id="stopButton" class="button danger" type="button">停止服務</button>
-            <button id="testRuntimeButton" class="button secondary runtime-test-button" type="button" disabled>測試</button>
+            <div class="runtime-check-actions">
+              <button id="calibrateRuntimeButton" class="button secondary" type="button" hidden disabled>效能校準</button>
+              <button id="testRuntimeButton" class="button secondary" type="button" disabled>測試</button>
+            </div>
           </div>
         </article>
       </div>
@@ -205,18 +208,18 @@
       </header>
       <div class="runtime-test-body conversion-confirm-body">
         <p id="modelConversionConfirmDescription">
-          本次啟動找不到可重用的轉換快取。轉換完成後會永久保存權重，避免下次重新轉換。
+          本次啟動找不到可重用的 Fast GGUF。轉換完成後會永久保存權重，避免下次重新轉換。
         </p>
         <dl class="conversion-confirm-details">
           <div><dt>模型</dt><dd id="modelConversionConfirmModel">—</dd></div>
           <div><dt>預估新增硬碟容量</dt><dd id="modelConversionConfirmSize">—</dd></div>
         </dl>
         <p class="muted conversion-confirm-note">實際容量可能因權重形狀與檔案系統配置略有差異。</p>
-        <p class="muted conversion-confirm-note">選擇「不建立快取直接啟動」不會寫入永久快取；GGUF 權重仍會在記憶體中即時準備為 MLX 可執行格式，下次啟動會再次處理。</p>
+        <p class="muted conversion-confirm-note">選擇「不建立 Fast GGUF 直接啟動」不會寫入 Fast GGUF；GGUF 權重仍會在記憶體中即時準備為 MLX 可執行格式，下次啟動會再次處理。</p>
       </div>
       <footer class="runtime-test-actions">
         <button id="cancelModelConversionButton" class="button secondary" type="button">取消</button>
-        <button id="skipModelConversionCacheButton" class="button secondary" type="button">不建立快取直接啟動</button>
+        <button id="skipModelConversionCacheButton" class="button secondary" type="button">不建立 Fast GGUF 直接啟動</button>
         <button id="confirmModelConversionButton" class="button primary" type="button">轉換並啟動</button>
       </footer>
     </article>
@@ -256,6 +259,55 @@
         <h3 id="refreshDialogTitle">正在重新整理</h3>
         <p id="refreshDialogDescription">正在更新 Runtime、模型與日誌資料…</p>
       </div>
+    </article>
+  </dialog>
+
+  <dialog id="calibrationDialog" class="runtime-test-dialog calibration-dialog" aria-labelledby="calibrationTitle">
+    <article class="runtime-test-card calibration-card">
+      <header class="runtime-test-heading">
+        <div>
+          <p class="section-kicker">PERFORMANCE CALIBRATION</p>
+          <h3 id="calibrationTitle">效能校準</h3>
+        </div>
+        <button id="closeCalibrationIcon" class="runtime-test-close" type="button" aria-label="關閉視窗">×</button>
+      </header>
+      <div class="runtime-test-body calibration-body">
+        <p id="calibrationStatus" class="runtime-test-status" role="status"></p>
+        <section id="calibrationSelection">
+          <div class="calibration-selection-heading">
+            <h4>選擇要校準的模型</h4>
+            <div class="calibration-format-filters" role="group" aria-label="模型格式">
+              <button type="button" data-calibration-format="all" aria-pressed="true" aria-controls="calibrationModels" class="active">全部</button>
+              <button type="button" data-calibration-format="gguf" aria-pressed="false" aria-controls="calibrationModels">GGUF</button>
+              <button type="button" data-calibration-format="mlx" aria-pressed="false" aria-controls="calibrationModels">MLX</button>
+            </div>
+          </div>
+          <p class="helper">可複選；已有載入的模型會預先勾選，未載入時不預選。各模型比較 3 組配置，每組測試 3 次。</p>
+          <div id="calibrationModels" class="calibration-models"></div>
+          <p id="calibrationModelsEmpty" class="helper" role="status" hidden>目前沒有此格式的模型。</p>
+          <p class="helper">已載入且配置相同時直接測試；只有切換模型或配置時才重新載入。完成後回到原模型並套用建議配置；原先未載入時，則恢復未載入狀態。</p>
+        </section>
+        <section id="calibrationProgressSection" hidden>
+          <div class="calibration-progress-heading">
+            <strong>測試進度</strong><span id="calibrationProgressCount"></span>
+          </div>
+          <progress id="calibrationTotalProgress" class="calibration-progress" value="0" max="1" aria-label="測試進度"></progress>
+          <p class="helper">單次測試未提供即時百分比時，進度列以進行中呈現；完成後打勾。</p>
+          <div id="calibrationItems" class="calibration-items"></div>
+        </section>
+        <section id="calibrationResultsSection" hidden>
+          <h4>校準結果與建議配置</h4>
+          <p class="helper">依每組 3 次測試的中位數選出最佳配置；中位數相同時比較平均值。各模型分別比較，不跨模型排名。</p>
+          <div id="calibrationResults" class="calibration-results"></div>
+        </section>
+      </div>
+      <footer class="runtime-test-actions">
+        <span id="calibrationSelectionCount" class="helper"></span>
+        <div class="runtime-test-rerun-actions">
+          <button id="closeCalibrationButton" class="button secondary" type="button">關閉視窗</button>
+          <button id="startCalibrationButton" class="button primary" type="button">開始校準</button>
+        </div>
+      </footer>
     </article>
   </dialog>
 

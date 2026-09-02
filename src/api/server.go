@@ -68,6 +68,19 @@ func NewServer(
 	updates.Start(ctx)
 	metrics := systemmetrics.NewCollector()
 	metrics.Start(ctx, 3*time.Second)
+	llama.SetMemorySnapshotProvider(func() llamacpp.MemorySnapshot {
+		info := metrics.Info()
+		snapshot := metrics.Snapshot()
+		availableBytes := uint64(0)
+		if info.MemoryBytes > 0 && snapshot.Memory.Available {
+			availableRatio := max(0, min(100, 100-snapshot.Memory.Percent)) / 100
+			availableBytes = uint64(float64(info.MemoryBytes) * availableRatio)
+		}
+		return llamacpp.MemorySnapshot{
+			TotalBytes:     info.MemoryBytes,
+			AvailableBytes: availableBytes,
+		}
+	})
 	netPassConfigPath := filepath.Join(filepath.Dir(agentConfigPath), "data", "netpass.json")
 	netPass := netpass.NewManager(ctx, netPassConfigPath, loadManagementPort(agentConfigPath))
 	return &Server{
@@ -159,8 +172,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandUpdate))
 	mux.HandleFunc("DELETE /api/startup-commands/{id}", s.requireAPI(s.handleStartupCommandDelete))
 	mux.HandleFunc("GET /api/downloads", s.requireAPI(s.handleDownloads))
+	mux.HandleFunc("GET /api/downloads/repositories", s.requireAPI(s.handleDownloadRepositorySearch))
+	mux.HandleFunc("GET /api/downloads/repository-files", s.requireAPI(s.handleDownloadRepositoryFiles))
 	mux.HandleFunc("POST /api/downloads", s.requireAPI(s.handleDownloadStart))
 	mux.HandleFunc("DELETE /api/downloads/{id}", s.requireAPI(s.handleDownloadCancel))
+	mux.HandleFunc("POST /api/download-favorites", s.requireAPI(s.handleDownloadFavoriteAdd))
+	mux.HandleFunc("DELETE /api/download-favorites", s.requireAPI(s.handleDownloadFavoriteDelete))
 	mux.HandleFunc("GET /api/llama/status", s.requireAPI(s.handleLlamaStatus))
 	mux.HandleFunc("GET /api/llama/logs", s.requireAPI(s.handleLlamaLogs))
 	mux.HandleFunc("DELETE /api/llama/logs", s.requireAPI(s.handleLlamaLogsClear))
@@ -170,6 +187,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runtime/logs", s.requireAPI(s.handleLlamaLogs))
 	mux.HandleFunc("DELETE /api/runtime/logs", s.requireAPI(s.handleLlamaLogsClear))
 	mux.HandleFunc("POST /api/runtime/start", s.requireAPI(s.handleLlamaStart))
+	mux.HandleFunc("GET /api/runtime/calibration", s.requireAPI(s.handleRuntimeCalibrationPlan))
+	mux.HandleFunc("PUT /api/runtime/calibration", s.requireAPI(s.handleRuntimeCalibrationSave))
 	mux.HandleFunc("POST /api/runtime/conversion-preflight", s.requireAPI(s.handleRuntimeConversionPreflight))
 	mux.HandleFunc("POST /api/runtime/stop", s.requireAPI(s.handleLlamaStop))
 	mux.HandleFunc("POST /api/chat/completions", s.requireAPI(s.handleChatCompletion))
@@ -536,6 +555,9 @@ type settingsUpdateRequest struct {
 	DefaultKVCacheEnabled   *bool   `json:"default_kv_cache_quantization_enabled"`
 	DefaultMMapEnabled      *bool   `json:"default_mmap_enabled"`
 	DefaultDFlashEnabled    *bool   `json:"default_dflash_enabled"`
+	RemoveOriginalGGUF      *bool   `json:"remove_original_gguf_after_conversion"`
+	AutoCalibrationEnabled  *bool   `json:"auto_performance_calibration_enabled"`
+	MemoryProtectionEnabled *bool   `json:"memory_pressure_protection_enabled"`
 	UILanguage              string  `json:"ui_language"`
 	UITheme                 string  `json:"ui_theme"`
 	HuggingFaceEndpoint     string  `json:"huggingface_endpoint"`
@@ -577,6 +599,18 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if request.DefaultDFlashEnabled != nil {
 		defaultDFlashEnabled = *request.DefaultDFlashEnabled
 	}
+	removeOriginalGGUF := current.RemoveOriginalGGUF
+	if request.RemoveOriginalGGUF != nil {
+		removeOriginalGGUF = *request.RemoveOriginalGGUF
+	}
+	autoCalibrationEnabled := current.AutoCalibrationEnabled
+	if request.AutoCalibrationEnabled != nil {
+		autoCalibrationEnabled = *request.AutoCalibrationEnabled
+	}
+	memoryProtectionEnabled := current.MemoryProtectionEnabled
+	if request.MemoryProtectionEnabled != nil {
+		memoryProtectionEnabled = *request.MemoryProtectionEnabled
+	}
 	value := domain.Settings{
 		ModelDirectory:          request.ModelDirectory,
 		MLXModelDirectory:       request.MLXModelDirectory,
@@ -586,6 +620,9 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		DefaultKVCacheEnabled:   defaultKVCacheEnabled,
 		DefaultMMapEnabled:      defaultMMapEnabled,
 		DefaultDFlashEnabled:    defaultDFlashEnabled,
+		RemoveOriginalGGUF:      removeOriginalGGUF,
+		AutoCalibrationEnabled:  autoCalibrationEnabled,
+		MemoryProtectionEnabled: memoryProtectionEnabled,
 		UILanguage:              request.UILanguage,
 		UITheme:                 request.UITheme,
 		HuggingFaceEndpoint:     request.HuggingFaceEndpoint,
@@ -597,6 +634,8 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		GPULayers:               current.GPULayers,
 		Threads:                 current.Threads,
 		ExtraArgs:               current.ExtraArgs,
+		DownloadFavorites:       current.DownloadFavorites,
+		PerformanceCalibrations: current.PerformanceCalibrations,
 	}
 	if err := s.settings.Save(value); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -741,7 +780,7 @@ func (s *Server) handleModelConversionCacheDelete(w http.ResponseWriter, r *http
 	}
 	status := s.llama.Status()
 	if status.Running && activeModelMatches(status, "gguf", request.Path) {
-		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務再清除轉換快取"))
+		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務再移除 Fast GGUF"))
 		return
 	}
 	settings := s.settings.Get()
@@ -864,6 +903,105 @@ func (s *Server) handleDownloads(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"downloads": s.downloads.List()})
 }
 
+func (s *Server) handleDownloadRepositorySearch(w http.ResponseWriter, r *http.Request) {
+	settings := s.settings.Get()
+	results, err := s.downloads.SearchRepositories(r.Context(), download.Request{
+		Runtime:  strings.TrimSpace(r.URL.Query().Get("runtime")),
+		Revision: "main",
+		Endpoint: settings.HuggingFaceEndpoint,
+		Token:    settings.HuggingFaceToken,
+	}, r.URL.Query().Get("query"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repositories": results})
+}
+
+func (s *Server) handleDownloadRepositoryFiles(w http.ResponseWriter, r *http.Request) {
+	settings := s.settings.Get()
+	revision := strings.TrimSpace(r.URL.Query().Get("revision"))
+	if revision == "" {
+		revision = settings.DefaultRevision
+	}
+	files, err := s.downloads.ListGGUFFiles(r.Context(), download.Request{
+		Repository: strings.TrimSpace(r.URL.Query().Get("repository")),
+		Revision:   revision,
+		Endpoint:   settings.HuggingFaceEndpoint,
+		Token:      settings.HuggingFaceToken,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files})
+}
+
+func decodeDownloadFavorite(r *http.Request) (domain.DownloadFavorite, error) {
+	var favorite domain.DownloadFavorite
+	if err := decodeJSON(r, &favorite); err != nil {
+		return domain.DownloadFavorite{}, err
+	}
+	favorite.Runtime = strings.ToLower(strings.TrimSpace(favorite.Runtime))
+	favorite.Repository = strings.TrimSpace(favorite.Repository)
+	favorite.Revision = strings.TrimSpace(favorite.Revision)
+	if favorite.Runtime != domain.RuntimeLlamaServer && favorite.Runtime != domain.RuntimeMLXServer {
+		return domain.DownloadFavorite{}, errors.New("runtime 僅支援 llama-server 或 mlx-server")
+	}
+	if err := download.ValidateRepositoryCoordinates(favorite.Repository, favorite.Revision); err != nil {
+		return domain.DownloadFavorite{}, err
+	}
+	return favorite, nil
+}
+
+func sameDownloadFavorite(left, right domain.DownloadFavorite) bool {
+	return left.Runtime == right.Runtime &&
+		strings.EqualFold(left.Repository, right.Repository) &&
+		left.Revision == right.Revision
+}
+
+func (s *Server) handleDownloadFavoriteAdd(w http.ResponseWriter, r *http.Request) {
+	favorite, err := decodeDownloadFavorite(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	settings := s.settings.Get()
+	for _, existing := range settings.DownloadFavorites {
+		if sameDownloadFavorite(existing, favorite) {
+			writeJSON(w, http.StatusOK, map[string]any{"favorites": settings.DownloadFavorites})
+			return
+		}
+	}
+	settings.DownloadFavorites = append([]domain.DownloadFavorite{favorite}, settings.DownloadFavorites...)
+	if err := s.settings.Save(settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"favorites": s.settings.Get().DownloadFavorites})
+}
+
+func (s *Server) handleDownloadFavoriteDelete(w http.ResponseWriter, r *http.Request) {
+	favorite, err := decodeDownloadFavorite(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	settings := s.settings.Get()
+	filtered := settings.DownloadFavorites[:0]
+	for _, existing := range settings.DownloadFavorites {
+		if !sameDownloadFavorite(existing, favorite) {
+			filtered = append(filtered, existing)
+		}
+	}
+	settings.DownloadFavorites = filtered
+	if err := s.settings.Save(settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"favorites": s.settings.Get().DownloadFavorites})
+}
+
 func (s *Server) handleDownloadCancel(w http.ResponseWriter, r *http.Request) {
 	if err := s.downloads.Cancel(strings.TrimSpace(r.PathValue("id"))); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -929,16 +1067,18 @@ func (s *Server) handleLlamaLogsClear(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Model                      string `json:"model"`
-		MMProj                     string `json:"mmproj"`
-		DraftModel                 string `json:"draft_model"`
-		DFlashEnabled              bool   `json:"dflash_enabled"`
-		MMapEnabled                bool   `json:"mmap_enabled"`
-		FastGGUF                   bool   `json:"fast_gguf_enabled"`
-		KVCacheQuantizationEnabled bool   `json:"kv_cache_quantization_enabled"`
-		SkipGGUFConversionCache    bool   `json:"skip_gguf_conversion_cache"`
-		ConversionConfirmationKey  string `json:"conversion_confirmation_key"`
-		StartupCommandID           string `json:"startup_command_id"`
+		Model                      string                    `json:"model"`
+		MMProj                     string                    `json:"mmproj"`
+		DraftModel                 string                    `json:"draft_model"`
+		DFlashEnabled              bool                      `json:"dflash_enabled"`
+		MMapEnabled                bool                      `json:"mmap_enabled"`
+		FastGGUF                   bool                      `json:"fast_gguf_enabled"`
+		KVCacheQuantizationEnabled bool                      `json:"kv_cache_quantization_enabled"`
+		SkipGGUFConversionCache    bool                      `json:"skip_gguf_conversion_cache"`
+		ConversionConfirmationKey  string                    `json:"conversion_confirmation_key"`
+		StartupCommandID           string                    `json:"startup_command_id"`
+		SkipSavedCalibration       bool                      `json:"skip_saved_calibration"`
+		CalibrationOverride        *domain.PerformanceTuning `json:"calibration_override"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -948,6 +1088,23 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	calibrationApplied := false
+	if request.CalibrationOverride != nil {
+		if err := validatePerformanceTuning(startupCommand.Runtime, *request.CalibrationOverride); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		startupCommand = applyPerformanceTuning(startupCommand, *request.CalibrationOverride)
+	} else if !request.SkipSavedCalibration {
+		settings := s.settings.Get()
+		if settings.AutoCalibrationEnabled {
+			key, _, _ := performanceCalibrationIdentity(s.metrics.Info(), request.Model, startupCommand)
+			if profile, ok := findPerformanceCalibration(settings.PerformanceCalibrations, key); ok {
+				startupCommand = applyPerformanceTuning(startupCommand, profile.Tuning)
+				calibrationApplied = true
+			}
+		}
 	}
 	status, err := s.llama.Start(
 		request.Model,
@@ -965,6 +1122,7 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	status = s.llama.AnnotatePerformanceCalibration(calibrationApplied)
 	writeJSON(w, http.StatusAccepted, status)
 }
 

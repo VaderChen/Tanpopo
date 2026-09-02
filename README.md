@@ -13,9 +13,10 @@
 - GGUF 模型目錄預設為 `~/services/models`，MLX 模型目錄預設為 `~/services/mlx-models`，兩者都可在系統設定調整。
 - 支援 Hugging Face 公開、gated 與 private repository 的 GGUF 單檔或完整 MLX 模型下載。
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
+- 下載中心可搜尋 Hugging Face Repository，依下載數、讚數或字母排序；支援持久化「我的最愛」。GGUF 檔名改由 Repository 掃描結果選取，優先選擇 `Q4_0`，沒有則選排序第一項，並提供重新掃描按鈕。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
-- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並以永久 `.fgguf` 快取避免重複轉換。系統設定提供 Mode 1（均衡・預設）、Mode 2（較高精度）與 Mode 3（最快）三種策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
+- **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並持久保存為 `.fgguf`，避免重複轉換。系統設定提供 Mode 1（均衡・預設）、Mode 2（較高精度）與 Mode 3（最快）三種策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
 - 執行狀態頁依所選 Runtime 提供按字母排序的模型下拉清單，GGUF、MLX 與 mmproj 統一以「模型名稱（目錄名稱）」顯示，但實際提交值仍為完整安全路徑。非 macOS 平台會在啟動時直接隱藏 Apple Silicon 專用的 mlx-server 選項。
 - KV Cache、MMap、DFlash 與 MTP 採全流程整合：涵蓋系統功能預設、啟動 Profile、執行開關、相容性預檢、Runtime 參數、狀態保存與錯誤回報。實際可用性仍依 Runtime 與模型能力決定；DFlash／MTP 推測解碼不可彼此並用，也與 KV Cache 量化互斥。
 - 執行狀態頁將 DFlash 與 MMap 收納於「進階設定」泡泡；兩者仍為獨立開關，不會隨功能增加而持續拉長頁面。
@@ -25,6 +26,7 @@
 - 內建 256K Context 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP 與 DFlash 啟動 Profile；Apple Silicon 另有原生 MLX DFlash 1／2 與 MLX MTP Profile。
 - 可啟動、停止並查看目前模型 Runtime 的 PID、URL 與最近 128 KiB 日誌。
 - 按下「載入並啟動」會立即顯示模型載入提示，提醒大型模型可能需要轉換並耐心等候；Runtime 執行後可進行單次測試、重複 3 次測試或至少 500 個輸出 Token 的長輸出測試。重複測試會顯示平均值與中位數，所有模式都會列出 Token、生成速度、測試時間與明確失敗原因。
+- 效能校準可複選 GGUF／MLX 模型，自動選擇適用的 Server，顯示逐項測試進度、結果與建議配置；另可選用啟動前的記憶體壓力保護。
 - 成功啟動後會保存 Runtime、Profile、模型、mmproj、DFlash 與 MMap 選擇；關閉 Tanpopo 再開啟時，不需登入即可先自動恢復模型服務。使用者明確按下停止則不會自動恢復。
 - 簡易對話支援 Markdown 與本機數學公式渲染；模型有提供 reasoning、`<think>` 區段或 `<|channel|>` 思考通道時，會與最終回答分開顯示。思考過程在生成期間預設展開並顯示三點動畫，完成後自動收合；同時顯示輸入／輸出 Token 與每秒輸出 Token 數。
 - 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
@@ -37,12 +39,13 @@
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
 - 系統設定提供選用的 NetPass 反向代理頁面；只有管理介面帳密驗證及模型 API Access Key 驗證都已開啟時才能建立公共網址，任一防護關閉會立即停止連線。頁面會明確警告此功能將本機暴露於公共網路，沒有確切目的不應開啟。
 - 設定保存採原子替換；Hugging Face Token 與模型 API 金鑰不會由設定 API 回傳明文。
+- 系統設定頁的開關、下拉選單與配色變更後自動儲存，保留原儲存按鈕；不連帶提交未完成的文字欄位，儲存失敗時會還原選項並顯示錯誤。
 - macOS 圖形工作階段會以原生 AppKit／WKWebView 視窗載入管理介面，不啟動外部瀏覽器；可啟用常駐模式，在系統選單列重新顯示視窗或完整結束服務。Linux、SSH 與 headless 工作階段維持 Shell 模式。
 
 ## 公開測試報告
 
 - [模型相容性報告](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html)：整理原生 MLX、MLX 直讀 GGUF、llama.cpp GGUF、多模態投影、KV Cache 量化與推測解碼的支援範圍及相容性邊界。
-- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以 4B、9B、27B 配對模型比較原生 MLX、llama.cpp + GGUF、MLX + Fast GGUF Mode 1／2／3，如實列出固定 100 題結果、生成速度、轉換快取及程序 RAM。
+- [MLX 與 GGUF 轉換的載入速度及運算精確度](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html)：以 4B、9B、27B 配對模型比較原生 MLX、llama.cpp + GGUF、MLX + Fast GGUF Mode 1／2／3，如實列出固定 100 題結果、生成速度、Fast GGUF 容量及程序 RAM。
 
 兩份 HTML 均可切換 `AUTO`、繁體中文與英文。報告數據是標示日期、硬體、Runtime 版本與樣本下的可重現測試快照，不代表所有模型或裝置都會得到相同結果，也不構成 Fast GGUF 的相容性、速度或精度保證。
 
@@ -155,7 +158,11 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 Fast GGUF 的設計可套用於多數 mlx-server 能解析的 GGUF，不需要為每個模型寫特例；但它不是相容性或精度保證。模型架構、GGUF metadata、Tokenizer、tensor layout、量化方式與自訂修改都可能影響結果。DFlash 1／2 仍限定搭配 MLX safetensors Target 與相容 Draft；MTP 則支援相容的原生 MLX Target／Draft，以及包含可辨識 `nextn_predict_layers` 與預測層 tensor 契約的 GGUF 內嵌路徑。相容性由架構 metadata 與 shape 驗證，不依模型檔名判定。
 
-GGUF 轉換後的永久權重快取使用 Tanpopo 內部 `.fgguf` 容器，並直接儲存在原始 GGUF 的同一目錄：逐 tensor 判斷是否採 LZFSE 無損壓縮，沒有足夠容量收益的 tensor 保持 raw 與 MMap 對齊。此格式不是標準 GGUF，也不供其他 Runtime 交換使用；完整位元組配置、索引、壓縮門檻與相容策略請參考 [FGGUF 轉換快取格式](mlx-server/FGGUF-FORMAT.md)。既有 schema 2 safetensors 快取仍可由管理介面辨識與清除。已下載模型頁可用「清除快取」只移除該 GGUF 的所有轉換設定檔，原始模型不受影響；快速模式開關與三策略位於系統設定的獨立「快速 GGUF 策略」卡片。
+GGUF 轉換後會建立 Tanpopo 內部的 Fast GGUF `.fgguf` 分片，並直接儲存在原始 GGUF 的同一目錄：逐 tensor 判斷是否採 LZFSE 無損壓縮，沒有足夠容量收益的 tensor 保持 raw 與 MMap 對齊。此格式不是標準 GGUF，也不供其他 Runtime 交換使用；完整位元組配置、索引、壓縮門檻與相容策略請參考 [Fast GGUF 格式](mlx-server/FGGUF-FORMAT.md)。既有 schema 2 safetensors 轉換產物仍可由管理介面辨識與移除。
+
+「實驗性功能」提供預設關閉的「轉換後移除原 GGUF」。啟用時需確認永久刪除風險；只有 Fast GGUF 分片、manifest 與獨立啟動資產驗證完整，且模型服務已成功載入後才移除來源。來源 GGUF 不存在時，mlx-server 的模型清單會檢查可獨立載入的 Fast GGUF 作為 fallback，因此停止服務後仍可重新載入。新轉換使用 schema 4；舊 schema 3 需具備完整啟動資產，schema 2 不支援此 fallback。
+
+Fast GGUF fallback 僅供 Apple Silicon 的 mlx-server 使用，仍分類於 GGUF；目前不支援 fallback 的內嵌 MTP。改用 llama.cpp、重新轉換或使用不相容策略時，仍需重新取得原始 GGUF。若移除最後一份 Fast GGUF 且來源也已刪除，就不再有可用模型；請先確認可重新下載的來源。
 
 API 提供 OpenAI／llama-server 常用相容端點：
 
@@ -211,6 +218,24 @@ MLX DFlash 是直接整合在 Swift Runtime 與專案內維護的 `mlx-swift-lm 
 後端會自動從部署包、上述 `current` 版本或開發專案的 `mlx-runtime/prebuilt/darwin-arm64` 尋找執行檔，並同時驗證相鄰的 MLX Metal Library；系統設定不需要也不提供 Runtime 路徑欄位。
 
 `build.command` 與 `run.command` 會將第一次成功產生的 MLX Metal Library 保存於 `mlx-runtime/metal-cache/darwin-arm64/<fingerprint>/default.metallib`。指紋涵蓋平台、部署版本、Metal SDK／編譯器與全部 kernel 原始碼；相同指紋的後續建置會直接把預編譯檔注入 SwiftPM bundle，不再重編 Metal kernel。`clean.command` 不會刪除此快取；只有指紋改變，或明確設定 `MLX_METALLIB_REBUILD=1` 時才會重建。
+
+## 效能校準與記憶體壓力保護
+
+### 效能校準
+
+「系統設定 → 模型來源與設定」提供「啟用效能校準」，新安裝預設開啟；既有明確保存的關閉設定會保留。開啟只會提供手動校準入口及套用已保存結果，不會偵測首次啟動後自動跑測試。
+
+在執行狀態按「效能校準」即可開啟對話框，無須先載入模型。清單可複選，並以「全部／GGUF／MLX」過濾；已成功載入的模型會預先勾選，尚未載入時不預選，切換過濾不會清除已選模型。一般 GGUF 優先使用 llama-server，原生 MLX 與 Fast GGUF fallback 使用 mlx-server；已載入且相容的 Runtime／配置會作為基準重用。
+
+每個模型比較 3 組配置、每組測試 3 次，逐項顯示進度及完成勾號。Runtime 未提供單次測試百分比時，以不定進度表示進行中，不虛構百分比。完成後揭露每次速度、平均值、中位數、相對基準提升及建議配置，並保存中位數最佳的配置。相同硬體、Runtime、模型路徑與啟動參數組合後續啟動時會自動套用；變更這些條件後應重新校準。
+
+相同的已載入配置不重複載入；比較不同啟動參數仍可能重啟 Runtime。整批完成後會恢復原本已載入模型，或回到未載入狀態。校準期間請勿關閉視窗或自行切換 Runtime；測得結果只代表當次模型、硬體與工作負載，不保證所有用途都更快。
+
+### 記憶體壓力保護
+
+「系統設定 → 實驗性功能」提供預設關閉的記憶體壓力保護，設定會持久保存。它在模型啟動前根據可用記憶體、模型與附屬檔案容量估算需求，保留至少 2 GiB 或總記憶體的 8%；必要時降低 Context、Batch／Prefill，停用 MTP／DFlash，最低組合仍不足時拒絕啟動。介面會顯示實際調整與有效配置。
+
+此功能是啟動前的估算保護，不是執行期記憶體硬上限或持續 OOM 監控；實際用量仍受模型架構、輸入長度與其他程序影響。
 
 ## 模型 API 安全性
 
@@ -270,6 +295,12 @@ Go 管理服務只負責核發金鑰並以原子替換方式更新安全策略�
 - GGUF 檔名：選擇 GGUF 時必填；為 repository 內的完整相對檔名，可包含子目錄。
 - Revision：預設為 `main`，也可使用 tag、branch、完整 commit hash 或 `refs/pr/...`。
 
+GGUF 檔名會依 Repository／Revision 掃描並形成下拉清單，預設選擇 `Q4_0`；沒有發布 `Q4_0` 時，使用排序第一項，不再固定退回 `Q4_K_M`。使用者可自行改選，右側重新整理按鈕可重掃，原選項仍存在時會保留。
+
+模型格式旁的搜尋按鈕可依關鍵字搜尋 Repository，依 GGUF／MLX 格式篩選結果，並選擇下載數、讚數或字母排序。按「選用」會填入 Repository、將 Revision 設為 `main` 並關閉對話框；同一下載頁面再次開啟時，仍保留查詢與結果，不代表跨重新整理永久保存搜尋紀錄。
+
+「加入最愛」保存模型格式、Repository 與 Revision 至本機設定。常用模型的星星可將項目移至「我的最愛」；取消收藏需先確認。內建項目回到常用模型清單，手動加入的項目則從最愛清單移除，不會刪除已下載模型。
+
 每個主 GGUF 會在模型根目錄下建立獨立且穩定的群組目錄，目錄名稱由 repository、主 GGUF 檔名與短識別碼組成；自動偵測的 mmproj 與 DFlash Draft 會下載到同一群組。建立工作前，服務會先讀取相同 repository／revision 的檔案清單，自動尋找 `.gguf` 格式的 mmproj 與 DFlash Draft；若同一 repository 沒有 Draft，則依 Hugging Face 的 `base_model`、DFlash 標籤、模型名稱與 Target `config.json` 架構搜尋其他 repository，驗證配對後自動下載最合適的 Draft GGUF。每種類型最多選擇一個；若有多個候選，會優先採用明確指向相同 Base Model、官方來源及檔名 token 最相近的檔案。附屬檔案已存在且未啟用覆寫時會直接略過，不影響主模型下載。
 
 選擇 MLX 時不需輸入單一檔名。服務會先確認 repository 同時具有 `config.json` 與 safetensors，再將模型權重、Tokenizer、Processor、Chat Template 等 Runtime 檔案保留原相對路徑並下載到 `~/services/mlx-models` 下的獨立目錄。Target 架構支援 DFlash 時，也會以通用的 Hugging Face metadata 搜尋獨立 Draft repository，並核對 `DFlashDraftModel`／`DFlash2DraftModel`、Target layer 數、hidden size 與 vocabulary size 後，把完整 Draft repository 自動加入同一批下載。分片模型只有在 index 所列的全部 safetensors 都存在後才會出現在啟動模型清單，避免下載一半時誤啟動。
@@ -309,7 +340,11 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `data/settings.json`
 
-由「系統設定」保存 GGUF／MLX 模型目錄與 Hugging Face 設定，可在下一次啟動模型或下載工作時直接生效。llama-server 與 mlx-server 的位置由應用程式自動解析，不寫入此設定檔。
+由「系統設定」保存 GGUF／MLX 模型目錄、Hugging Face 設定、功能預設、實驗性選項、下載最愛與效能校準結果。llama-server 與 mlx-server 的位置由應用程式自動解析，不寫入此設定檔。
+
+系統設定頁的開關、下拉選單與配色改變後會自動儲存；原儲存按鈕保留，文字欄位仍以該表單的儲存按鈕提交。自動儲存依序處理，只保存變動欄位及必要的互斥選項，不會清除或提交其他未完成欄位。危險操作仍需確認；重新啟用登入驗證前，需先填妥新密碼與確認密碼。NetPass 的使用政策確認仍是每次連線的明確同意，不會因自動儲存而自行連線。
+
+「清除 Access Token」是獨立按鈕，確認後立即清除已保存的 Token，不必再按儲存。自動儲存僅限系統設定，不會自行啟動模型、下載、校準或修改啟動參數頁中的 Profile。
 
 ### `data/startup_commands.json`
 
@@ -350,7 +385,12 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 | `GET/POST` | `/api/startup-commands` | 查詢或建立啟動參數 Profile |
 | `PUT/DELETE` | `/api/startup-commands/{id}` | 修改或刪除啟動參數 Profile |
 | `GET/POST` | `/api/downloads` | 查詢或建立下載工作 |
+| `GET` | `/api/downloads/repositories` | 依關鍵字與模型格式搜尋 Hugging Face Repository |
+| `GET` | `/api/downloads/repository-files` | 取得 Repository／Revision 的主 GGUF 檔案清單 |
+| `POST/DELETE` | `/api/download-favorites` | 新增或移除下載最愛；查詢結果包含於 `/api/settings` |
 | `GET` | `/api/runtime/status` | 查詢目前模型 Runtime 狀態 |
+| `GET/PUT` | `/api/runtime/calibration` | 取得模型校準計畫或保存三次測試結果及配置 |
+| `POST` | `/api/runtime/conversion-preflight` | 檢查本次啟動是否需建立 Fast GGUF |
 | `GET/DELETE` | `/api/runtime/logs` | 查詢或清除目前 Runtime 日誌 |
 | `POST` | `/api/runtime/start` | 依 Profile 載入模型並啟動 Runtime |
 | `POST` | `/api/runtime/stop` | 停止目前模型 Runtime |

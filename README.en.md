@@ -34,7 +34,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 ## Public test reports
 
 - [Model compatibility report](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): documents the supported scope and compatibility boundaries for native MLX, MLX loading GGUF, llama.cpp GGUF, multimodal projection, KV Cache quantization, and speculative decoding.
-- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares paired 4B, 9B, and 27B models across native MLX, llama.cpp + GGUF, and MLX + Fast GGUF Modes 1–3, including fixed 100-question results, throughput, conversion cache, and process RAM.
+- [MLX and GGUF conversion loading speed and computational accuracy](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): compares paired 4B, 9B, and 27B models across native MLX, llama.cpp + GGUF, and MLX + Fast GGUF Modes 1–3, including fixed 100-question results, throughput, Fast GGUF size, and process RAM.
 
 Both HTML reports support `AUTO`, Traditional Chinese, and English. Their results are reproducible snapshots for the stated date, hardware, runtime versions, and samples—not a promise that every model or device will behave identically, nor a compatibility, speed, or accuracy guarantee for Fast GGUF.
 
@@ -113,6 +113,36 @@ POST /completion
 Use the Base URL shown in Runtime status, normally `http://127.0.0.1:8080/v1`. `/models` and `/v1/models` return the currently loaded model ID for clients that support model discovery.
 
 For `/v1/chat/completions`, `stream: true` emits OpenAI-compatible SSE events while tokens are generated. When the HTTP channel closes, the server cancels the producer task and the underlying MLX generation stream instead of waiting for completion.
+
+## Settings and model management
+
+### Settings autosave
+
+Switches, dropdowns, and theme choices on **System settings** save automatically; the original Save buttons remain available for text fields and manual saves. Writes are queued and limited to changed options and required mutually exclusive settings. Unfinished text fields are not submitted or cleared. Failed saves restore the option and display an error. Destructive actions still require confirmation; re-enabling sign-in requires a new password and its confirmation first. **Clear Access Token** is now a button that immediately clears the saved token after confirmation.
+
+Autosave does not start a model, download, calibration, or reverse proxy, and does not save launch-profile edits on other pages. The NetPass policy acknowledgment remains an explicit per-connection action.
+
+### Performance calibration and memory pressure protection
+
+**System settings → Model sources and settings** contains **Enable performance calibration**, enabled by default for new installations; an explicitly saved off setting is preserved. It enables the manual calibration entry point and reuse of saved results, not automatic first-launch testing.
+
+Open **Calibrate performance** from Runtime even without a loaded model. Select multiple models and filter by All, GGUF, or MLX without losing selections. Only an actually loaded model is preselected. The application chooses a compatible server/profile: ordinary GGUF prefers llama-server, while native MLX and Fast GGUF fallback use mlx-server. A compatible loaded configuration is reused as the baseline.
+
+Each model compares three configurations with three runs each. The dialog shows per-test progress and completion checks; tests without a measured percentage use indeterminate progress. Results expose each speed, average, median, improvement, and the recommended settings. The best median configuration is saved and automatically applied on later launches with the same hardware, runtime, model path, and launch parameters. Different configurations may require runtime restarts. After the batch, the previous loaded model or unloaded state is restored. Results are workload-specific, not a universal speed guarantee.
+
+**Experimental features → Memory pressure protection** is off by default and persists when enabled. Before launch it estimates model and companion memory needs, reserves at least 2 GiB or 8% of physical RAM, and may reduce Context or Batch/Prefill, disable MTP/DFlash, or refuse an unsafe launch. Actual adjustments are shown. It is a pre-launch estimate, not a runtime memory cap or continuous OOM monitor.
+
+### Fast GGUF fallback
+
+**Remove original GGUF after conversion** is an opt-in, persistent experimental setting. After confirmation, source removal occurs only after the Fast GGUF shards, manifest, standalone startup assets, and successful model load have been verified. If the original GGUF is missing, complete Fast GGUF packages remain selectable and reloadable through mlx-server, under GGUF. New conversions use manifest schema 4; schema 3 requires complete startup assets, and schema 2 is not a standalone fallback.
+
+Fast GGUF is an internal Apple Silicon format, not a llama.cpp-compatible GGUF. Embedded MTP is not supported through the fallback. Reusing llama.cpp or converting again requires the original GGUF. Removing the last Fast GGUF after its source was deleted leaves no loadable model. See [Fast GGUF format](mlx-server/FGGUF-FORMAT.md).
+
+### Repository search and favorites
+
+The download page searches Hugging Face repositories by keyword and GGUF/MLX format, with download-count, like-count, or alphabetical sorting. **Select** fills in the repository and revision `main`, then closes the dialog. Reopening it on the same page preserves the query and results; this is not permanent search-history storage across page reloads.
+
+The GGUF filename dropdown scans the repository/revision, prefers `Q4_0`, and otherwise selects the first sorted entry—not a fixed `Q4_K_M` fallback. Refresh rescans and keeps the current filename if it still exists. **Add to favorites** and the catalog stars persist format, repository, and revision locally. Removal requires confirmation; built-in entries return to the catalog, while manually added entries leave the favorites list. Downloaded models are not deleted.
 
 ## API security
 

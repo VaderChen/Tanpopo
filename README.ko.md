@@ -34,7 +34,7 @@ Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은
 ## 공개 테스트 보고서
 
 - [모델 호환성 보고서](https://vaderchen.github.io/Tanpopo/reports/model-compatibility.html): 네이티브 MLX, MLX의 GGUF 로드, llama.cpp GGUF, 멀티모달 프로젝션, KV Cache 양자화 및 추측 디코딩의 지원 범위와 호환성 경계를 정리합니다.
-- [MLX 및 GGUF 변환의 로딩 속도와 연산 정확도](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): 4B, 9B, 27B 대응 모델을 네이티브 MLX, llama.cpp + GGUF, MLX + Fast GGUF Mode 1/2/3의 고정 100문항, 생성 속도, 변환 캐시, 프로세스 RAM으로 비교합니다.
+- [MLX 및 GGUF 변환의 로딩 속도와 연산 정확도](https://vaderchen.github.io/Tanpopo/reports/performance-comparison.html): 4B, 9B, 27B 대응 모델을 네이티브 MLX, llama.cpp + GGUF, MLX + Fast GGUF Mode 1/2/3의 고정 100문항, 생성 속도, Fast GGUF 용량, 프로세스 RAM으로 비교합니다.
 
 두 HTML 보고서는 `AUTO`, 번체 중국어, 영어를 전환할 수 있습니다. 결과는 명시된 날짜, 하드웨어, Runtime 버전 및 샘플에서 재현 가능한 스냅샷이며, 모든 모델이나 장치에서 같은 결과를 보장하거나 Fast GGUF의 호환성, 속도 또는 정확도를 보장하지 않습니다.
 
@@ -111,6 +111,34 @@ POST /completion
 Runtime 상태에 표시되는 Base URL(보통 `http://127.0.0.1:8080/v1`)을 사용하세요. `/models`와 `/v1/models`는 현재 불러온 정확한 Model ID를 반환합니다.
 
 `/v1/chat/completions`에 `stream: true`를 지정하면 생성 중인 Token을 OpenAI 호환 SSE로 즉시 전송합니다. HTTP Channel이 닫히면 producer Task와 MLX 생성 스트림도 취소됩니다.
+
+## 설정 자동 저장과 모델 관리
+
+시스템 설정의 스위치, 드롭다운, 테마는 변경 후 자동 저장합니다. 기존 저장 버튼은 유지하며 텍스트 필드는 수동 저장합니다. 변경 항목과 필요한 상호 배타 설정만 순서대로 저장하므로 작성 중인 텍스트를 제출하거나 지우지 않습니다. 실패하면 선택을 되돌리고 오류를 표시합니다. 위험한 작업의 확인 절차는 유지하며 로그인 인증을 다시 켜기 전에 새 비밀번호와 확인 비밀번호를 입력해야 합니다. Access Token 지우기는 확인 후 저장된 Token을 즉시 지우는 버튼입니다.
+
+자동 저장은 시스템 설정에만 적용됩니다. 모델, 다운로드, 성능 보정, Reverse Proxy를 자동 시작하거나 다른 페이지의 시작 프로필을 자동 저장하지 않습니다. NetPass 사용 정책은 연결마다 명시적인 동의가 필요합니다.
+
+### 성능 보정과 메모리 압력 보호
+
+모델 소스 및 설정의 성능 보정은 새 설치에서 기본적으로 켜져 있으며 명시적으로 저장한 꺼짐 설정은 유지합니다. 수동 보정 버튼과 저장된 결과 적용을 활성화할 뿐, 첫 시작에 자동 측정하지 않습니다.
+
+실행 상태에서 모델을 로드하지 않아도 성능 보정 창을 열 수 있습니다. 여러 모델 선택과 전체／GGUF／MLX 필터를 지원하며 실제 로드된 모델만 기본 선택합니다. 필터를 바꿔도 선택은 유지합니다. 일반 GGUF는 llama-server, 네이티브 MLX와 Fast GGUF fallback은 mlx-server를 우선 사용하고, 호환되는 현재 로드 설정을 기준으로 재사용합니다.
+
+모델마다 설정 3개를 각각 3회 측정하며 개별 진행 상태와 완료 표시를 제공합니다. 실제 측정 백분율이 없으면 불확정 진행 표시를 사용합니다. 각 속도, 평균, 중앙값, 개선율, 권장 설정을 공개하고 중앙값이 가장 좋은 설정을 저장합니다. 같은 하드웨어, Runtime, 모델 경로, 시작 인자의 이후 실행에 자동 적용합니다. 다른 설정을 비교할 때 Runtime 재시작이 필요할 수 있습니다. 완료 후 원래 모델 또는 미로드 상태로 복원합니다. 결과는 측정한 작업에 한정됩니다.
+
+실험적 메모리 압력 보호는 기본적으로 꺼져 있으며 설정을 영구 저장합니다. 시작 전 모델과 부속 파일의 필요량을 추정하고 최소 2 GiB 또는 물리 RAM의 8%를 남깁니다. 필요하면 Context, Batch／Prefill을 줄이고 MTP／DFlash를 끄며 여전히 부족하면 시작을 거부합니다. 실제 조정 내용을 표시합니다. 실행 중 메모리 상한이나 지속적인 OOM 감시는 아닙니다.
+
+### Fast GGUF와 원본 삭제
+
+변환 후 원본 GGUF 삭제는 기본적으로 꺼진 실험 설정입니다. 사용자 확인 후 Fast GGUF shard, manifest, 독립 시작 자산, 정상 로드를 검증한 뒤 원본을 삭제합니다. 원본 GGUF가 없어도 완전한 Fast GGUF는 GGUF 목록의 fallback으로 남아 mlx-server에서 다시 로드할 수 있습니다. 새 변환은 schema 4를 사용하며 schema 3은 완전한 시작 자산이 필요하고 schema 2는 fallback을 지원하지 않습니다.
+
+Fast GGUF는 Apple Silicon 내부 형식이며 llama.cpp용 GGUF가 아닙니다. fallback의 내장 MTP는 지원하지 않습니다. llama.cpp 사용이나 재변환에는 원본 GGUF가 필요합니다. 원본과 마지막 Fast GGUF를 모두 삭제하면 로드 가능한 모델이 없어집니다. [Fast GGUF 형식](mlx-server/FGGUF-FORMAT.md)을 참고하세요.
+
+### Repository 검색과 즐겨찾기
+
+다운로드 화면에서 키워드와 GGUF／MLX 형식으로 Repository를 검색하고 다운로드 수, 좋아요 수, 이름순으로 정렬할 수 있습니다. 선택하면 Repository와 Revision `main`을 입력하고 창을 닫습니다. 같은 페이지에서 다시 열면 검색어와 결과를 유지하지만 페이지 새로고침을 넘는 영구 검색 기록은 아닙니다.
+
+GGUF 파일 이름은 Repository／Revision 스캔 결과에서 선택합니다. 기본은 `Q4_0`이며 없으면 정렬 첫 항목을 선택하고 `Q4_K_M`으로 고정하지 않습니다. 새로고침 버튼으로 재스캔하며 현재 파일이 남아 있으면 선택을 유지합니다. 즐겨찾기 버튼과 별은 형식, Repository, Revision을 저장합니다. 해제는 확인이 필요하며 내장 항목은 일반 목록으로 돌아가고 수동 항목은 즐겨찾기에서 제거합니다. 다운로드된 모델은 삭제하지 않습니다.
 
 ## API 보안
 

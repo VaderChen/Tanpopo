@@ -3017,6 +3017,113 @@ enum MLXGGUFModelLoader {
         )
     }
 
+    /// 直接載入可獨立運作的 Fast GGUF；不再依賴已移除的來源 GGUF。
+    static func loadFastGGUFContainer(
+        from directoryURL: URL,
+        manifestURL: URL,
+        memoryMapped: Bool = false
+    ) async throws -> ModelContainer {
+        let loadingProgress = ggufProgressReporter(phase: "loading_cache")
+        let package = try MLXGGUFConversionCache.loadStandalone(
+            manifestURL: manifestURL,
+            memoryMapped: memoryMapped,
+            progress: loadingProgress
+        )
+        let usesVLMProcessor = package.processorConfigurationData != nil
+        let configurationData = try fastGGUFModelConfigurationData(
+            package.configurationData,
+            weights: package.weights,
+            usesVLMProcessor: usesVLMProcessor,
+            manifestURL: manifestURL
+        )
+        let baseConfiguration: BaseConfiguration
+        do {
+            baseConfiguration = try JSONDecoder.json5().decode(
+                BaseConfiguration.self,
+                from: configurationData
+            )
+        } catch {
+            throw MLXGGUFLoaderError.invalidConfiguration(manifestURL)
+        }
+        let model: LanguageModel
+        if usesVLMProcessor || baseConfiguration.modelType == "qwen3_5" {
+            model = try await VLMTypeRegistry.shared.createModel(
+                configuration: configurationData,
+                modelType: baseConfiguration.modelType
+            )
+        } else {
+            model = try await LLMModelFactory.shared.typeRegistry.createModel(
+                configuration: configurationData,
+                modelType: baseConfiguration.modelType
+            )
+        }
+
+        let modelLoadingProgress = ggufProgressReporter(phase: "loading", unit: "steps")
+        modelLoadingProgress(0, 100)
+        quantizeGGUFModel(model, weights: package.weights, groupSize: package.groupSize)
+        modelLoadingProgress(20, 100)
+        let contract = MLXGGUFWeightContract.inspect(model: model, weights: package.weights)
+        if !contract.isCompatible {
+            fputs(contract.logDescription() + "\n", stderr)
+        }
+        try model.update(
+            parameters: ModuleParameters.unflattened(package.weights),
+            verify: [.all]
+        )
+        modelLoadingProgress(55, 100)
+        eval(model)
+        modelLoadingProgress(85, 100)
+        let tokenizer = try MLXGGUFEmbeddedAssets.tokenizer(
+            tokenizerData: package.tokenizerData,
+            tokenizerConfigurationData: package.tokenizerConfigurationData
+        )
+        let generationConfig = try? package.generationConfigurationData.map {
+            try JSONDecoder.json5().decode(GenerationConfigFile.self, from: $0)
+        }
+        var modelConfiguration = ModelConfiguration(
+            directory: directoryURL,
+            stopStrings: generationConfig?.stopStrings,
+            toolCallFormat: ToolCallFormat.infer(
+                from: baseConfiguration.modelType,
+                configData: configurationData
+            )
+        )
+        var eosTokenIDs = Set(baseConfiguration.eosTokenIds?.values ?? [])
+        if let generationEOS = generationConfig?.eosTokenIds?.values {
+            eosTokenIDs = Set(generationEOS)
+        }
+        modelConfiguration.eosTokenIds = eosTokenIDs
+        let messageGenerator = (model as? LLMModel)?.messageGenerator(tokenizer: tokenizer)
+            ?? DefaultMessageGenerator()
+        let processor: any UserInputProcessor
+        if let processorData = package.processorConfigurationData {
+            processor = try await makeVLMProcessor(
+                configurationData: processorData,
+                configurationURL: manifestURL,
+                tokenizer: tokenizer
+            )
+        } else {
+            processor = MLXGGUFUserInputProcessor(
+                tokenizer: tokenizer,
+                messageGenerator: messageGenerator
+            )
+        }
+        modelLoadingProgress(100, 100)
+        fputs(
+            "Fast GGUF loaded model=\(package.sourceName) profile=\(package.profile) "
+                + "group=\(package.groupSize)\n",
+            stderr
+        )
+        return ModelContainer(
+            context: ModelContext(
+                configuration: modelConfiguration,
+                model: model,
+                processor: processor,
+                tokenizer: tokenizer
+            )
+        )
+    }
+
     /// 從 Target GGUF 的額外 NextN block 建立 MTP Drafter。
     ///
     /// 能力判斷完全依 GGUF metadata 與 tensor contract，不依檔名或模型展示名稱。
@@ -3171,6 +3278,12 @@ enum MLXGGUFModelLoader {
         } catch {
             throw MLXGGUFLoaderError.invalidConfiguration(configurationURL)
         }
+        let runtimeAssets = try MLXGGUFEmbeddedAssets.fastGGUFRuntimeAssets(
+            directoryURL: directoryURL,
+            weightURL: weightURL,
+            mmprojURL: mmprojURL,
+            configurationData: configData
+        )
         let model: LanguageModel
         if mmprojURL != nil || baseConfiguration.modelType == "qwen3_5" {
             model = try await VLMTypeRegistry.shared.createModel(
@@ -3214,6 +3327,23 @@ enum MLXGGUFModelLoader {
             fputs("TANPOPO_GGUF_CACHE state=disabled\n", stderr)
         }
 
+        var standaloneCacheReady = false
+        if let cachePlan, MLXGGUFConversionCache.contains(plan: cachePlan) {
+            do {
+                try MLXGGUFConversionCache.ensureStandaloneAssets(
+                    plan: cachePlan,
+                    runtimeAssets: runtimeAssets
+                )
+                standaloneCacheReady = true
+            } catch {
+                fputs(
+                    "TANPOPO_GGUF_CACHE state=standalone_unavailable key=\(cachePlan.key) "
+                        + "reason=\(singleLine(error))\n",
+                    stderr
+                )
+            }
+        }
+
         var weights: [String: MLXArray]?
         if let cachePlan {
             do {
@@ -3230,7 +3360,8 @@ enum MLXGGUFModelLoader {
                 )
                 if weights != nil {
                     fputs(
-                        "TANPOPO_GGUF_CACHE state=hit key=\(cachePlan.key)\n",
+                        "TANPOPO_GGUF_CACHE state=hit key=\(cachePlan.key) "
+                            + "standalone=\(standaloneCacheReady ? "ready" : "unavailable")\n",
                         stderr
                     )
                 }
@@ -3275,6 +3406,7 @@ enum MLXGGUFModelLoader {
                     try MLXGGUFConversionCache.store(
                         weights: convertedWeights,
                         plan: cachePlan,
+                        runtimeAssets: runtimeAssets,
                         progress: ggufProgressReporter(phase: "saving_cache")
                     )
                     fputs(
@@ -3291,11 +3423,12 @@ enum MLXGGUFModelLoader {
                     ) {
                         weights = reloadedWeights
                         fputs(
-                            "TANPOPO_GGUF_CACHE state=reloaded key=\(cachePlan.key)\n",
+                            "TANPOPO_GGUF_CACHE state=reloaded key=\(cachePlan.key) "
+                                + "standalone=ready\n",
                             stderr
                         )
                     } else {
-                        throw MLXGGUFLoaderError.invalidTensor("FGGUF 轉換快取")
+                        throw MLXGGUFLoaderError.invalidTensor("Fast GGUF")
                     }
                 } catch {
                     fputs(
@@ -3516,6 +3649,18 @@ enum MLXGGUFModelLoader {
         } else {
             throw MLXGGUFLoaderError.missingConfiguration(configurationURL)
         }
+        return try await makeVLMProcessor(
+            configurationData: configurationData,
+            configurationURL: configurationURL,
+            tokenizer: tokenizer
+        )
+    }
+
+    private static func makeVLMProcessor(
+        configurationData: Data,
+        configurationURL: URL,
+        tokenizer: any MLXLMCommon.Tokenizer
+    ) async throws -> any UserInputProcessor {
         let configuration: BaseProcessorConfiguration
         do {
             configuration = try JSONDecoder.json5().decode(
@@ -3529,6 +3674,34 @@ enum MLXGGUFModelLoader {
             configuration: configurationData,
             processorType: configuration.processorClass,
             tokenizer: tokenizer
+        )
+    }
+
+    private static func fastGGUFModelConfigurationData(
+        _ data: Data,
+        weights: [String: MLXArray],
+        usesVLMProcessor: Bool,
+        manifestURL: URL
+    ) throws -> Data {
+        guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MLXGGUFLoaderError.invalidConfiguration(manifestURL)
+        }
+        let nestedText = root["text_config"] as? [String: Any]
+        let textConfiguration = try MLXGGUFGemma4AttentionLayout.restoring(
+            configuration: nestedText ?? root,
+            weightShapes: weights.mapValues(\.shape)
+        )
+        if usesVLMProcessor && nestedText != nil {
+            root["text_config"] = textConfiguration
+        } else {
+            root = textConfiguration
+        }
+        guard JSONSerialization.isValidJSONObject(root) else {
+            throw MLXGGUFLoaderError.invalidConfiguration(manifestURL)
+        }
+        return try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.sortedKeys]
         )
     }
 

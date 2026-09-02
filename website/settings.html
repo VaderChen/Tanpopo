@@ -7,8 +7,8 @@
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
   <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
-  <script src="/assets/common.js?v=20260901-71" defer></script>
-  <script src="/assets/settings.js?v=20260901-33" defer></script>
+  <script src="/assets/common.js?v=20260902-86" defer></script>
+  <script src="/assets/settings.js?v=20260902-39" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -46,8 +46,8 @@
             <span>介面、桌面模式與模型位置</span>
           </button>
           <button id="settingsModelSourceTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsModelSourcePane" data-settings-target="settingsModelSourcePane">
-            <strong>模型來源</strong>
-            <span>Hugging Face 連線與存取憑證</span>
+            <strong>模型來源與設定</strong>
+            <span>Hugging Face、模型功能與效能校準</span>
           </button>
           <button id="settingsAdminTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsAdminPane" data-settings-target="settingsAdminPane">
             <strong>管理介面登入</strong>
@@ -56,6 +56,10 @@
           <button id="settingsSecurityTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsSecurityPane" data-settings-target="settingsSecurityPane">
             <strong>網路安全</strong>
             <span>Access Key 與 IP 白名單</span>
+          </button>
+          <button id="settingsExperimentalTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsExperimentalPane" data-settings-target="settingsExperimentalPane">
+            <strong>實驗性功能</strong>
+            <span>可能改變檔案與儲存行為</span>
           </button>
           <button id="settingsNetPassTab" class="settings-sidebar-item" type="button" role="tab" aria-selected="false" aria-controls="settingsNetPassPane" data-settings-target="settingsNetPassPane">
             <strong>反向代理</strong>
@@ -216,15 +220,39 @@
                       <input id="hfToken" type="password" autocomplete="off" placeholder="留空即保留目前設定">
                     </label>
                   </div>
-                  <label class="check-field">
-                    <input id="clearHFToken" type="checkbox">
-                    <span id="tokenState">清除 Access Token</span>
-                  </label>
+                  <div>
+                    <button id="clearHFToken" class="button secondary compact" type="button" disabled>清除 Access Token</button>
+                  </div>
                 </div>
               </div>
               <div class="settings-actions">
                 <span id="modelSourceMessage" class="form-message"></span>
                 <button id="saveModelSourceButton" class="button primary" type="submit">儲存模型來源</button>
+              </div>
+            </form>
+            <form id="calibrationSettingsForm" class="panel form-panel settings-form">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>效能校準</h3>
+                  <p>手動比較模型配置，保存最佳結果供後續啟動套用。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="settings-switch-row" for="autoPerformanceCalibrationEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>啟用效能校準</strong>
+                      <span class="helper">預設開啟。在執行狀態按「效能校準」可複選模型，自動選擇適用的 Server；無須事先載入模型。每個模型比較 3 組配置、每組測試 3 次，保存中位數最佳的配置。不會自動開始測試；關閉後不再套用已保存的校準結果。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="autoPerformanceCalibrationEnabled" type="checkbox" role="switch" aria-label="啟用效能校準" checked>
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="autoPerformanceCalibrationEnabledLabel">啟用</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <span id="calibrationSettingsMessage" class="form-message"></span>
+                <button id="saveCalibrationSettingsButton" class="button primary" type="submit">儲存效能校準設定</button>
               </div>
             </form>
             <form id="runtimeDefaultsForm" class="panel form-panel settings-form">
@@ -418,6 +446,53 @@
           <span id="accessControlMessage" class="form-message"></span>
           <button id="saveAccessControlButton" class="button primary" type="submit">儲存安全設定</button>
         </div>
+            </form>
+          </section>
+
+          <section id="settingsExperimentalPane" class="settings-pane" role="tabpanel" aria-labelledby="settingsExperimentalTab" tabindex="0" hidden>
+            <form id="experimentalSettingsForm" class="panel form-panel settings-form">
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>Fast GGUF</h3>
+                  <p>這些選項會改變 GGUF 轉換完成後的檔案保留方式，請先確認已有可重新取得的來源。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="settings-switch-row" for="removeOriginalGGUFAfterConversion">
+                    <span class="settings-switch-copy">
+                      <strong>轉換後移除原 GGUF</strong>
+                      <span class="helper">Fast GGUF 完整建立或從既有檔案成功載入，且模型服務正常後，才移除本次使用的原始 GGUF。預設關閉；模型服務停止後，必須重新取得原始 GGUF 才能再次載入或改用 llama.cpp。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="removeOriginalGGUFAfterConversion" type="checkbox" role="switch" aria-label="轉換後移除原 GGUF">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="removeOriginalGGUFAfterConversionLabel">關閉</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="form-group-title">
+                  <h3>Runtime 保護</h3>
+                  <p>僅在明確啟用後生效；保護偏好會保存在本機設定。</p>
+                </div>
+                <div class="form-group-fields">
+                  <label class="settings-switch-row" for="memoryPressureProtectionEnabled">
+                    <span class="settings-switch-copy">
+                      <strong>記憶體壓力保護</strong>
+                      <span class="helper">啟動前依模型、Context、KV Cache 與可用記憶體估算；必要時先降低 Context 與 Batch／Prefill，仍不足才停用 MTP／DFlash。沒有安全組合時會拒絕啟動；預設關閉。</span>
+                    </span>
+                    <span class="dflash-switch">
+                      <input id="memoryPressureProtectionEnabled" type="checkbox" role="switch" aria-label="記憶體壓力保護">
+                      <span class="dflash-switch-track" aria-hidden="true"></span>
+                      <span id="memoryPressureProtectionEnabledLabel">關閉</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <span id="experimentalSettingsMessage" class="form-message"></span>
+                <button id="saveExperimentalSettingsButton" class="button primary" type="submit">儲存實驗性設定</button>
+              </div>
             </form>
           </section>
 

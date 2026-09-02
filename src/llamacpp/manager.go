@@ -27,16 +27,37 @@ const mlxGGUFPathPrefix = "gguf:"
 
 type SettingsProvider func() domain.Settings
 
+// MemorySnapshot 是啟動前記憶體保護所需的最小系統資源摘要。
+type MemorySnapshot struct {
+	TotalBytes     uint64
+	AvailableBytes uint64
+}
+
+type pendingGGUFSourceRemoval struct {
+	path           string
+	identity       os.FileInfo
+	fastGGUFLoaded bool
+}
+
 type Manager struct {
-	mu                sync.Mutex
-	settings          SettingsProvider
-	accessControlPath string
-	stateStore        *runtimeStateStore
-	cmd               *exec.Cmd
-	done              chan struct{}
-	stopping          bool
-	status            domain.LlamaStatus
-	logs              *logBuffer
+	mu                     sync.Mutex
+	settings               SettingsProvider
+	accessControlPath      string
+	stateStore             *runtimeStateStore
+	cmd                    *exec.Cmd
+	done                   chan struct{}
+	stopping               bool
+	status                 domain.LlamaStatus
+	logs                   *logBuffer
+	pendingGGUFRemoval     *pendingGGUFSourceRemoval
+	memorySnapshotProvider func() MemorySnapshot
+}
+
+// SetMemorySnapshotProvider 注入由系統監控器集中採集的記憶體資料。
+func (m *Manager) SetMemorySnapshotProvider(provider func() MemorySnapshot) {
+	m.mu.Lock()
+	m.memorySnapshotProvider = provider
+	m.mu.Unlock()
 }
 
 func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath string) (*Manager, error) {
@@ -86,9 +107,19 @@ func (m *Manager) Start(
 	if m.status.Running {
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
+	settings := m.settings()
+	memoryProtection := memoryProtectionResult{EffectiveContextSize: startupCommand.ContextSize}
+	if settings.MemoryProtectionEnabled {
+		var protectionErr error
+		startupCommand, draftModel, dflashEnabled, memoryProtection, protectionErr = m.applyMemoryPressureProtectionLocked(
+			settings, model, mmproj, draftModel, dflashEnabled, startupCommand,
+		)
+		if protectionErr != nil {
+			return m.status, protectionErr
+		}
+	}
 	mtpEnabled := startupCommand.Runtime == domain.RuntimeMLXServer &&
 		hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
-	settings := m.settings()
 	embeddedMTPTarget := false
 	if mtpEnabled {
 		modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
@@ -109,7 +140,7 @@ func (m *Manager) Start(
 		return m.status, errors.New("Draft 推測解碼與 KV Cache 量化不可同時啟用")
 	}
 	if skipGGUFConversionCache && startupCommand.Runtime != domain.RuntimeMLXServer {
-		return m.status, errors.New("不建立轉換快取只適用於 mlx-server 載入 GGUF")
+		return m.status, errors.New("不建立 Fast GGUF 只適用於 mlx-server 載入 GGUF")
 	}
 	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
 		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
@@ -152,7 +183,7 @@ func (m *Manager) Start(
 		if inspection.RequiresConversion &&
 			strings.TrimSpace(conversionConfirmationKey) != inspection.CacheKey {
 			return m.status, fmt.Errorf(
-				"此模型需要轉換並建立約 %d bytes 的永久快取，請先確認轉換",
+				"此模型需要轉換並建立約 %d bytes 的 Fast GGUF，請先確認轉換",
 				inspection.EstimatedCacheBytes,
 			)
 		}
@@ -189,6 +220,11 @@ func (m *Manager) Start(
 	m.status.FastGGUF = fastGGUFEnabled
 	m.status.SkipGGUFConversionCache = skipGGUFConversionCache
 	m.status.KVCacheQuantization = startupCommand.KVCacheQuantization
+	m.status.EffectiveContextSize = memoryProtection.EffectiveContextSize
+	m.status.MemoryProtectionApplied = len(memoryProtection.Actions) > 0
+	m.status.MemoryProtectionActions = append([]string(nil), memoryProtection.Actions...)
+	m.status.EstimatedMemoryBytes = memoryProtection.EstimatedBytes
+	m.status.AvailableMemoryBytes = memoryProtection.AvailableBytes
 	m.status.MMapReserveGB = 0
 	if mmapEnabled {
 		m.status.MMapReserveGB = startupCommand.MMapReserveGB
@@ -290,6 +326,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	m.cmd = command
 	m.done = done
 	m.stopping = false
+	m.pendingGGUFRemoval = nil
 	m.status = domain.LlamaStatus{
 		Running:    true,
 		Runtime:    domain.RuntimeLlamaServer,
@@ -306,6 +343,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		Binary:             binary,
 		StartupCommandID:   startupCommand.ID,
 		StartupCommandName: startupCommand.Name,
+		PerformanceTuning:  performanceTuningFromArguments(domain.RuntimeLlamaServer, args),
 		ModelPreparation:   domain.ModelPreparationLoading,
 		URL:                serverURL(startupCommand.ServerHost, startupCommand.ServerPort),
 		StartedAt:          time.Now(),
@@ -335,8 +373,19 @@ func (m *Manager) startMLXLocked(
 	}
 	modelArgument := selection.modelArgument
 	isGGUF := selection.isGGUF
+	var pendingSourceRemoval *pendingGGUFSourceRemoval
+	if settings.RemoveOriginalGGUF && isGGUF && !skipGGUFConversionCache &&
+		!isFastGGUFManifestPath(modelArgument) {
+		pendingSourceRemoval, err = prepareGGUFSourceRemoval(
+			settings.ModelDirectory,
+			modelArgument,
+		)
+		if err != nil {
+			return m.status, fmt.Errorf("無法啟用轉換後移除原 GGUF: %w", err)
+		}
+	}
 	if skipGGUFConversionCache && !isGGUF {
-		return m.status, errors.New("不建立轉換快取只適用於 mlx-server 載入 GGUF")
+		return m.status, errors.New("不建立 Fast GGUF 只適用於 mlx-server 載入 GGUF")
 	}
 	if fastGGUFEnabled && !isGGUF {
 		return m.status, errors.New("快速GGUF模式只適用於 mlx-server 載入 GGUF")
@@ -351,6 +400,9 @@ func (m *Manager) startMLXLocked(
 	var draftKind string
 	mtpEnabled := hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
 	if mtpEnabled && isGGUF {
+		if isFastGGUFManifestPath(modelArgument) {
+			return m.status, errors.New("Fast GGUF fallback 目前不支援內嵌 MTP；請停用 MTP 後啟動")
+		}
 		if !isEmbeddedMTPGGUF(modelArgument) {
 			return m.status, errors.New("這份 GGUF 未包含 mlx-server 支援的內嵌 MTP 預測層")
 		}
@@ -454,6 +506,7 @@ func (m *Manager) startMLXLocked(
 	m.cmd = command
 	m.done = done
 	m.stopping = false
+	m.pendingGGUFRemoval = pendingSourceRemoval
 	m.status = domain.LlamaStatus{
 		Running:                 true,
 		Runtime:                 domain.RuntimeMLXServer,
@@ -465,6 +518,7 @@ func (m *Manager) startMLXLocked(
 		Binary:                  binary,
 		StartupCommandID:        startupCommand.ID,
 		StartupCommandName:      startupCommand.Name,
+		PerformanceTuning:       performanceTuningFromArguments(domain.RuntimeMLXServer, args),
 		SkipGGUFConversionCache: skipGGUFConversionCache,
 		ModelPreparation: func() string {
 			if isGGUF && skipGGUFConversionCache {
@@ -512,7 +566,7 @@ func resolveMLXTargetSelection(
 	if isMMProjGGUF(modelArgument) {
 		return mlxTargetSelection{}, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
 	}
-	architecture, metadataErr := readGGUFStringMetadata(modelArgument, "general.architecture")
+	architecture, metadataErr := mlxGGUFModelArchitecture(modelArgument)
 	if metadataErr != nil {
 		return mlxTargetSelection{}, fmt.Errorf("無法讀取 GGUF 模型架構：%w", metadataErr)
 	}
@@ -570,6 +624,12 @@ func (m *Manager) inspectConversion(
 	if !selection.isGGUF {
 		return domain.ModelConversionPreflight{Model: strings.TrimSpace(model)}, nil
 	}
+	if isFastGGUFManifestPath(selection.modelArgument) {
+		return domain.ModelConversionPreflight{
+			Applicable: false,
+			Model:      strings.TrimSpace(model),
+		}, nil
+	}
 	binary, err := ResolveMLXServer()
 	if err != nil {
 		return domain.ModelConversionPreflight{}, err
@@ -605,8 +665,20 @@ func (m *Manager) inspectConversion(
 func resolveMLXTargetModel(settings domain.Settings, value, label string) (string, bool, error) {
 	value = strings.TrimSpace(value)
 	if strings.HasPrefix(value, mlxGGUFPathPrefix) {
-		path, err := resolveMLXGGUFFile(settings.ModelDirectory, value, label)
-		return path, true, err
+		modelPath := strings.TrimSpace(strings.TrimPrefix(value, mlxGGUFPathPrefix))
+		path, err := resolveMLXGGUFFile(settings.ModelDirectory, modelPath, label)
+		if err == nil {
+			return path, true, nil
+		}
+		manifestPath, fallbackErr := resolveFastGGUFFallbackManifest(
+			settings.ModelDirectory,
+			modelPath,
+			normalizedFastGGUFProfile(settings.DefaultFastGGUFStrategy),
+		)
+		if fallbackErr != nil {
+			return "", true, err
+		}
+		return manifestPath, true, nil
 	}
 	path, err := resolveMLXModel(settings.MLXModelDirectory, value, label)
 	return path, false, err
@@ -622,6 +694,17 @@ func resolveMLXGGUFFile(directory, value, label string) (string, error) {
 		return "", fmt.Errorf("指定的%s不是 GGUF 檔案", label)
 	}
 	return path, nil
+}
+
+func isFastGGUFManifestPath(path string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".fgguf.json")
+}
+
+func mlxGGUFModelArchitecture(path string) (string, error) {
+	if isFastGGUFManifestPath(path) {
+		return fastGGUFManifestArchitecture(path)
+	}
+	return readGGUFStringMetadata(path, "general.architecture")
 }
 
 func resolveMLXModel(directory, value, label string) (string, error) {
@@ -783,7 +866,19 @@ func (m *Manager) persistStatusLocked(desiredRunning bool) error {
 func (m *Manager) Status() domain.LlamaStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.status
+	result := m.status
+	result.MemoryProtectionActions = append([]string(nil), m.status.MemoryProtectionActions...)
+	return result
+}
+
+// AnnotatePerformanceCalibration 將 API 層套用的持久化校準結果附加到狀態。
+func (m *Manager) AnnotatePerformanceCalibration(applied bool) domain.LlamaStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.PerformanceCalibrationApplied = applied
+	result := m.status
+	result.MemoryProtectionActions = append([]string(nil), m.status.MemoryProtectionActions...)
+	return result
 }
 
 func (m *Manager) Logs() string {
@@ -816,6 +911,7 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 		m.cmd = nil
 		m.done = nil
 		m.stopping = false
+		m.pendingGGUFRemoval = nil
 	}
 	close(done)
 	m.mu.Unlock()
@@ -846,6 +942,7 @@ func (m *Manager) monitorReady(command *exec.Cmd, baseURL string) {
 				// 驗證。401／403 已足以證明服務完成監聽，不能因此讓管理介面
 				// 永遠停在「載入中」；實際模型請求仍會照原安全策略驗證。
 				if runtimeHealthResponseReady(response.StatusCode) {
+					var removal *pendingGGUFSourceRemoval
 					m.mu.Lock()
 					if m.cmd == command && m.status.Running {
 						m.status.Ready = true
@@ -854,8 +951,17 @@ func (m *Manager) monitorReady(command *exec.Cmd, baseURL string) {
 						m.status.ModelPreparationTotal = 0
 						m.status.ModelPreparationPercent = 0
 						m.status.ModelPreparationKnown = false
+						if m.pendingGGUFRemoval != nil &&
+							m.pendingGGUFRemoval.fastGGUFLoaded &&
+							m.settings().RemoveOriginalGGUF {
+							removal = m.pendingGGUFRemoval
+						}
+						m.pendingGGUFRemoval = nil
 					}
 					m.mu.Unlock()
+					if removal != nil {
+						m.removeOriginalGGUF(removal)
+					}
 					return
 				}
 			}
@@ -891,6 +997,16 @@ func (m *Manager) handleMLXRuntimeOutput(command *exec.Cmd, line string) {
 		return
 	}
 	if !strings.Contains(line, "TANPOPO_GGUF_CACHE ") {
+		return
+	}
+	if (strings.Contains(line, "state=reloaded") || strings.Contains(line, "state=hit")) &&
+		strings.Contains(line, "standalone=ready") {
+		m.mu.Lock()
+		if m.cmd == command && m.status.Running && !m.status.Ready &&
+			m.pendingGGUFRemoval != nil {
+			m.pendingGGUFRemoval.fastGGUFLoaded = true
+		}
+		m.mu.Unlock()
 		return
 	}
 	preparation := ""
@@ -932,6 +1048,64 @@ func (m *Manager) handleMLXRuntimeOutput(command *exec.Cmd, line string) {
 		}
 	}
 	m.mu.Unlock()
+}
+
+func prepareGGUFSourceRemoval(modelDirectory, sourcePath string) (*pendingGGUFSourceRemoval, error) {
+	root, err := filepath.Abs(strings.TrimSpace(modelDirectory))
+	if err != nil {
+		return nil, fmt.Errorf("無法解析 GGUF 模型目錄: %w", err)
+	}
+	source, err := filepath.Abs(strings.TrimSpace(sourcePath))
+	if err != nil {
+		return nil, fmt.Errorf("無法解析來源 GGUF 路徑: %w", err)
+	}
+	if !strings.EqualFold(filepath.Ext(source), ".gguf") {
+		return nil, errors.New("來源檔案不是 GGUF")
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("無法驗證 GGUF 模型目錄: %w", err)
+	}
+	resolvedSource, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return nil, fmt.Errorf("無法驗證來源 GGUF: %w", err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolvedSource)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return nil, errors.New("來源 GGUF 不在受管理的模型目錄內")
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return nil, fmt.Errorf("無法讀取來源 GGUF: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, errors.New("來源 GGUF 必須是一般檔案，且不可為符號連結")
+	}
+	return &pendingGGUFSourceRemoval{path: source, identity: info}, nil
+}
+
+func (m *Manager) removeOriginalGGUF(removal *pendingGGUFSourceRemoval) {
+	current, err := os.Lstat(removal.path)
+	if err != nil {
+		m.logs.Append("\nFast GGUF 已完成，但無法確認原始 GGUF，未移除: " + err.Error() + "\n")
+		return
+	}
+	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(removal.identity, current) ||
+		current.Size() != removal.identity.Size() ||
+		!current.ModTime().Equal(removal.identity.ModTime()) {
+		m.logs.Append("\nFast GGUF 已完成，但原始 GGUF 在轉換期間發生變更，未移除。\n")
+		return
+	}
+	if _, err := standaloneFastGGUFManifestForSource(removal.path, ""); err != nil {
+		m.logs.Append("\nFast GGUF 已完成，但獨立啟動資產不完整，未移除原始 GGUF: " + err.Error() + "\n")
+		return
+	}
+	if err := os.Remove(removal.path); err != nil {
+		m.logs.Append("\nFast GGUF 已完成，但移除原始 GGUF 失敗: " + err.Error() + "\n")
+		return
+	}
+	m.logs.Append("\nFast GGUF 已完成，已移除原始 GGUF: " + removal.path + "\n")
 }
 
 func parseMLXGGUFProgress(line string) (string, int64, int64, string, bool) {
@@ -1196,6 +1370,14 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 		if err != nil {
 			return nil, err
 		}
+		fallbackModels, err := listStandaloneFastGGUFFallbackModels(
+			ggufDirectory,
+			ggufModels,
+		)
+		if err != nil {
+			return nil, err
+		}
+		ggufModels = append(ggufModels, fallbackModels...)
 		for _, model := range ggufModels {
 			if model.DFlashDraft {
 				continue
@@ -1221,16 +1403,25 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 const maximumConversionManifestBytes = 4 * 1024 * 1024
 
 type conversionCacheManifest struct {
-	SchemaVersion int      `json:"schemaVersion"`
-	Key           string   `json:"key"`
-	SourceNames   []string `json:"sourceNames"`
-	SourcePaths   []string `json:"sourcePaths"`
-	Shards        []string `json:"shards"`
+	SchemaVersion           int      `json:"schemaVersion"`
+	Key                     string   `json:"key"`
+	SourceNames             []string `json:"sourceNames"`
+	SourcePaths             []string `json:"sourcePaths"`
+	Shards                  []string `json:"shards"`
+	Profile                 string   `json:"profile"`
+	GroupSize               int      `json:"groupSize"`
+	WeightCount             int      `json:"weightCount"`
+	Configuration           string   `json:"configuration"`
+	Tokenizer               string   `json:"tokenizer"`
+	TokenizerConfiguration  string   `json:"tokenizerConfiguration"`
+	ProcessorConfiguration  string   `json:"processorConfiguration"`
+	GenerationConfiguration string   `json:"generationConfiguration"`
 }
 
 type ggufConversionCacheEntry struct {
 	path       string
 	shardPaths []string
+	assetPaths []string
 	directory  bool
 	sourceName string
 	sourcePath string
@@ -1316,13 +1507,13 @@ func (m *Manager) DeleteGGUFConversionCache(
 			continue
 		}
 		if err := deleteGGUFConversionCacheEntry(entry); err != nil {
-			return deletedBytes, deletedCount, fmt.Errorf("刪除 GGUF 轉換快取失敗: %w", err)
+			return deletedBytes, deletedCount, fmt.Errorf("移除 Fast GGUF 失敗: %w", err)
 		}
 		deletedBytes += entry.bytes
 		deletedCount++
 	}
 	if deletedCount == 0 {
-		return 0, 0, errors.New("找不到可刪除的 GGUF 轉換快取")
+		return 0, 0, errors.New("找不到可移除的 Fast GGUF")
 	}
 	return deletedBytes, deletedCount, nil
 }
@@ -1384,7 +1575,7 @@ func (m *Manager) legacyGGUFConversionCacheEntries() ([]ggufConversionCacheEntry
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("讀取 GGUF 轉換快取失敗: %w", err)
+		return nil, fmt.Errorf("讀取 Fast GGUF 失敗: %w", err)
 	}
 	result := make([]ggufConversionCacheEntry, 0, len(directories))
 	for _, directory := range directories {
@@ -1432,6 +1623,7 @@ func (m *Manager) legacyGGUFConversionCacheEntries() ([]ggufConversionCacheEntry
 		result = append(result, ggufConversionCacheEntry{
 			path:       entryPath,
 			shardPaths: nil,
+			assetPaths: nil,
 			directory:  true,
 			sourceName: filepath.Base(filepath.FromSlash(manifest.SourceNames[0])),
 			sourcePath: sourcePath,
@@ -1447,7 +1639,7 @@ func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("讀取 GGUF 轉換快取失敗: %w", err)
+		return nil, fmt.Errorf("讀取 Fast GGUF 失敗: %w", err)
 	}
 	result := make([]ggufConversionCacheEntry, 0)
 	for _, file := range files {
@@ -1466,12 +1658,14 @@ func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry
 			continue
 		}
 		var manifest conversionCacheManifest
-		if json.Unmarshal(manifestData, &manifest) != nil || manifest.SchemaVersion != 3 ||
+		if json.Unmarshal(manifestData, &manifest) != nil ||
+			(manifest.SchemaVersion != 3 && manifest.SchemaVersion != 4) ||
 			manifest.Key == "" || len(manifest.SourceNames) == 0 || len(manifest.Shards) == 0 {
 			continue
 		}
 		storedBytes := manifestInfo.Size()
 		shardPaths := make([]string, 0, len(manifest.Shards))
+		assetPaths := make([]string, 0, 5)
 		valid := true
 		for _, shard := range manifest.Shards {
 			if shard == "" || filepath.Base(shard) != shard || !strings.HasSuffix(shard, ".fgguf") {
@@ -1490,6 +1684,28 @@ func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry
 		if !valid {
 			continue
 		}
+		if manifest.SchemaVersion == 4 {
+			requiredAssets := []string{
+				manifest.Configuration,
+				manifest.Tokenizer,
+				manifest.TokenizerConfiguration,
+			}
+			for _, asset := range append(requiredAssets, manifest.ProcessorConfiguration, manifest.GenerationConfiguration) {
+				if strings.TrimSpace(asset) == "" {
+					continue
+				}
+				assetInfo, assetErr := regularAdjacentFastGGUFFile(root, asset, "")
+				if assetErr != nil {
+					valid = false
+					break
+				}
+				storedBytes += assetInfo.Size()
+				assetPaths = append(assetPaths, filepath.Join(root, asset))
+			}
+			if !valid || len(assetPaths) < len(requiredAssets) {
+				continue
+			}
+		}
 		sourcePath := ""
 		if len(manifest.SourcePaths) > 0 {
 			sourcePath = canonicalExistingPath(manifest.SourcePaths[0])
@@ -1497,6 +1713,7 @@ func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry
 		result = append(result, ggufConversionCacheEntry{
 			path:       manifestPath,
 			shardPaths: shardPaths,
+			assetPaths: assetPaths,
 			directory:  false,
 			sourceName: filepath.Base(filepath.FromSlash(manifest.SourceNames[0])),
 			sourcePath: sourcePath,
@@ -1506,12 +1723,296 @@ func adjacentGGUFConversionCacheEntries(root string) ([]ggufConversionCacheEntry
 	return result, nil
 }
 
+type standaloneFastGGUFPackage struct {
+	manifestPath string
+	manifest     conversionCacheManifest
+	configPath   string
+	bytes        int64
+	modifiedAt   time.Time
+}
+
+// listStandaloneFastGGUFFallbackModels 只在來源 GGUF 已不存在時加入 Fast GGUF。
+// manifest、所有 shard 與啟動資產都通過驗證才會成為可選模型，避免列表出現
+// 「看得到但無法啟動」的殘缺轉換檔。
+func listStandaloneFastGGUFFallbackModels(
+	ggufDirectory string,
+	existing []domain.ModelFile,
+) ([]domain.ModelFile, error) {
+	root, err := filepath.Abs(strings.TrimSpace(ggufDirectory))
+	if err != nil {
+		return nil, err
+	}
+	existingPaths := make(map[string]struct{}, len(existing))
+	for _, model := range existing {
+		existingPaths[filepath.ToSlash(model.Path)] = struct{}{}
+	}
+
+	selected := make(map[string]standaloneFastGGUFPackage)
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 ||
+			!strings.HasSuffix(strings.ToLower(entry.Name()), ".fgguf.json") {
+			return nil
+		}
+		pkg, err := readStandaloneFastGGUFPackage(path)
+		if err != nil {
+			return nil
+		}
+		sourcePath, relative, err := fastGGUFSourcePath(root, pkg)
+		if err != nil || isMMProjGGUF(sourcePath) {
+			return nil
+		}
+		if info, statErr := os.Stat(sourcePath); statErr == nil && info.Mode().IsRegular() {
+			return nil
+		}
+		if _, exists := existingPaths[relative]; exists {
+			return nil
+		}
+		current, exists := selected[relative]
+		if !exists || pkg.modifiedAt.After(current.modifiedAt) {
+			selected[relative] = pkg
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
+	result := make([]domain.ModelFile, 0, len(selected))
+	for relative, pkg := range selected {
+		architecture, _ := fastGGUFConfigurationArchitecture(pkg.configPath)
+		result = append(result, domain.ModelFile{
+			Path:             relative,
+			Format:           "gguf",
+			Size:             pkg.bytes,
+			ModifiedAt:       pkg.modifiedAt,
+			Architecture:     architecture,
+			RuntimeUntested:  !isSupportedMLXGGUFArchitecture(architecture),
+			ConversionCached: true,
+			FastGGUFFallback: true,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return strings.ToLower(result[i].Path) < strings.ToLower(result[j].Path)
+	})
+	return result, nil
+}
+
+func readStandaloneFastGGUFPackage(manifestPath string) (standaloneFastGGUFPackage, error) {
+	info, err := os.Lstat(manifestPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() ||
+		info.Size() <= 0 || info.Size() > maximumConversionManifestBytes {
+		return standaloneFastGGUFPackage{}, errors.New("Fast GGUF manifest 無效")
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return standaloneFastGGUFPackage{}, err
+	}
+	var manifest conversionCacheManifest
+	if err := json.Unmarshal(data, &manifest); err != nil ||
+		(manifest.SchemaVersion != 3 && manifest.SchemaVersion != 4) ||
+		manifest.Key == "" || len(manifest.SourceNames) == 0 ||
+		len(manifest.Shards) == 0 || manifest.WeightCount <= 0 ||
+		(manifest.GroupSize != 32 && manifest.GroupSize != 64) {
+		return standaloneFastGGUFPackage{}, errors.New("Fast GGUF manifest 內容不完整")
+	}
+	root := filepath.Dir(manifestPath)
+	storedBytes := info.Size()
+	modifiedAt := info.ModTime()
+	for _, shard := range manifest.Shards {
+		shardInfo, err := regularAdjacentFastGGUFFile(root, shard, ".fgguf")
+		if err != nil {
+			return standaloneFastGGUFPackage{}, err
+		}
+		storedBytes += shardInfo.Size()
+		if shardInfo.ModTime().After(modifiedAt) {
+			modifiedAt = shardInfo.ModTime()
+		}
+	}
+
+	configuration := "config.json"
+	tokenizer := "tokenizer.json"
+	tokenizerConfiguration := "tokenizer_config.json"
+	optionalAssets := []string{"generation_config.json"}
+	if manifest.SchemaVersion == 4 {
+		configuration = manifest.Configuration
+		tokenizer = manifest.Tokenizer
+		tokenizerConfiguration = manifest.TokenizerConfiguration
+		optionalAssets = []string{
+			manifest.ProcessorConfiguration,
+			manifest.GenerationConfiguration,
+		}
+	}
+	for _, asset := range []string{configuration, tokenizer, tokenizerConfiguration} {
+		assetInfo, err := regularAdjacentFastGGUFFile(root, asset, ".json")
+		if err != nil {
+			return standaloneFastGGUFPackage{}, err
+		}
+		storedBytes += assetInfo.Size()
+		if assetInfo.ModTime().After(modifiedAt) {
+			modifiedAt = assetInfo.ModTime()
+		}
+	}
+	for _, asset := range optionalAssets {
+		if strings.TrimSpace(asset) == "" {
+			continue
+		}
+		assetInfo, err := regularAdjacentFastGGUFFile(root, asset, "")
+		if err != nil {
+			continue
+		}
+		storedBytes += assetInfo.Size()
+	}
+	configPath := filepath.Join(root, configuration)
+	if _, err := fastGGUFConfigurationArchitecture(configPath); err != nil {
+		return standaloneFastGGUFPackage{}, err
+	}
+	return standaloneFastGGUFPackage{
+		manifestPath: manifestPath,
+		manifest:     manifest,
+		configPath:   configPath,
+		bytes:        storedBytes,
+		modifiedAt:   modifiedAt,
+	}, nil
+}
+
+func regularAdjacentFastGGUFFile(root, filename, requiredSuffix string) (os.FileInfo, error) {
+	if filename == "" || filepath.Base(filename) != filename ||
+		(requiredSuffix != "" && !strings.HasSuffix(strings.ToLower(filename), requiredSuffix)) {
+		return nil, errors.New("Fast GGUF 檔名無效")
+	}
+	info, err := os.Lstat(filepath.Join(root, filename))
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() ||
+		info.Size() <= 0 {
+		return nil, errors.New("Fast GGUF 檔案不完整")
+	}
+	return info, nil
+}
+
+func fastGGUFSourcePath(root string, pkg standaloneFastGGUFPackage) (string, string, error) {
+	sourceName := filepath.Base(filepath.FromSlash(pkg.manifest.SourceNames[0]))
+	if !strings.EqualFold(filepath.Ext(sourceName), ".gguf") {
+		return "", "", errors.New("Fast GGUF 來源名稱無效")
+	}
+	candidate := filepath.Join(filepath.Dir(pkg.manifestPath), sourceName)
+	if len(pkg.manifest.SourcePaths) > 0 && filepath.IsAbs(pkg.manifest.SourcePaths[0]) {
+		candidate = filepath.Clean(pkg.manifest.SourcePaths[0])
+	}
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil || relative == "." || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return "", "", errors.New("Fast GGUF 來源不在模型目錄內")
+	}
+	return candidate, filepath.ToSlash(relative), nil
+}
+
+func fastGGUFConfigurationArchitecture(configPath string) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", err
+	}
+	var configuration struct {
+		ModelType string `json:"model_type"`
+	}
+	if err := json.Unmarshal(data, &configuration); err != nil {
+		return "", err
+	}
+	architecture := strings.TrimSpace(configuration.ModelType)
+	architecture = normalizeModelArchitecture(architecture)
+	if architecture == "" {
+		return "", errors.New("Fast GGUF 設定缺少 model_type")
+	}
+	return architecture, nil
+}
+
+func fastGGUFManifestArchitecture(manifestPath string) (string, error) {
+	pkg, err := readStandaloneFastGGUFPackage(manifestPath)
+	if err != nil {
+		return "", err
+	}
+	return fastGGUFConfigurationArchitecture(pkg.configPath)
+}
+
+func resolveFastGGUFFallbackManifest(
+	ggufDirectory, modelPath, preferredProfile string,
+) (string, error) {
+	sourcePath, err := download.SafeJoin(ggufDirectory, modelPath)
+	if err != nil {
+		return "", fmt.Errorf("模型路徑格式錯誤: %w", err)
+	}
+	return standaloneFastGGUFManifestForSource(sourcePath, preferredProfile)
+}
+
+func standaloneFastGGUFManifestForSource(sourcePath, preferredProfile string) (string, error) {
+	sourcePath, err := filepath.Abs(strings.TrimSpace(sourcePath))
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(filepath.Dir(sourcePath))
+	if err != nil {
+		return "", err
+	}
+	type candidate struct {
+		path     string
+		profile  string
+		modified time.Time
+	}
+	candidates := make([]candidate, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 ||
+			!strings.HasSuffix(strings.ToLower(entry.Name()), ".fgguf.json") {
+			continue
+		}
+		pkg, err := readStandaloneFastGGUFPackage(filepath.Join(filepath.Dir(sourcePath), entry.Name()))
+		if err != nil {
+			continue
+		}
+		nameMatches := strings.EqualFold(
+			filepath.Base(sourcePath),
+			filepath.Base(filepath.FromSlash(pkg.manifest.SourceNames[0])),
+		)
+		pathMatches := len(pkg.manifest.SourcePaths) > 0 &&
+			canonicalExistingPath(pkg.manifest.SourcePaths[0]) == canonicalExistingPath(sourcePath)
+		if !pathMatches && !nameMatches {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			path: pkg.manifestPath, profile: pkg.manifest.Profile, modified: pkg.modifiedAt,
+		})
+	}
+	if len(candidates) == 0 {
+		return "", errors.New("找不到可獨立啟動的 Fast GGUF")
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		iPreferred := preferredProfile != "" && candidates[i].profile == preferredProfile
+		jPreferred := preferredProfile != "" && candidates[j].profile == preferredProfile
+		if iPreferred != jPreferred {
+			return iPreferred
+		}
+		return candidates[i].modified.After(candidates[j].modified)
+	})
+	return candidates[0].path, nil
+}
+
 func deleteGGUFConversionCacheEntry(entry ggufConversionCacheEntry) error {
 	if entry.directory {
 		return os.RemoveAll(entry.path)
 	}
 	for _, shardPath := range entry.shardPaths {
 		if err := os.Remove(shardPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	for _, assetPath := range entry.assetPaths {
+		if err := os.Remove(assetPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
@@ -2326,19 +2827,24 @@ func withManagedMLXGGUFOptimization(
 
 	// 預設 Mode 1：K-quant 沿用來源 4-bit block。實測量化位元寬度不影響輸出
 	// 品質，因此以速度為預設取向；Mode 2 保留為保守路徑。
-	profile := "mode1"
+	profile := normalizedFastGGUFProfile(strategy)
 	groupSize := "auto"
-	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case domain.FastGGUFStrategyMode2, domain.FastGGUFStrategyLegacyDefault:
-		profile = "mode2"
-	case domain.FastGGUFStrategyMode3:
-		profile = "mode3"
-	}
 	return append(filtered,
 		"--gguf-profile", profile,
 		"--gguf-group-size", groupSize,
 		"--gguf-recurrent-promotion", "controls",
 	)
+}
+
+func normalizedFastGGUFProfile(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case domain.FastGGUFStrategyMode2, domain.FastGGUFStrategyLegacyDefault:
+		return "mode2"
+	case domain.FastGGUFStrategyMode3:
+		return "mode3"
+	default:
+		return "mode1"
+	}
 }
 
 func withoutMLXGGUFOptimizationArguments(arguments []string) []string {

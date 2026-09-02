@@ -103,6 +103,69 @@ func TestPlanDownloadRangesUses64MiBChunks(t *testing.T) {
 	}
 }
 
+func TestSearchRepositoriesFiltersCurrentRuntime(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/models" {
+			http.NotFound(response, request)
+			return
+		}
+		if request.URL.Query().Get("search") != "gemma" || request.URL.Query().Get("full") != "true" {
+			t.Fatalf("搜尋參數不正確：%s", request.URL.RawQuery)
+		}
+		if request.Header.Get("Authorization") != "Bearer fixture-token" {
+			t.Fatal("搜尋請求未沿用 Hugging Face Token")
+		}
+		writeFixtureJSON(t, response, []map[string]any{
+			{
+				"id":           "vendor/Gemma-GGUF",
+				"downloads":    1200,
+				"likes":        30,
+				"lastModified": "2026-09-01T00:00:00Z",
+				"siblings":     []map[string]string{{"rfilename": "Gemma-Q4_0.gguf"}},
+			},
+			{
+				"id": "mlx-community/Gemma-MLX",
+				"siblings": []map[string]string{
+					{"rfilename": "config.json"},
+					{"rfilename": "model.safetensors"},
+				},
+			},
+			{
+				"id":       "vendor/Gemma-Source",
+				"siblings": []map[string]string{{"rfilename": "config.json"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	manager := NewManager(1)
+	request := Request{
+		Runtime:  domain.RuntimeLlamaServer,
+		Endpoint: server.URL,
+		Token:    "fixture-token",
+	}
+	ggufResults, err := manager.SearchRepositories(context.Background(), request, " gemma ")
+	if err != nil {
+		t.Fatalf("SearchRepositories(GGUF) error = %v", err)
+	}
+	if len(ggufResults) != 1 || ggufResults[0].Repository != "vendor/Gemma-GGUF" || ggufResults[0].Revision != "main" {
+		t.Fatalf("GGUF 搜尋結果錯誤：%+v", ggufResults)
+	}
+	if ggufResults[0].Downloads != 1200 || ggufResults[0].Likes != 30 || ggufResults[0].LastModified == "" {
+		t.Fatalf("GGUF 搜尋統計未保留：%+v", ggufResults[0])
+	}
+
+	request.Runtime = domain.RuntimeMLXServer
+	mlxResults, err := manager.SearchRepositories(context.Background(), request, "gemma")
+	if err != nil {
+		t.Fatalf("SearchRepositories(MLX) error = %v", err)
+	}
+	if len(mlxResults) != 1 || mlxResults[0].Repository != "mlx-community/Gemma-MLX" || mlxResults[0].Revision != "main" {
+		t.Fatalf("MLX 搜尋結果錯誤：%+v", mlxResults)
+	}
+}
+
 func TestCancelStopsDownloadAndRemovesPartialFile(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})

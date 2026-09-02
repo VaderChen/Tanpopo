@@ -6,9 +6,9 @@
   <title>模型下載 · Tanpopo</title>
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
-  <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
-  <script src="/assets/common.js?v=20260901-71" defer></script>
-  <script src="/assets/download.js?v=20260901-19" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=20260902-63">
+  <script src="/assets/common.js?v=20260902-77" defer></script>
+  <script src="/assets/download.js?v=20260902-26" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -67,6 +67,14 @@
                 <option value="llama-server">GGUF 模型</option>
                 <option value="mlx-server">MLX 模型（Apple Silicon）</option>
               </select>
+              <button id="repositorySearchButton" class="quick-model-button" type="button"
+                aria-label="搜尋 Repository" title="搜尋 Repository" aria-haspopup="dialog"
+                aria-controls="repositorySearchDialog">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="10.5" cy="10.5" r="6.5" />
+                  <path d="m15.4 15.4 4.1 4.1" />
+                </svg>
+              </button>
               <button id="quickModelButton" class="quick-model-button" type="button" aria-label="快速選擇常用模型" title="快速選擇常用模型" aria-haspopup="dialog" aria-controls="quickModelPopover" aria-expanded="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m7 3 1.2 2.5 2.8.4-2 1.9.5 2.7L7 9.2l-2.5 1.3.5-2.7-2-1.9 2.8-.4L7 3Z" />
@@ -101,9 +109,20 @@
           </div>
           <label id="filenameField" class="field">
             <span>GGUF 檔名</span>
-            <input id="filename" type="text" placeholder="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-              autocomplete="off" autocapitalize="none" spellcheck="false" required>
-            <small class="helper">每個主 GGUF 會建立獨立目錄；下載前會依 Hugging Face metadata 尋找同一或外部 repository 的配對 mmproj 與 DFlash Draft。</small>
+            <div class="gguf-file-picker">
+              <select id="filename" required disabled>
+                <option value="">請先輸入 Repository</option>
+              </select>
+              <button id="refreshGGUFFilesButton" class="quick-model-button" type="button"
+                aria-label="重新掃描 GGUF 檔案" title="重新掃描 GGUF 檔案" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 7v5h-5" />
+                  <path d="M4 17v-5h5" />
+                  <path d="M6.1 9a7 7 0 0 1 11.5-2L20 12M4 12l2.4 5a7 7 0 0 0 11.5-2" />
+                </svg>
+              </button>
+            </div>
+            <small class="helper">會掃描 Repository 的主 GGUF 檔案並預選 Q4_0；下載前也會尋找配對的 mmproj 與 DFlash Draft。</small>
           </label>
           <p id="mlxDownloadHint" class="helper" hidden>會檢查 repository 內的 config.json 與 safetensors，並把 Tokenizer、Processor、Chat Template 及所有權重下載到獨立的 MLX 模型目錄。</p>
           <div class="download-options-row">
@@ -113,7 +132,15 @@
             </label>
             <button id="openStorageButton" class="button secondary compact" type="button" disabled>開啟儲存位置</button>
           </div>
-          <button id="downloadButton" class="button primary" type="submit">開始下載</button>
+          <div class="download-submit-row">
+            <button id="addDownloadFavoriteButton" class="button secondary download-favorite-button" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
+              </svg>
+              <span>加入最愛</span>
+            </button>
+            <button id="downloadButton" class="button primary" type="submit">開始下載</button>
+          </div>
         </form>
         <article class="panel jobs-panel">
           <div class="panel-title-row">
@@ -150,5 +177,40 @@
       </div>
     </section>
   </main>
+  <dialog id="repositorySearchDialog" class="repository-search-dialog" aria-labelledby="repositorySearchTitle">
+    <article class="repository-search-card">
+      <header class="repository-search-heading">
+        <div>
+          <p class="section-kicker">HUGGING FACE</p>
+          <h3 id="repositorySearchTitle">搜尋 Repository</h3>
+        </div>
+        <button id="closeRepositorySearchButton" class="runtime-test-close" type="button"
+          aria-label="關閉搜尋">×</button>
+      </header>
+      <form id="repositorySearchForm" class="repository-search-form">
+        <label class="field" for="repositorySearchKeyword">
+          <span>搜尋關鍵字</span>
+          <div class="repository-search-input-row">
+            <input id="repositorySearchKeyword" type="search" maxlength="100"
+              placeholder="輸入模型名稱或關鍵字" autocomplete="off" spellcheck="false" required>
+            <button id="submitRepositorySearchButton" class="button primary" type="submit">搜尋</button>
+          </div>
+        </label>
+        <small class="helper">依目前模型格式篩選搜尋結果；Revision 固定使用 main。</small>
+      </form>
+      <div class="repository-search-toolbar">
+        <p id="repositorySearchStatus" class="repository-search-status" aria-live="polite">輸入關鍵字後搜尋 Hugging Face Repository。</p>
+        <label class="repository-search-sort" for="repositorySearchSort">
+          <span>排序</span>
+          <select id="repositorySearchSort">
+            <option value="downloads">下載數</option>
+            <option value="likes">讚數</option>
+            <option value="alphabetical">字母</option>
+          </select>
+        </label>
+      </div>
+      <div id="repositorySearchResults" class="repository-search-results" aria-live="polite"></div>
+    </article>
+  </dialog>
 </body>
 </html>

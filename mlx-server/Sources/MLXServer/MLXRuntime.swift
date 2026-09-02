@@ -12,6 +12,7 @@ actor MLXRuntime {
 
     private let configuration: ServerConfiguration
     private let ggufWeightURL: URL?
+    private let fastGGUFManifestURL: URL?
     private let ggufMMProjURL: URL?
     private let memoryMapPlan: MLXMemoryMapPlan?
     private let modelGenerationDefaults: ModelGenerationDefaults
@@ -23,8 +24,10 @@ actor MLXRuntime {
     init(configuration: ServerConfiguration) throws {
         self.configuration = configuration
         let modelURL = URL(fileURLWithPath: configuration.modelPath)
-        let isGGUF = modelURL.pathExtension.lowercased() == "gguf"
-        ggufWeightURL = isGGUF ? modelURL : nil
+        let isFastGGUF = modelURL.lastPathComponent.lowercased().hasSuffix(".fgguf.json")
+        let isGGUF = modelURL.pathExtension.lowercased() == "gguf" || isFastGGUF
+        ggufWeightURL = isGGUF && !isFastGGUF ? modelURL : nil
+        fastGGUFManifestURL = isFastGGUF ? modelURL : nil
         ggufMMProjURL = configuration.mmprojPath.map(URL.init(fileURLWithPath:))
         memoryMapPlan = configuration.memoryMappingEnabled
             ? try MLXMemoryMapPlan(reserveGB: configuration.mmapReserveGB)
@@ -62,7 +65,13 @@ actor MLXRuntime {
         if !modelGenerationDefaults.isEmpty {
             fputs(modelGenerationDefaults.logDescription + "\n", stderr)
         }
-        if let ggufWeightURL {
+        if let fastGGUFManifestURL {
+            container = try await MLXGGUFModelLoader.loadFastGGUFContainer(
+                from: modelDirectory,
+                manifestURL: fastGGUFManifestURL,
+                memoryMapped: configuration.memoryMappingEnabled
+            )
+        } else if let ggufWeightURL {
             switch kind {
             case .text, .auto:
                 container = try await MLXGGUFModelLoader.loadContainer(

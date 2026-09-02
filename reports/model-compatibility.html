@@ -6,7 +6,7 @@
   <meta name="description" content="Tanpopo 本機模型 Runtime 的 MLX、GGUF 與多模態相容性報告。">
   <title>Tanpopo 模型相容性報告</title>
   <link rel="stylesheet" href="report.css">
-  <script src="report-i18n.js" defer></script>
+  <script src="report-i18n.js?v=20260902-1" defer></script>
 </head>
 <body data-report="compatibility">
   <header class="site-header">
@@ -80,7 +80,7 @@
           <p>
             本次 Swift 測試共 33 項，其中 30 項通過、0 失敗，另 3 項需額外實體模型環境而略過；
             4B、9B、27B 三組配對模型均完成原生 MLX、llama.cpp + GGUF 與三種 Fast GGUF 模式的固定 100 題、
-            生成速度、轉換快取及程序 RAM 量測。
+            生成速度、Fast GGUF 容量及程序 RAM 量測。
           </p>
         </div>
       </div>
@@ -230,8 +230,8 @@
           <div class="tag-row"><span class="status partial">INT4</span><span class="tag">group 32</span></div>
         </article>
         <article class="feature-card">
-          <h3>永久 .fgguf 快取</h3>
-          <p>轉換結果以分片容器放在原始 GGUF 同一目錄；每個 tensor 依收益選擇 LZFSE 無損壓縮或 raw MMap 對齊。格式不是標準 GGUF，可由「清除快取」獨立移除。</p>
+          <h3>Fast GGUF（.fgguf）</h3>
+          <p>Fast GGUF 以分片容器放在原始 GGUF 同一目錄；每個 tensor 依收益選擇 LZFSE 無損壓縮或 raw MMap 對齊。格式不是標準 GGUF，可由「移除 Fast GGUF」獨立移除。</p>
           <div class="tag-row"><a class="tag" href="https://github.com/VaderChen/Tanpopo/blob/main/mlx-server/FGGUF-FORMAT.md">FGGUF 格式結構</a><span class="tag">永久重用</span></div>
         </article>
       </div>

@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
 	"LlamaLoader/src/domain"
 )
+
+const (
+	maxDownloadFavorites       = 64
+	maxPerformanceCalibrations = 128
+)
+
+var downloadFavoriteRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func DefaultAgentConfig() domain.AgentConfig {
 	return domain.AgentConfig{
@@ -42,6 +50,9 @@ func DefaultSettings() domain.Settings {
 		DefaultKVCacheEnabled:   false,
 		DefaultMMapEnabled:      false,
 		DefaultDFlashEnabled:    false,
+		RemoveOriginalGGUF:      false,
+		AutoCalibrationEnabled:  true,
+		MemoryProtectionEnabled: false,
 		UILanguage:              "auto",
 		UITheme:                 "tanpopo",
 		HuggingFaceEndpoint:     "https://huggingface.co",
@@ -164,6 +175,11 @@ func (s *Store) Get() domain.Settings {
 	defer s.mu.RUnlock()
 	result := s.settings
 	result.ExtraArgs = append([]string(nil), s.settings.ExtraArgs...)
+	result.DownloadFavorites = append(
+		make([]domain.DownloadFavorite, 0, len(s.settings.DownloadFavorites)),
+		s.settings.DownloadFavorites...,
+	)
+	result.PerformanceCalibrations = clonePerformanceCalibrations(s.settings.PerformanceCalibrations)
 	return result
 }
 
@@ -178,11 +194,18 @@ func (s *Store) Public() domain.PublicSettings {
 		DefaultKVCacheEnabled:   value.DefaultKVCacheEnabled,
 		DefaultMMapEnabled:      value.DefaultMMapEnabled,
 		DefaultDFlashEnabled:    value.DefaultDFlashEnabled,
+		RemoveOriginalGGUF:      value.RemoveOriginalGGUF,
+		AutoCalibrationEnabled:  value.AutoCalibrationEnabled,
+		MemoryProtectionEnabled: value.MemoryProtectionEnabled,
 		UILanguage:              value.UILanguage,
 		UITheme:                 value.UITheme,
 		HuggingFaceEndpoint:     value.HuggingFaceEndpoint,
 		HuggingFaceTokenSet:     value.HuggingFaceToken != "",
 		DefaultRevision:         value.DefaultRevision,
+		DownloadFavorites: append(
+			make([]domain.DownloadFavorite, 0, len(value.DownloadFavorites)),
+			value.DownloadFavorites...,
+		),
 	}
 }
 
@@ -238,7 +261,92 @@ func normalizeSettings(value domain.Settings) domain.Settings {
 		}
 	}
 	value.ExtraArgs = cleanArgs
+	value.DownloadFavorites = normalizeDownloadFavorites(value.DownloadFavorites)
+	value.PerformanceCalibrations = normalizePerformanceCalibrations(value.PerformanceCalibrations)
 	return value
+}
+
+func clonePerformanceCalibrations(values []domain.PerformanceCalibration) []domain.PerformanceCalibration {
+	result := make([]domain.PerformanceCalibration, len(values))
+	copy(result, values)
+	for index := range result {
+		result[index].Runs = append([]float64(nil), result[index].Runs...)
+	}
+	return result
+}
+
+func normalizePerformanceCalibrations(values []domain.PerformanceCalibration) []domain.PerformanceCalibration {
+	result := make([]domain.PerformanceCalibration, 0, min(len(values), maxPerformanceCalibrations))
+	seen := make(map[string]bool)
+	for _, calibration := range values {
+		calibration.Key = strings.TrimSpace(calibration.Key)
+		calibration.HardwareFingerprint = strings.TrimSpace(calibration.HardwareFingerprint)
+		calibration.Runtime = strings.ToLower(strings.TrimSpace(calibration.Runtime))
+		calibration.Model = filepath.ToSlash(strings.TrimSpace(calibration.Model))
+		calibration.StartupCommandID = strings.TrimSpace(calibration.StartupCommandID)
+		calibration.StartupCommandFingerprint = strings.TrimSpace(calibration.StartupCommandFingerprint)
+		if calibration.Key == "" || seen[calibration.Key] ||
+			(calibration.Runtime != domain.RuntimeLlamaServer && calibration.Runtime != domain.RuntimeMLXServer) ||
+			calibration.Model == "" || calibration.StartupCommandID == "" ||
+			!validPerformanceTuning(calibration.Tuning) ||
+			len(calibration.Runs) != 3 || !validCalibrationSpeeds(calibration.Runs) {
+			continue
+		}
+		seen[calibration.Key] = true
+		calibration.Runs = append([]float64(nil), calibration.Runs...)
+		result = append(result, calibration)
+		if len(result) == maxPerformanceCalibrations {
+			break
+		}
+	}
+	return result
+}
+
+func validPerformanceTuning(value domain.PerformanceTuning) bool {
+	return value.Threads >= 0 && value.Threads <= 1024 &&
+		value.BatchSize >= 0 && value.BatchSize <= 8192 &&
+		value.UBatchSize >= 0 && value.UBatchSize <= 8192 &&
+		value.PrefillStepSize >= 0 && value.PrefillStepSize <= 8192 &&
+		(value.BatchSize == 0 || value.UBatchSize <= value.BatchSize)
+}
+
+func validCalibrationSpeeds(values []float64) bool {
+	for _, value := range values {
+		if value <= 0 || value > 1_000_000 {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeDownloadFavorites(values []domain.DownloadFavorite) []domain.DownloadFavorite {
+	result := make([]domain.DownloadFavorite, 0, len(values))
+	seen := make(map[string]bool)
+	for _, favorite := range values {
+		favorite.Runtime = strings.ToLower(strings.TrimSpace(favorite.Runtime))
+		favorite.Repository = strings.TrimSpace(favorite.Repository)
+		favorite.Revision = strings.TrimSpace(favorite.Revision)
+		if favorite.Revision == "" {
+			favorite.Revision = "main"
+		}
+		if favorite.Runtime != domain.RuntimeLlamaServer && favorite.Runtime != domain.RuntimeMLXServer {
+			continue
+		}
+		if !downloadFavoriteRepositoryPattern.MatchString(favorite.Repository) ||
+			strings.ContainsAny(favorite.Revision, "\r\n\x00") {
+			continue
+		}
+		key := favorite.Runtime + "\x00" + strings.ToLower(favorite.Repository) + "\x00" + favorite.Revision
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, favorite)
+		if len(result) == maxDownloadFavorites {
+			break
+		}
+	}
+	return result
 }
 
 func normalizeUILanguage(value string) string {
@@ -337,6 +445,29 @@ func ValidateSettings(value domain.Settings) error {
 	for _, arg := range value.ExtraArgs {
 		if strings.ContainsAny(arg, "\r\n\x00") {
 			return errors.New("extra_args 不可包含換行或 NUL 字元")
+		}
+	}
+	if len(value.DownloadFavorites) > maxDownloadFavorites {
+		return fmt.Errorf("download_favorites 最多只能保存 %d 筆", maxDownloadFavorites)
+	}
+	if len(value.PerformanceCalibrations) > maxPerformanceCalibrations {
+		return fmt.Errorf("performance_calibrations 最多只能保存 %d 筆", maxPerformanceCalibrations)
+	}
+	for _, calibration := range value.PerformanceCalibrations {
+		if !validPerformanceTuning(calibration.Tuning) || len(calibration.Runs) != 3 ||
+			!validCalibrationSpeeds(calibration.Runs) {
+			return errors.New("performance_calibrations 包含無效的校準資料")
+		}
+	}
+	for _, favorite := range value.DownloadFavorites {
+		if favorite.Runtime != domain.RuntimeLlamaServer && favorite.Runtime != domain.RuntimeMLXServer {
+			return errors.New("download_favorites runtime 格式錯誤")
+		}
+		if !downloadFavoriteRepositoryPattern.MatchString(favorite.Repository) {
+			return errors.New("download_favorites repository 必須為 owner/model 格式")
+		}
+		if favorite.Revision == "" || strings.ContainsAny(favorite.Revision, "\r\n\x00") {
+			return errors.New("download_favorites revision 格式錯誤")
 		}
 	}
 	return nil

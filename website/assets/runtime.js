@@ -25,6 +25,8 @@
     runtime: null,
     selectionTouched: false,
     testing: false,
+    calibrating: false,
+    calibration: null,
     modelLoadingDismissed: false
   };
   let modelConversionResolver = null;
@@ -41,6 +43,15 @@
 
   function selectedRuntime() {
     return byId("runtimeSelect").value || LLAMA_RUNTIME;
+  }
+
+  function localizedMemoryProtectionAction(value) {
+    const action = String(value || "");
+    const contextMatch = action.match(/^Context 已由 (\d+) 降為 (\d+)$/);
+    if (contextMatch) {
+      return `${t("Context 已由")} ${Number(contextMatch[1]).toLocaleString()} ${t("降為")} ${Number(contextMatch[2]).toLocaleString()}`;
+    }
+    return t(action);
   }
 
   async function filterRuntimeOptionsForPlatform() {
@@ -207,27 +218,24 @@
       .filter((token) => token.length > 1 && !ignored.has(token));
   }
 
-  function preferredDFlashVariant() {
-    const command = selectedCommand();
+  function preferredDFlashVariant(command = selectedCommand()) {
     const description = [command?.id, command?.name, ...(command?.extra_args || [])].join(" ").toLowerCase();
     return /dflash[\s_-]*2|block(?:-size)?[\s_-]*8/.test(description) ? "dflash2" : "";
   }
 
-  function matchedDraftModel() {
-    const command = selectedCommand();
+  function matchedDraftModel(target = selectedModel(), command = selectedCommand()) {
     const wantsMTP = commandUsesMTP(command);
     const candidates = state.draftModels.filter(wantsMTP ? isMTPDraftModel : isDFlashDraftModel);
     const configuredPath = String(command?.draft_model || "").trim();
     if (configuredPath) {
       return candidates.find((model) => model.path === configuredPath) || null;
     }
-    const target = selectedModel();
     if (!target || !candidates.length) return null;
     if (wantsMTP && target.mtp_embedded) return null;
     if (wantsMTP ? !target.mtp_supported : !target.dflash_supported) return null;
     const targetDirectory = pathDirectory(target.path);
     const targetTokens = new Set(modelTokens(target.path));
-    const preferredVariant = preferredDFlashVariant();
+    const preferredVariant = preferredDFlashVariant(command);
     let best = null;
     let bestScore = -1;
     candidates.forEach((draft) => {
@@ -649,7 +657,7 @@
     const runtimeLabel = runtimeName === MLX_RUNTIME ? "mlx-server" : "llama-server";
     const loading = running && !ready;
     const failed = !running && Boolean(status.last_error);
-    if (loading) {
+    if (loading && !state.calibrating && !byId("calibrationDialog").open) {
       showModelLoadingDialog(status);
     } else {
       closeModelLoadingDialog();
@@ -666,10 +674,14 @@
       : loading
         ? `${runtimeLabel} · ${loadingLabel}`
         : failed ? `${runtimeLabel} 啟動失敗` : `${runtimeLabel} 已停止`;
+    const runtimeAdjustments = [];
+    if (status.performance_calibration_applied) runtimeAdjustments.push(t("已套用自動效能校準"));
+    if (status.memory_pressure_protection_applied) runtimeAdjustments.push(t("記憶體壓力保護已調整啟動參數"));
+    const adjustmentSuffix = runtimeAdjustments.length ? ` · ${runtimeAdjustments.join(" · ")}` : "";
     byId("statusDetail").textContent = running
       ? (ready
-        ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}`
-        : `${t("模型載入完成後即可測試。")} · ${status.startup_command_name || "未命名參數"}`)
+        ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}${adjustmentSuffix}`
+        : `${t("模型載入完成後即可測試。")} · ${status.startup_command_name || "未命名參數"}${adjustmentSuffix}`)
       : (status.last_error ? `上次錯誤：${status.last_error}` : "選擇模型後即可啟動");
     byId("runningRuntime").textContent = running ? runtimeLabel : "—";
     byId("runningModel").textContent = status.model ? displayModelName(status.model) : "—";
@@ -716,24 +728,34 @@
     }
     const modelReady = selectedModel() !== null;
     const commandReady = byId("commandSelect").options.length > 0;
-    byId("runtimeSelect").disabled = running;
-    byId("commandSelect").disabled = running || !commandReady;
-    byId("modelSelect").disabled = running || !commandReady || !state.mainModels.length;
-    byId("mmprojSelect").disabled = running
+    byId("runtimeSelect").disabled = state.calibrating || running;
+    byId("commandSelect").disabled = state.calibrating || running || !commandReady;
+    byId("modelSelect").disabled = state.calibrating || running || !commandReady || !state.mainModels.length;
+    byId("mmprojSelect").disabled = state.calibrating || running
       || (selectedRuntime() === MLX_RUNTIME && !isMLXGGUFModel(selectedModel()))
       || !state.mmprojModels.length;
-    byId("startButton").disabled = running || !modelReady || !commandReady;
-    byId("stopButton").disabled = !running && !status.desired_running;
+    byId("startButton").disabled = state.calibrating || running || !modelReady || !commandReady;
+    byId("stopButton").disabled = state.calibrating || (!running && !status.desired_running);
+    const calibrationButton = byId("calibrateRuntimeButton");
+    calibrationButton.hidden = !state.settings?.auto_performance_calibration_enabled;
+    calibrationButton.disabled = state.testing || state.calibrating;
+    calibrationButton.textContent = t(state.calibrating ? "校準中…" : "效能校準");
+    calibrationButton.title = t("可直接開啟並選擇要校準的模型，不必事先載入。");
     // 測試本身就是 Runtime 的可用性檢查；只要程序仍在執行就應允許
     // 使用者觸發，避免健康端點受 Access Key 保護時永遠無法測試。
-    byId("testRuntimeButton").disabled = !running || state.testing;
+    byId("testRuntimeButton").disabled = !running || state.testing || state.calibrating;
     byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
-    byId("repeatRuntimeTestButton").disabled = !running || state.testing;
-    byId("longRuntimeTestButton").disabled = !running || state.testing;
+    byId("repeatRuntimeTestButton").disabled = !running || state.testing || state.calibrating;
+    byId("longRuntimeTestButton").disabled = !running || state.testing || state.calibrating;
     renderDFlashControl(status);
     renderFastGGUFControl(status);
     renderMMapControl(status);
     renderKVCacheQuantizationControl(status);
+    if (state.calibrating) {
+      for (const id of ["dflashToggle", "fastGGUFToggle", "mmapToggle", "kvCacheQuantizationToggle"]) {
+        byId(id).disabled = true;
+      }
+    }
   }
 
   function showRuntimeTestResult(result = {}) {
@@ -807,24 +829,24 @@
     const modelName = displayModelName(status?.model || selectedModel()?.path) || "—";
     const content = {
       checking_cache: [
-        "正在檢查轉換快取",
+        "正在檢查 Fast GGUF",
         "正在確認此模型是否已有可重用的轉換權重。"
       ],
       converting: [
         "正在轉換模型",
-        "此模型需要轉換並建立永久快取；完成前請勿關閉程式。"
+        "此模型需要轉換並建立 Fast GGUF；完成前請勿關閉程式。"
       ],
       saving_cache: [
-        "正在建立轉換快取",
-        "模型已完成轉換，正在寫入永久快取；後續載入可直接重用。"
+        "正在建立 Fast GGUF",
+        "模型已完成轉換，正在寫入 Fast GGUF；後續載入可直接重用。"
       ],
       loading_cache: [
-        "正在載入轉換快取",
-        "已找到轉換完成的永久快取，本次不需要重新轉換。"
+        "正在載入 Fast GGUF",
+        "已找到完成的 Fast GGUF，本次不需要重新轉換。"
       ],
       direct_loading: [
         "正在直接載入模型",
-        "本次不建立永久快取；正在從 GGUF 即時準備 MLX 執行所需的權重。"
+        "本次不建立 Fast GGUF；正在從 GGUF 即時準備 MLX 執行所需的權重。"
       ],
       loading: [
         "正在載入模型",
@@ -999,7 +1021,7 @@
   }
 
   async function runRuntimeTest(mode = "single") {
-    if (!state.runtime?.running || state.testing) return;
+    if (!state.runtime?.running || state.testing || state.calibrating) return;
     state.testing = true;
     renderRuntime(state.runtime);
     showRuntimeTestLoading(mode);
@@ -1058,6 +1080,455 @@
     } finally {
       state.testing = false;
       renderRuntime(state.runtime);
+    }
+  }
+
+  async function loadCalibrationPlan(model, startupCommandID) {
+    const query = new URLSearchParams({
+      model,
+      startup_command_id: startupCommandID
+    });
+    return api(`/api/runtime/calibration?${query.toString()}`);
+  }
+
+  function calibrationScore(runs) {
+    const average = runs.reduce((sum, value) => sum + value, 0) / runs.length;
+    return { median: median(runs), average };
+  }
+
+  async function stopRuntimeForCalibration() {
+    const current = await api("/api/runtime/status");
+    if (!current.running && !current.desired_running) return;
+    await api("/api/runtime/stop", { method: "POST" });
+  }
+
+  const CALIBRATION_TUNING_KEYS = ["threads", "batch_size", "ubatch_size", "prefill_step_size"];
+
+  function calibrationTuning(status, fallback = {}) {
+    const value = Object.keys(status?.performance_tuning || {}).length ? status.performance_tuning : (fallback || {});
+    return Object.fromEntries(CALIBRATION_TUNING_KEYS.map((key) => [key, Number(value[key] || 0)]));
+  }
+
+  function sameCalibrationTuning(left, right) {
+    return CALIBRATION_TUNING_KEYS.every((key) => Number(left?.[key] || 0) === Number(right?.[key] || 0));
+  }
+
+  function calibrationTuningLabel(tuning = {}, runtimeName) {
+    if (runtimeName === MLX_RUNTIME) return `Prefill Step Size: ${tuning.prefill_step_size || 512}`;
+    return `Threads: ${tuning.threads || t("自動")} · Batch: ${tuning.batch_size || t("Runtime 預設")} · UBatch: ${tuning.ubatch_size || t("Runtime 預設")}`;
+  }
+
+  function calibrationElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  function calibrationProgress(value, max, label) {
+    const progress = calibrationElement("progress", "calibration-progress");
+    progress.max = max;
+    if (value !== null) progress.value = value;
+    progress.setAttribute("aria-label", label);
+    return progress;
+  }
+
+  function setCalibrationStatus(message, kind = "testing") {
+    byId("calibrationStatus").textContent = message;
+    byId("calibrationStatus").className = `runtime-test-status ${kind}`;
+  }
+
+  function renderCalibrationProgress() {
+    const session = state.calibration;
+    if (!session) return;
+    let completed = 0;
+    const cards = session.jobs.map((job) => {
+      const card = calibrationElement("section", "calibration-item");
+      card.append(calibrationElement("h4", job.best ? "calibration-complete" : "", `${job.best ? "✓ " : ""}${displayModelName(job.model.path)}`));
+      card.append(calibrationElement("p", "helper", `${job.command?.runtime || "—"} · ${job.command?.name || "—"} · ${job.model.path}`));
+      for (const [index, candidate] of job.candidates.entries()) {
+        const group = calibrationElement("div", "calibration-candidate");
+        const done = candidate.runs.filter((run) => run.status === "done").length;
+        completed += done;
+        const heading = calibrationElement("div", "calibration-candidate-heading");
+        heading.append(calibrationElement("strong", done === 3 ? "calibration-complete" : "", `${done === 3 ? "✓ " : ""}${t("配置")} ${index + 1} · ${t(candidate.label)}`));
+        heading.append(calibrationElement("span", "helper", `${done}/3`));
+        group.append(heading, calibrationElement("p", "helper", calibrationTuningLabel(candidate.tuning, job.command.runtime)));
+        group.append(calibrationProgress(candidate.loading ? null : done, 3, `${t("配置")} ${index + 1}`));
+        const runs = calibrationElement("div", "calibration-runs");
+        candidate.runs.forEach((run, runIndex) => {
+          const item = calibrationElement("div", `calibration-run ${run.status}`);
+          const symbol = run.status === "done" ? "✓ " : run.status === "error" ? "✕ " : "";
+          item.append(calibrationElement("strong", "", `${symbol}${t("測試")} ${runIndex + 1}`));
+          item.append(calibrationProgress(run.status === "running" ? null : run.status === "done" ? 1 : 0, 1, `${displayModelName(job.model.path)} · ${t("配置")} ${index + 1} · ${t("測試")} ${runIndex + 1}`));
+          const detail = run.status === "done" ? `${run.speed.toFixed(2)} tok/s`
+            : run.status === "running" ? `${t("測試中…")} ${Math.floor((performance.now() - run.startedAt) / 1000)} sec`
+              : run.status === "error" ? t("失敗") : job.error ? t("未執行") : t("等待中");
+          item.append(calibrationElement("span", "", detail));
+          runs.append(item);
+        });
+        group.append(runs);
+        card.append(group);
+      }
+      if (job.error) card.append(calibrationElement("p", "calibration-error", job.error));
+      return card;
+    });
+    byId("calibrationItems").replaceChildren(...cards);
+    byId("calibrationTotalProgress").max = session.jobs.length * 9 || 1;
+    byId("calibrationTotalProgress").value = completed;
+    byId("calibrationProgressCount").textContent = `${completed} / ${session.jobs.length * 9}`;
+  }
+
+  function renderCalibrationResults() {
+    const cards = state.calibration.jobs.map((job) => {
+      const card = calibrationElement("section", "calibration-result");
+      card.append(calibrationElement("h4", "", displayModelName(job.model.path)));
+      card.append(calibrationElement("p", "helper", `${job.command?.runtime || "—"} · ${job.command?.name || "—"}`));
+      const table = calibrationElement("table");
+      const header = calibrationElement("tr");
+      for (const label of ["配置", "測試 1", "測試 2", "測試 3", "平均生成速度", "中位生成速度"]) {
+        header.append(calibrationElement("th", "", t(label)));
+      }
+      const head = calibrationElement("thead");
+      head.append(header);
+      const body = calibrationElement("tbody");
+      job.candidates.forEach((candidate, index) => {
+        const row = calibrationElement("tr", candidate === job.best ? "calibration-complete" : "");
+        row.append(calibrationElement("td", "", `${candidate === job.best ? "✓ " : ""}${t("配置")} ${index + 1} · ${calibrationTuningLabel(candidate.tuning, job.command.runtime)}`));
+        for (const run of candidate.runs) row.append(calibrationElement("td", "", run.status === "done" ? run.speed.toFixed(2) : "—"));
+        row.append(calibrationElement("td", "", candidate.score ? candidate.score.average.toFixed(2) : "—"));
+        row.append(calibrationElement("td", "", candidate.score ? candidate.score.median.toFixed(2) : "—"));
+        body.append(row);
+      });
+      table.append(head, body);
+      const wrapper = calibrationElement("div", "calibration-result-table");
+      wrapper.append(table);
+      card.append(wrapper, calibrationElement("p", "helper", "tokens/sec"));
+      if (job.best) {
+        const baseline = job.candidates[0].score.median;
+        const improvement = (job.best.score.median / baseline - 1) * 100;
+        const recommendation = calibrationElement("div", "calibration-recommendation");
+        recommendation.append(calibrationElement("strong", "", `${t("建議配置")} · ${job.command.runtime} · ${calibrationTuningLabel(job.best.tuning, job.command.runtime)}`));
+        recommendation.append(calibrationElement("p", "", `${t("相較第一組配置")} ${improvement >= 0 ? "+" : ""}${improvement.toFixed(1)}% · ${job.saved ? t("已保存，後續啟動自動套用") : t("結果尚未保存")}`));
+        if (job.best.runtimeStatus?.effective_context_size) {
+          recommendation.append(calibrationElement("p", "helper", `Context: ${job.best.runtimeStatus.effective_context_size.toLocaleString()} · KV Cache: ${job.best.runtimeStatus.kv_cache_quantization || t("關閉")}`));
+        }
+        for (const action of job.best.runtimeStatus?.memory_pressure_protection_actions || []) {
+          recommendation.append(calibrationElement("p", "helper", localizedMemoryProtectionAction(action)));
+        }
+        card.append(recommendation);
+      }
+      if (job.error) card.append(calibrationElement("p", "calibration-error", job.error));
+      return card;
+    });
+    byId("calibrationResults").replaceChildren(...cards);
+    byId("calibrationResultsSection").hidden = false;
+  }
+
+  function calibrationModelKey(model, runtimeName) {
+    const gguf = model.format === "gguf" || runtimeName === LLAMA_RUNTIME || String(model.path).startsWith("gguf:");
+    return `${gguf ? "gguf" : "mlx"}:${String(model.path).replace(/^gguf:/, "")}`;
+  }
+
+  function calibrationCommandForRuntime(commands, runtimeName, preferredID) {
+    const eligible = commands.filter((command) => command.runtime === runtimeName && !command.draft_model
+      && !(command.extra_args || []).some((argument) => /^--(?:mtp|dflash|draft|spec|model-draft)(?:[-=]|$)/.test(argument)));
+    return eligible.find((command) => command.id === preferredID) || eligible[0] || null;
+  }
+
+  async function loadCalibrationModels(current, commands, preferredID) {
+    const runtimes = Array.from(byId("runtimeSelect").options, (option) => option.value);
+    const catalogues = await Promise.all(runtimes.map(async (runtimeName) => {
+      try {
+        const payload = await api(`/api/models?runtime=${encodeURIComponent(runtimeName)}`);
+        return { runtime: runtimeName, models: payload.models || [] };
+      } catch (error) {
+        return { runtime: runtimeName, models: [], error: error.message };
+      }
+    }));
+    if (catalogues.every((catalogue) => catalogue.error)) throw new Error(catalogues.map((catalogue) => catalogue.error).join("；"));
+    const grouped = new Map();
+    for (const catalogue of catalogues) {
+      for (const model of catalogue.models) {
+        if (isMMProjModel(model) || isDFlashDraftModel(model) || isMTPDraftModel(model)) continue;
+        const key = calibrationModelKey(model, catalogue.runtime);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push({ ...model, calibration_key: key, calibration_runtime: catalogue.runtime });
+      }
+    }
+    const models = Array.from(grouped.values()).map((variants) => {
+      // 相同 GGUF 可能同時列在兩個 Runtime；只列一次，已載入者優先沿用。
+      const loaded = current.running && variants.find((model) => model.path === current.model && model.calibration_runtime === current.runtime);
+      const candidates = variants.slice().sort((left, right) => Number(right.calibration_runtime === LLAMA_RUNTIME) - Number(left.calibration_runtime === LLAMA_RUNTIME));
+      const picked = loaded || candidates.find((model) => !model.runtime_untested
+        && !(model.fast_gguf_fallback && model.calibration_runtime === LLAMA_RUNTIME)
+        && calibrationCommandForRuntime(commands, model.calibration_runtime, preferredID)) || candidates[0];
+      const command = loaded ? commands.find((item) => item.id === current.startup_command_id)
+        : !picked.runtime_untested ? calibrationCommandForRuntime(commands, picked.calibration_runtime, preferredID) : null;
+      return { ...picked, calibration_command: command || null };
+    }).sort(compareModelsByDisplayName);
+    return { models, catalogues };
+  }
+
+  async function openCalibrationDialog() {
+    if (!state.settings?.auto_performance_calibration_enabled || state.testing || state.calibrating) return;
+    let current;
+    let commands;
+    let catalog;
+    try {
+      const responses = await Promise.all([api("/api/runtime/status"), api("/api/startup-commands")]);
+      current = responses[0];
+      commands = responses[1].commands || [];
+      catalog = await loadCalibrationModels(current, commands, selectedCommand()?.id);
+    } catch (error) {
+      showMessage(error.message, "error");
+      return;
+    }
+    if (byId("calibrationDialog").open || state.testing || state.calibrating) return;
+    // 停止後的狀態仍可能保留上次模型名稱；只有實際載入完成的模型才預先勾選。
+    const loadedModel = current.running && current.ready
+      ? catalog.models.find((model) => model.path === current.model && model.calibration_runtime === current.runtime && model.calibration_command) : null;
+    state.calibration = {
+      originalCommand: commands.find((command) => command.id === current.startup_command_id) || null,
+      selected: new Set(loadedModel ? [loadedModel.calibration_key] : []),
+      format: "all",
+      models: catalog.models, catalogues: catalog.catalogues, jobs: [], original: null, knownTunings: new Map(),
+      openingPID: current.running ? current.pid : null,
+      launchDefaults: {
+        running: false, model: "", mmproj: "", draft_model: "",
+        dflash_enabled: false,
+        mmap_enabled: Boolean(state.settings?.default_mmap_enabled),
+        fast_gguf: state.settings?.default_fast_gguf_enabled !== false,
+        kv_cache_quantization: Boolean(state.settings?.default_kv_cache_quantization_enabled),
+        skip_gguf_conversion_cache: false
+      }
+    };
+    renderCalibrationModelOptions();
+    byId("calibrationSelection").hidden = false;
+    byId("calibrationProgressSection").hidden = true;
+    byId("calibrationResultsSection").hidden = true;
+    byId("startCalibrationButton").hidden = false;
+    byId("closeCalibrationButton").disabled = false;
+    byId("closeCalibrationIcon").disabled = false;
+    setCalibrationStatus(t("自動依模型選擇適用的 Server 與啟動配置。"), "");
+    updateCalibrationSelectionCount();
+    byId("calibrationDialog").showModal();
+  }
+
+  function renderCalibrationModelOptions() {
+    const session = state.calibration;
+    if (!session) return;
+    document.querySelectorAll("[data-calibration-format]").forEach((button) => {
+      const active = button.dataset.calibrationFormat === session.format;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    // 過濾依模型格式而非 Server；Fast GGUF 即使由 MLX 執行，也歸入 GGUF。
+    const visibleModels = session.models.filter((item) => session.format === "all"
+      || item.calibration_key.startsWith(`${session.format}:`));
+    const options = visibleModels.map((item) => {
+      const label = calibrationElement("label", "calibration-model-option");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.calibration.selected.has(item.calibration_key);
+      checkbox.disabled = !item.calibration_command;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) state.calibration.selected.add(item.calibration_key);
+        else state.calibration.selected.delete(item.calibration_key);
+        updateCalibrationSelectionCount();
+      });
+      const copy = calibrationElement("span", "calibration-model-copy");
+      copy.append(calibrationElement("strong", "", displayModelName(item.path)), calibrationElement("small", "", item.path));
+      copy.append(calibrationElement("small", "", item.calibration_command
+        ? `${item.calibration_runtime} · ${item.calibration_command.name}` : t("沒有適用的 Server 或啟動配置")));
+      label.append(checkbox, copy);
+      return label;
+    });
+    byId("calibrationModels").replaceChildren(...options);
+    byId("calibrationModels").scrollTop = 0;
+    byId("calibrationModelsEmpty").hidden = visibleModels.length > 0;
+  }
+
+  function updateCalibrationSelectionCount() {
+    const count = state.calibration.selected.size;
+    byId("calibrationSelectionCount").textContent = `${t("已選模型（全部格式）")}：${count}`;
+    byId("startCalibrationButton").disabled = count === 0 || state.calibrating;
+  }
+
+  function calibrationPayload(model, original, command) {
+    const sameModel = original.running && model.path === original.model && command.runtime === original.runtime;
+    const defaults = sameModel ? original : state.calibration.launchDefaults;
+    const catalogue = state.calibration.catalogues.find((item) => item.runtime === command.runtime);
+    const projectors = (catalogue?.models || []).filter((item) => isMMProjModel(item) && pathDirectory(item.path) === pathDirectory(model.path));
+    const mmproj = sameModel ? original.mmproj : command.runtime === MLX_RUNTIME ? ""
+      : projectors.length === 1 ? projectors[0].path : "";
+    return {
+      model: model.path, mmproj: mmproj || "", draft_model: sameModel ? original.draft_model || "" : "",
+      dflash_enabled: sameModel && Boolean(original.dflash_enabled), mmap_enabled: Boolean(defaults.mmap_enabled),
+      fast_gguf_enabled: command.runtime === MLX_RUNTIME && isMLXGGUFModel(model)
+        && (sameModel ? Boolean(original.fast_gguf) : Boolean(model.fast_gguf_fallback || defaults.fast_gguf)),
+      kv_cache_quantization_enabled: Boolean(defaults.kv_cache_quantization) && Boolean(command.kv_cache_quantization),
+      skip_gguf_conversion_cache: sameModel && Boolean(original.skip_gguf_conversion_cache),
+      startup_command_id: command.id
+    };
+  }
+
+  async function ensureCalibrationRuntime(job, tuning) {
+    let current = await api("/api/runtime/status");
+    const knownTuning = state.calibration.knownTunings.get(current.pid) || calibrationTuning(current);
+    if (current.running && current.model === job.payload.model && current.startup_command_id === job.payload.startup_command_id
+      && sameCalibrationTuning(knownTuning, tuning)) {
+      state.runtime = current;
+    } else {
+      let confirmationKey = "";
+      if (job.command.runtime === MLX_RUNTIME && isMLXGGUFModel(job.model)) {
+        // 轉換預檢與啟動是不同 API；僅傳送預檢合約允許的欄位。
+        const inspection = await api("/api/runtime/conversion-preflight", {
+          method: "POST", body: JSON.stringify({ model: job.payload.model, mmproj: job.payload.mmproj,
+            fast_gguf_enabled: job.payload.fast_gguf_enabled, startup_command_id: job.command.id })
+        });
+        if (inspection.requires_conversion) {
+          const choice = await requestModelConversionConfirmation(inspection);
+          if (choice !== "cache") throw new Error(t("校準需要先建立 Fast GGUF；此模型已略過"));
+          confirmationKey = inspection.cache_key || "";
+        }
+      }
+      await stopRuntimeForCalibration();
+      current = await api("/api/runtime/start", {
+        method: "POST",
+        body: JSON.stringify({ ...job.payload, conversion_confirmation_key: confirmationKey,
+          skip_saved_calibration: true, calibration_override: tuning })
+      });
+      state.runtime = current;
+      state.calibration.knownTunings.set(current.pid, calibrationTuning(current, tuning));
+    }
+    renderRuntime(current);
+    const deadline = performance.now() + RUNTIME_TEST_REPEAT_TIMEOUT_MS;
+    while (!current.ready) {
+      if (!current.running) throw new Error(current.last_error || t("模型 Runtime 已停止或無法連線，請返回執行狀態確認"));
+      if (performance.now() >= deadline) throw new Error(t("模型載入逾時，請查看日誌後重新啟動服務"));
+      const percent = current.model_preparation_progress_determinate ? ` ${current.model_preparation_progress_percent}%` : "";
+      setCalibrationStatus(`${displayModelName(job.model.path)} · ${t("載入模型中…")}${percent}`);
+      await wait(RUNTIME_TEST_RETRY_MS);
+      current = await api("/api/runtime/status");
+      state.runtime = current;
+      renderRuntime(current);
+    }
+    return current;
+  }
+
+  async function calibrateModel(job) {
+    const session = state.calibration;
+    if (!job.command) throw new Error(t("沒有適用的 Server 或啟動配置"));
+    job.payload = calibrationPayload(job.model, session.original, job.command);
+    const plan = await loadCalibrationPlan(job.model.path, job.command.id);
+    if (!plan.enabled) throw new Error(t("自動效能校準目前未啟用"));
+    if (plan.candidates?.length !== 3) throw new Error(t("無可用的效能校準設定"));
+    job.candidates = plan.candidates.map((candidate) => ({ ...candidate, runs: Array.from({ length: 3 }, () => ({ status: "pending" })) }));
+    for (const [candidateIndex, candidate] of job.candidates.entries()) {
+      candidate.loading = true;
+      setCalibrationStatus(`${displayModelName(job.model.path)} · ${t("配置")} ${candidateIndex + 1} · ${t("準備中…")}`);
+      renderCalibrationProgress();
+      try {
+        candidate.runtimeStatus = await ensureCalibrationRuntime(job, candidate.tuning);
+        candidate.tuning = state.calibration.knownTunings.get(candidate.runtimeStatus.pid) || calibrationTuning(candidate.runtimeStatus, candidate.tuning);
+      } finally {
+        candidate.loading = false;
+      }
+      for (const [runIndex, run] of candidate.runs.entries()) {
+        run.status = "running";
+        run.startedAt = performance.now();
+        setCalibrationStatus(`${displayModelName(job.model.path)} · ${t("配置")} ${candidateIndex + 1}/3 · ${t("測試")} ${runIndex + 1}/3`);
+        renderCalibrationProgress();
+        try {
+          const current = await api("/api/runtime/status");
+          if (!current.running || current.pid !== candidate.runtimeStatus.pid || current.model !== job.model.path) {
+            throw new Error(t("執行狀態已變更，請重新開啟校準視窗。"));
+          }
+          const result = await waitAndRunRuntimeTest(run.startedAt);
+          run.speed = Number(result.usage?.tokens_per_second || 0);
+          if (!Number.isFinite(run.speed) || run.speed <= 0) throw new Error(t("Runtime 未回傳完整的速度資料"));
+          run.status = "done";
+        } catch (error) {
+          run.status = "error";
+          throw error;
+        } finally {
+          renderCalibrationProgress();
+        }
+      }
+      candidate.score = calibrationScore(candidate.runs.map((run) => run.speed));
+    }
+    job.best = job.candidates.slice().sort((left, right) => right.score.median - left.score.median || right.score.average - left.score.average)[0];
+    await api("/api/runtime/calibration", {
+      method: "PUT", body: JSON.stringify({ model: job.model.path, startup_command_id: job.command.id,
+        tuning: job.best.tuning, runs: job.best.runs.map((run) => run.speed) })
+    });
+    job.saved = true;
+  }
+
+  async function startCalibrationSession() {
+    const session = state.calibration;
+    if (!session || state.calibrating || state.testing || !session.selected.size) return;
+    state.calibrating = true;
+    byId("calibrationSelection").hidden = true;
+    byId("calibrationProgressSection").hidden = false;
+    byId("startCalibrationButton").hidden = true;
+    byId("closeCalibrationButton").disabled = true;
+    byId("closeCalibrationIcon").disabled = true;
+    renderRuntime(state.runtime);
+    setCalibrationStatus(t("準備中…"));
+    const timer = window.setInterval(renderCalibrationProgress, 500);
+    try {
+      const original = await api("/api/runtime/status");
+      if ((session.openingPID && !original.running)
+        || (original.running && (!original.ready || original.startup_command_id !== session.originalCommand?.id
+          || original.pid !== session.openingPID))) {
+        throw new Error(t("執行狀態已變更，請重新開啟校準視窗。"));
+      }
+      session.original = original.running ? original : session.launchDefaults;
+      if (original.running) {
+        if (original.skip_gguf_conversion_cache) throw new Error(t("直接載入模式不會執行自動效能校準"));
+        const originalPlan = await loadCalibrationPlan(original.model, session.originalCommand.id);
+        if (!originalPlan.enabled) throw new Error(t("自動效能校準目前未啟用"));
+        session.originalTuning = calibrationTuning(original, originalPlan.candidates?.[0]?.tuning);
+        session.knownTunings.set(original.pid, session.originalTuning);
+      }
+      session.jobs = session.models.filter((model) => session.selected.has(model.calibration_key))
+        .sort((left, right) => Number(right.path === session.original.model) - Number(left.path === session.original.model))
+        .map((model) => ({ model, command: model.calibration_command, candidates: [], saved: false }));
+      for (const job of session.jobs) {
+        try { await calibrateModel(job); }
+        catch (error) { job.error = error.message; }
+        renderCalibrationProgress();
+      }
+      renderCalibrationResults();
+      if (original.running) {
+        setCalibrationStatus(t("正在恢復原模型並套用建議配置…"));
+        const originalJob = session.jobs.find((job) => job.model.path === original.model);
+        const originalModel = session.models.find((model) => model.path === original.model) || { path: original.model };
+        const tuning = originalJob?.saved ? originalJob.best.tuning : session.originalTuning;
+        await ensureCalibrationRuntime({ model: originalModel, command: session.originalCommand,
+          payload: calibrationPayload(originalModel, original, session.originalCommand) }, tuning);
+      } else {
+        setCalibrationStatus(t("正在恢復未載入狀態…"));
+        await stopRuntimeForCalibration();
+      }
+      // 若最後一組就是最佳配置，僅保存結果，不再重複載入模型。
+      const failed = session.jobs.some((job) => job.error);
+      const completionMessage = original.running ? "校準完成，結果已保存並恢復原模型。" : "校準完成，結果已保存並恢復未載入狀態。";
+      setCalibrationStatus(t(failed ? "校準完成，部分模型未完成，請查看結果。" : completionMessage), failed ? "error" : "success");
+    } catch (error) {
+      setCalibrationStatus(error.message, "error");
+    } finally {
+      window.clearInterval(timer);
+      state.calibrating = false;
+      await loadRuntime().catch(() => {});
+      renderRuntime(state.runtime);
+      renderCalibrationProgress();
+      renderCalibrationResults();
+      byId("closeCalibrationButton").disabled = false;
+      byId("closeCalibrationIcon").disabled = false;
+      if (session.jobs.length) byId("calibrationResultsSection").scrollIntoView({ block: "start", behavior: "smooth" });
     }
   }
 
@@ -1139,22 +1610,31 @@
         model: byId("modelSelect").value,
         model_preparation: initialPreparation
       });
-      await api("/api/runtime/start", {
+      const basePayload = {
+        model: byId("modelSelect").value,
+        mmproj: runtimeName === MLX_RUNTIME ? "" : byId("mmprojSelect").value,
+        draft_model: draftModel?.path || "",
+        dflash_enabled: dflashEnabled,
+        mmap_enabled: mmapEnabled,
+        fast_gguf_enabled: fastGGUFEnabled,
+        kv_cache_quantization_enabled: kvCacheQuantizationEnabled,
+        skip_gguf_conversion_cache: skipGGUFConversionCache,
+        conversion_confirmation_key: conversionConfirmationKey,
+        startup_command_id: byId("commandSelect").value
+      };
+      const startedStatus = await api("/api/runtime/start", {
         method: "POST",
-        body: JSON.stringify({
-          model: byId("modelSelect").value,
-          mmproj: runtimeName === MLX_RUNTIME ? "" : byId("mmprojSelect").value,
-          draft_model: draftModel?.path || "",
-          dflash_enabled: dflashEnabled,
-          mmap_enabled: mmapEnabled,
-          fast_gguf_enabled: fastGGUFEnabled,
-          kv_cache_quantization_enabled: kvCacheQuantizationEnabled,
-          skip_gguf_conversion_cache: skipGGUFConversionCache,
-          conversion_confirmation_key: conversionConfirmationKey,
-          startup_command_id: byId("commandSelect").value
-        })
+        body: JSON.stringify(basePayload)
       });
-      showMessage(`${runtimeName} 已啟動`);
+      state.runtime = startedStatus;
+      if (Array.isArray(startedStatus.memory_pressure_protection_actions)
+        && startedStatus.memory_pressure_protection_actions.length) {
+        showMessage(`${t("記憶體壓力保護已調整啟動參數")}：${startedStatus.memory_pressure_protection_actions.map(localizedMemoryProtectionAction).join("；")}`);
+      } else if (startedStatus.performance_calibration_applied) {
+        showMessage(t("已套用自動效能校準"));
+      } else {
+        showMessage(`${runtimeName} 已啟動`);
+      }
       await refreshRuntime();
     } catch (error) {
       showMessage(error.message, "error");
@@ -1175,6 +1655,20 @@
       showMessage(error.message, "error");
     }
   });
+
+  byId("calibrateRuntimeButton").addEventListener("click", openCalibrationDialog);
+  document.querySelectorAll("[data-calibration-format]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.calibration || state.calibrating) return;
+      state.calibration.format = button.dataset.calibrationFormat;
+      renderCalibrationModelOptions();
+    });
+  });
+  byId("startCalibrationButton").addEventListener("click", startCalibrationSession);
+  for (const id of ["closeCalibrationButton", "closeCalibrationIcon"]) {
+    byId(id).addEventListener("click", () => { if (!state.calibrating) byId("calibrationDialog").close(); });
+  }
+  byId("calibrationDialog").addEventListener("cancel", (event) => { if (state.calibrating) event.preventDefault(); });
 
   byId("testRuntimeButton").addEventListener("click", async () => {
     await runRuntimeTest("single");
@@ -1366,6 +1860,12 @@
     }
     if (initializeError) showMessage(initializeError.message, "error");
   }
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.calibrating) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
 
   initialize();
 })();

@@ -5,7 +5,7 @@ import MLXLMCommon
 
 /// Tanpopo 專用的轉換權重容器。
 ///
-/// `.fgguf` 不是標準 GGUF 的替代品，而是 GGUF 經 MLX 轉換後的永久快取格式。
+/// `.fgguf` 不是標準 GGUF 的替代品，而是 GGUF 經 MLX 轉換後的 Fast GGUF 格式。
 /// 每個 tensor 個別決定是否使用 LZFSE 無損壓縮；未壓縮的 tensor 會維持
 /// 16-byte 對齊，因此仍能走既有的 MMap 零拷貝路徑。
 enum FastGGUFContainer {
@@ -54,15 +54,15 @@ enum FastGGUFContainer {
         var errorDescription: String? {
             switch self {
             case .createFailed(let name):
-                "無法建立 FGGUF 快取：\(name)。"
+                "無法建立 Fast GGUF：\(name)。"
             case .invalidHeader(let name):
-                "FGGUF 快取索引無效：\(name)。"
+                "Fast GGUF 索引無效：\(name)。"
             case .headerTooLarge:
-                "FGGUF 快取索引超出保留空間。"
+                "Fast GGUF 索引超出保留空間。"
             case .invalidTensor(let name):
-                "FGGUF 快取 tensor 無效：\(name)。"
+                "Fast GGUF tensor 無效：\(name)。"
             case .compressionFailed(let name):
-                "FGGUF 快取解壓失敗：\(name)。"
+                "Fast GGUF 解壓失敗：\(name)。"
             }
         }
     }

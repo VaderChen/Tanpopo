@@ -6,7 +6,7 @@
   <meta name="description" content="Tanpopo 在 Apple M4 Pro 上比較原生 MLX 與三種 MLX+GGUF 策略的速度、磁碟、RAM 與精確度。">
   <title>Tanpopo MLX 與 GGUF 轉換的載入速度及運算精確度</title>
   <link rel="stylesheet" href="report.css">
-  <script src="report-i18n.js" defer></script>
+  <script src="report-i18n.js?v=20260902-1" defer></script>
 </head>
 <body data-report="performance">
   <header class="site-header">
@@ -34,7 +34,7 @@
         <h1>MLX 與 GGUF 轉換的<br>載入速度及運算精確度</h1>
         <p class="lede">
           以 4B、9B、27B 三組配對模型比較原生 MLX、llama.cpp + GGUF 與三種 MLX+GGUF 轉換策略。
-          報告如實列出生成速度、固定 100 題結果、轉換快取與程序 RAM，不納入載入效率。
+          報告如實列出生成速度、固定 100 題結果、Fast GGUF 容量與程序 RAM，不納入載入效率。
         </p>
       </div>
       <aside class="hero-meta" aria-label="測試摘要">
@@ -114,7 +114,7 @@
       </div>
       <p class="caption" style="margin-top: 14px;">
         Mode 1 沿用的 K-Quant tensor 由來源格式保留 32 元素 sub-block；Mode 2 自動使用 group 64，Mode 3 固定使用 group 32。
-        三種模式均使用相同 recurrent controls，且各自建立獨立快取。
+        三種模式均使用相同 recurrent controls，且各自建立獨立 Fast GGUF。
       </p>
     </section>
 
@@ -267,27 +267,27 @@
           <p class="eyebrow">Storage &amp; memory</p>
           <h2 id="storage-memory">磁碟占用與程序 RAM</h2>
         </div>
-        <p>磁碟分開列出原始模型與永久轉換快取；RAM 每 200 ms 取樣，列出程序生命週期峰值與生成期間平均值。</p>
+        <p>磁碟分開列出原始模型與 Fast GGUF；RAM 每 200 ms 取樣，列出程序生命週期峰值與生成期間平均值。</p>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>模型</th><th>模式</th><th class="number">原始模型</th><th class="number">轉換快取</th><th class="number">RAM 峰值</th><th class="number">RAM 平均</th><th>觀察</th></tr></thead>
+          <thead><tr><th>模型</th><th>模式</th><th class="number">原始模型</th><th class="number">Fast GGUF</th><th class="number">RAM 峰值</th><th class="number">RAM 平均</th><th>觀察</th></tr></thead>
           <tbody>
-            <tr><td rowspan="5"><strong>Qwen 3.5 4B</strong></td><td>原生MLX檔案未轉換</td><td class="number">2.851 GiB</td><td class="number">–</td><td class="number">2.394 GiB</td><td class="number">2.393 GiB</td><td>無轉換快取</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.5 4B</strong></td><td>原生MLX檔案未轉換</td><td class="number">2.851 GiB</td><td class="number">–</td><td class="number">2.394 GiB</td><td class="number">2.393 GiB</td><td>無 Fast GGUF</td></tr>
             <tr><td>llama.cpp + GGUF</td><td class="number">2.406 GiB</td><td class="number">–</td><td class="number">3.058 GiB</td><td class="number">3.017 GiB</td><td>直接執行來源 GGUF</td></tr>
             <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">2.406 GiB</td><td class="number">2.539 GiB</td><td class="number best">0.769 GiB</td><td class="number best">0.681 GiB</td><td>RAM 最低</td></tr>
             <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">2.406 GiB</td><td class="number">2.539 GiB</td><td class="number">0.782 GiB</td><td class="number">0.688 GiB</td><td>Mode 1 接近</td></tr>
-            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">2.406 GiB</td><td class="number best">2.293 GiB</td><td class="number">1.241 GiB</td><td class="number">1.064 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
-            <tr><td rowspan="5"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number">4.711 GiB</td><td class="number">–</td><td class="number">4.882 GiB</td><td class="number">4.881 GiB</td><td>無轉換快取</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">2.406 GiB</td><td class="number best">2.293 GiB</td><td class="number">1.241 GiB</td><td class="number">1.064 GiB</td><td>Fast GGUF 最小、速度最高</td></tr>
+            <tr><td rowspan="5"><strong>Ornith 1.5 9B</strong></td><td>原生MLX檔案未轉換</td><td class="number">4.711 GiB</td><td class="number">–</td><td class="number">4.882 GiB</td><td class="number">4.881 GiB</td><td>無 Fast GGUF</td></tr>
             <tr><td>llama.cpp + GGUF</td><td class="number">5.383 GiB</td><td class="number">–</td><td class="number">5.850 GiB</td><td class="number">5.809 GiB</td><td>直接執行來源 GGUF</td></tr>
             <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">5.383 GiB</td><td class="number">5.759 GiB</td><td class="number">1.752 GiB</td><td class="number">1.750 GiB</td><td>各方面表現均衡</td></tr>
-            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">5.383 GiB</td><td class="number">8.682 GiB</td><td class="number best">1.254 GiB</td><td class="number best">1.253 GiB</td><td>RAM 最低、快取最大</td></tr>
-            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">5.383 GiB</td><td class="number best">4.871 GiB</td><td class="number">2.055 GiB</td><td class="number">2.020 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
-            <tr><td rowspan="5"><strong>Qwen 3.8 27B</strong></td><td>原生MLX檔案未轉換</td><td class="number">14.977 GiB</td><td class="number">–</td><td class="number">14.291 GiB</td><td class="number">14.291 GiB</td><td>無轉換快取</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">5.383 GiB</td><td class="number">8.682 GiB</td><td class="number best">1.254 GiB</td><td class="number best">1.253 GiB</td><td>RAM 最低、Fast GGUF 最大</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">5.383 GiB</td><td class="number best">4.871 GiB</td><td class="number">2.055 GiB</td><td class="number">2.020 GiB</td><td>Fast GGUF 最小、速度最高</td></tr>
+            <tr><td rowspan="5"><strong>Qwen 3.8 27B</strong></td><td>原生MLX檔案未轉換</td><td class="number">14.977 GiB</td><td class="number">–</td><td class="number">14.291 GiB</td><td class="number">14.291 GiB</td><td>無 Fast GGUF</td></tr>
             <tr><td>llama.cpp + GGUF</td><td class="number">15.334 GiB</td><td class="number">–</td><td class="number">16.377 GiB</td><td class="number">16.260 GiB</td><td>直接執行來源 GGUF</td></tr>
             <tr><td>MLX + Fast GGUF Mode 1</td><td class="number">15.334 GiB</td><td class="number">22.708 GiB</td><td class="number">5.844 GiB</td><td class="number">5.400 GiB</td><td>來源 4-bit block 與其他張量混用</td></tr>
-            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">15.334 GiB</td><td class="number">25.972 GiB</td><td class="number best">5.216 GiB</td><td class="number best">4.102 GiB</td><td>RAM 平均最低、快取最大</td></tr>
-            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">15.334 GiB</td><td class="number best">14.603 GiB</td><td class="number">6.377 GiB</td><td class="number">4.323 GiB</td><td>Fast GGUF 快取最小、速度最高</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 2</td><td class="number">15.334 GiB</td><td class="number">25.972 GiB</td><td class="number best">5.216 GiB</td><td class="number best">4.102 GiB</td><td>RAM 平均最低、Fast GGUF 最大</td></tr>
+            <tr><td>MLX + Fast GGUF Mode 3</td><td class="number">15.334 GiB</td><td class="number best">14.603 GiB</td><td class="number">6.377 GiB</td><td class="number">4.323 GiB</td><td>Fast GGUF 最小、速度最高</td></tr>
           </tbody>
         </table>
       </div>
@@ -347,7 +347,7 @@
           <ul class="method-list">
             <li>原生 MLX 與 MLX+GGUF 均使用相同 Release build</li>
             <li>MLX+GGUF 明確傳入 <code>--mmap</code>；原生MLX檔案未轉換模式未傳入</li>
-            <li>三種 Fast GGUF 模式各自使用已完成的永久快取</li>
+            <li>三種 Fast GGUF 模式各自使用已完成的 Fast GGUF</li>
             <li>Group 由 Mode 1／2／3 自動決定，未手動指定</li>
             <li>KV cache 上限 4096 tokens</li>
             <li>未啟用 DFlash 與 KV Cache 量化</li>
@@ -358,7 +358,7 @@
           <ul class="method-list">
             <li>本輪涵蓋 4B Q4_0、9B Q4_K_M 與 27B 混合量化來源</li>
             <li>每個模型均完成五種模式、固定 100 題與三次正式速度量測</li>
-            <li>本報告不量測載入效率；磁碟只列原始模型與永久轉換快取</li>
+            <li>本報告不量測載入效率；磁碟只列原始模型與 Fast GGUF</li>
             <li>程序 RSS 不等於系統統一記憶體總量</li>
             <li>Runtime 或 Metal 更新後應重新測試</li>
           </ul>
@@ -396,7 +396,7 @@
         </article>
         <article class="feature-card">
           <h3>適用範圍</h3>
-          <p>三組模型的速度、精確度、快取與 RAM 分布並不相同；結果只代表本次模型、Runtime 與測試條件，其他架構、量化格式或 checkpoint 需另行量測。</p>
+          <p>三組模型的速度、精確度、Fast GGUF 與 RAM 分布並不相同；結果只代表本次模型、Runtime 與測試條件，其他架構、量化格式或 checkpoint 需另行量測。</p>
         </article>
       </div>
     </section>

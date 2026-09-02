@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-29",
+  "updated_at": "2026-09-02",
   "gguf": [
     {
-      "name": "Qwen 3.5 0.8B MTP · Q4_K_M",
+      "name": "Qwen 3.5 0.8B MTP · Q4_0",
       "parameter_size_b": 0.8,
       "repository": "unsloth/Qwen3.5-0.8B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-0.8B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-0.8B-Q4_0.gguf",
       "description": {
         "zh-Hant": "內含 MTP 預測層的超輕量 Qwen 3.5，適合低記憶體環境。",
         "en": "An ultra-lightweight Qwen 3.5 model with embedded MTP prediction layers for memory-constrained systems.",
@@ -16,11 +16,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 2B MTP · Q4_K_M",
+      "name": "Qwen 3.5 2B MTP · Q4_0",
       "parameter_size_b": 2,
       "repository": "unsloth/Qwen3.5-2B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-2B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-2B-Q4_0.gguf",
       "description": {
         "zh-Hant": "內含 MTP 預測層的小型 Qwen 3.5，兼顧低資源需求與生成速度。",
         "en": "A compact Qwen 3.5 model with embedded MTP prediction layers, balancing low resource use and generation speed.",
@@ -29,11 +29,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 4B · Q4_K_M",
+      "name": "Qwen 3.5 4B · Q4_0",
       "parameter_size_b": 4,
       "repository": "unsloth/Qwen3.5-4B-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-4B-Q4_0.gguf",
       "description": {
         "zh-Hant": "新一代輕量 Qwen，適合一般對話與工具使用。",
         "en": "A current lightweight Qwen model for general chat and tool use.",
@@ -42,11 +42,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 4B MTP · Q4_K_M",
+      "name": "Qwen 3.5 4B MTP · Q4_0",
       "parameter_size_b": 4,
       "repository": "unsloth/Qwen3.5-4B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-4B-Q4_0.gguf",
       "description": {
         "zh-Hant": "Qwen 3.5 4B 的完整 MTP 版本，GGUF 已內含預測層。",
         "en": "The complete MTP edition of Qwen 3.5 4B, with prediction layers embedded in the GGUF.",
@@ -55,11 +55,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 9B · Q4_K_M",
+      "name": "Qwen 3.5 9B · Q4_0",
       "parameter_size_b": 9,
       "repository": "unsloth/Qwen3.5-9B-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-9B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-9B-Q4_0.gguf",
       "description": {
         "zh-Hant": "Qwen 3.5 的中型版本，兼顧品質與本機資源需求。",
         "en": "The mid-sized Qwen 3.5 model, balancing quality and local resource use.",
@@ -68,11 +68,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 9B MTP · Q4_K_M",
+      "name": "Qwen 3.5 9B MTP · Q4_0",
       "parameter_size_b": 9,
       "repository": "unsloth/Qwen3.5-9B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-9B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-9B-Q4_0.gguf",
       "description": {
         "zh-Hant": "Qwen 3.5 9B 的完整 MTP 版本，兼顧品質與推測解碼能力。",
         "en": "The complete MTP edition of Qwen 3.5 9B, balancing quality with speculative decoding capability.",
@@ -81,11 +81,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 27B MTP · Q4_K_M",
+      "name": "Qwen 3.5 27B MTP · Q4_0",
       "parameter_size_b": 27,
       "repository": "unsloth/Qwen3.5-27B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-27B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-27B-Q4_0.gguf",
       "description": {
         "zh-Hant": "內含 MTP 預測層的 Qwen 3.5 27B 高品質版本。",
         "en": "A high-quality Qwen 3.5 27B model with embedded MTP prediction layers.",
@@ -94,11 +94,11 @@
       }
     },
     {
-      "name": "Qwen 3.5 35B-A3B MTP · UD-Q4_K_M",
+      "name": "Qwen 3.5 35B-A3B MTP · Q4_0",
       "parameter_size_b": 35,
-      "repository": "unsloth/Qwen3.5-35B-A3B-MTP-GGUF",
+      "repository": "prithivMLmods/Qwen3.5-35B-A3B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.5-35B-A3B-UD-Q4_K_M.gguf",
+      "filename": "Qwen3.5-35B-A3B.Q4_0.gguf",
       "description": {
         "zh-Hant": "內含 MTP 預測層的 35B-A3B MoE 版本，適合本機代理與工具工作。",
         "en": "A 35B-A3B MoE model with embedded MTP prediction layers for local agentic and tool workloads.",
@@ -107,11 +107,11 @@
       }
     },
     {
-      "name": "NVIDIA Nemotron 3.5 Lightning 30B-A3B · UD-Q4_K_M",
+      "name": "NVIDIA Nemotron 3.5 Lightning 30B-A3B · Q4_0",
       "parameter_size_b": 30,
-      "repository": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+      "repository": "ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
       "revision": "main",
-      "filename": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf",
+      "filename": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf",
       "description": {
         "zh-Hant": "2026 年 8 月推出的 30B-A3B MoE 模型，著重高速推理與代理工作。",
         "en": "An August 2026 30B-A3B MoE model focused on fast reasoning and agentic workloads.",
@@ -120,11 +120,11 @@
       }
     },
     {
-      "name": "Ornith 1.5 9B · Q4_K_M",
+      "name": "Ornith 1.5 9B · Q4_0",
       "parameter_size_b": 9,
-      "repository": "ornith-ai/Ornith-1.5-9B-GGUF",
+      "repository": "bartowski/Ornith-1.5-9B-GGUF",
       "revision": "main",
-      "filename": "Ornith-1.5-9B-Q4_K_M.gguf",
+      "filename": "Ornith-1.5-9B-Q4_0.gguf",
       "description": {
         "zh-Hant": "基於 Qwen 3.5 持續訓練與強化學習的 9B Agentic 模型。",
         "en": "A 9B agentic model built through continued training and reinforcement learning on Qwen 3.5.",
@@ -133,11 +133,11 @@
       }
     },
     {
-      "name": "Muse Glimmer 30B · UD-Q4_K_XL",
+      "name": "Muse Glimmer 30B · Q4_0",
       "parameter_size_b": 30,
-      "repository": "unsloth/Muse-Glimmer-30B-GGUF",
+      "repository": "bartowski/Muse-Glimmer-30B-GGUF",
       "revision": "main",
-      "filename": "Muse-Glimmer-30B-UD-Q4_K_XL.gguf",
+      "filename": "Muse-Glimmer-30B-Q4_0.gguf",
       "description": {
         "zh-Hant": "2026 年 8 月推出的 30B 多模態模型，適合文字與影像理解工作。",
         "en": "An August 2026 30B multimodal model for text and image understanding.",
@@ -146,11 +146,11 @@
       }
     },
     {
-      "name": "Qwen 3.8 27B MTP · UD-Q4_K_M",
+      "name": "Qwen 3.8 27B MTP · Q4_0",
       "parameter_size_b": 27,
       "repository": "unsloth/Qwen3.8-27B-GGUF",
       "revision": "main",
-      "filename": "Qwen3.8-27B-UD-Q4_K_M.gguf",
+      "filename": "Qwen3.8-27B-Q4_0.gguf",
       "description": {
         "zh-Hant": "目前 Qwen 3.8 的主流 27B 高品質版本，GGUF 已內含 MTP 預測權重。",
         "en": "A current high-quality Qwen 3.8 27B model whose GGUF already includes MTP prediction weights.",
@@ -185,11 +185,11 @@
       }
     },
     {
-      "name": "Qwen 3.6 27B MTP · Q4_K_M",
+      "name": "Qwen 3.6 27B MTP · Q4_0",
       "parameter_size_b": 27,
       "repository": "unsloth/Qwen3.6-27B-MTP-GGUF",
       "revision": "main",
-      "filename": "Qwen3.6-27B-Q4_K_M.gguf",
+      "filename": "Qwen3.6-27B-Q4_0.gguf",
       "description": {
         "zh-Hant": "2026 年 5 月推出、內含 MTP 預測層的 27B 高品質模型。",
         "en": "A May 2026 high-quality 27B model with MTP prediction layers.",
@@ -198,11 +198,11 @@
       }
     },
     {
-      "name": "Gemma 4 E2B IT · Q4_K_M",
+      "name": "Gemma 4 E2B IT · Q4_0",
       "parameter_size_b": 2,
       "repository": "unsloth/gemma-4-E2B-it-GGUF",
       "revision": "main",
-      "filename": "gemma-4-E2B-it-Q4_K_M.gguf",
+      "filename": "gemma-4-E2B-it-Q4_0.gguf",
       "description": {
         "zh-Hant": "Gemma 4 的小型高效率指令版本。",
         "en": "The compact and efficient instruction-tuned Gemma 4 model.",
@@ -211,11 +211,11 @@
       }
     },
     {
-      "name": "Gemma 4 E4B IT · Q4_K_M",
+      "name": "Gemma 4 E4B IT · Q4_0",
       "parameter_size_b": 4,
       "repository": "unsloth/gemma-4-E4B-it-GGUF",
       "revision": "main",
-      "filename": "gemma-4-E4B-it-Q4_K_M.gguf",
+      "filename": "gemma-4-E4B-it-Q4_0.gguf",
       "description": {
         "zh-Hant": "Gemma 4 的平衡型指令版本。",
         "en": "The balanced instruction-tuned Gemma 4 model.",
@@ -224,11 +224,11 @@
       }
     },
     {
-      "name": "Gemma 4 12B IT · Q4_K_M",
+      "name": "Gemma 4 12B IT · Q4_0",
       "parameter_size_b": 12,
       "repository": "unsloth/gemma-4-12b-it-GGUF",
       "revision": "main",
-      "filename": "gemma-4-12b-it-Q4_K_M.gguf",
+      "filename": "gemma-4-12b-it-Q4_0.gguf",
       "description": {
         "zh-Hant": "Gemma 4 的 12B 高品質指令版本。",
         "en": "The high-quality 12B instruction-tuned Gemma 4 model.",
@@ -237,11 +237,11 @@
       }
     },
     {
-      "name": "Granite 4.1 30B · Q4_K_M",
+      "name": "Granite 4.1 30B · Q4_0",
       "parameter_size_b": 30,
       "repository": "unsloth/granite-4.1-30b-GGUF",
       "revision": "main",
-      "filename": "granite-4.1-30b-Q4_K_M.gguf",
+      "filename": "granite-4.1-30b-Q4_0.gguf",
       "description": {
         "zh-Hant": "2026 年 4 月推出的 30B Granite 模型，適合企業文字與代理工作。",
         "en": "An April 2026 30B Granite model for enterprise text and agentic workloads.",

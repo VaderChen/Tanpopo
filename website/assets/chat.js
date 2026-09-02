@@ -170,20 +170,47 @@
     return { row, indicator, thinking, reasoningContent, message, meta };
   }
 
+  const protocolOpening = String.raw`(?:<|&lt;)\s*[|｜]?\s*`;
+  const protocolClosing = String.raw`\s*[|｜]?\s*(?:>|&gt;)`;
+  const channelMarkerSource = `${protocolOpening}channel${protocolClosing}`;
+  const messageMarkerSource = `${protocolOpening}message${protocolClosing}`;
+  const reasoningNameSource = String.raw`(?:analysis|thought|thinking|reasoning)`;
+  const finalNameSource = String.raw`(?:final|answer|response)`;
+  const reasoningChannelPattern = new RegExp(
+    `${channelMarkerSource}\\s*(?:${reasoningNameSource}\\b|${protocolOpening}${reasoningNameSource}${protocolClosing})(?:\\s*${messageMarkerSource})?`,
+    "i"
+  );
+  const channelMarkerPattern = new RegExp(channelMarkerSource, "i");
+  const finalChannelLabelPattern = new RegExp(
+    `^\\s*(?:(?:${finalNameSource}\\b|${protocolOpening}${finalNameSource}${protocolClosing})\\s*${messageMarkerSource}|${finalNameSource}\\s*:\\s*)`,
+    "i"
+  );
+  const protocolControlPattern = new RegExp(
+    `${messageMarkerSource}|${protocolOpening}(?:end|return)${protocolClosing}|${protocolOpening}start${protocolClosing}\\s*assistant\\b`,
+    "gi"
+  );
+
+  function stripProtocolControls(value) {
+    return String(value || "").replace(protocolControlPattern, "").trim();
+  }
+
   function splitChannelReasoning(value) {
     const content = String(value || "");
-    const reasoningStart = /<\|channel\|>\s*(?:analysis|thought|thinking|reasoning)\b(?:\s*<\|message\|>)?/i.exec(content);
-    if (!reasoningStart) return { content, reasoning: "" };
+    const reasoningStart = reasoningChannelPattern.exec(content);
+    if (!reasoningStart) return { content: stripProtocolControls(content), reasoning: "" };
 
-    const before = content.slice(0, reasoningStart.index).trim();
+    const before = stripProtocolControls(content.slice(0, reasoningStart.index));
     const afterStart = content.slice(reasoningStart.index + reasoningStart[0].length);
-    const finalStart = /<\|channel\|>(?:\s*(?:final|answer|response)\b)?(?:\s*<\|message\|>)?/i.exec(afterStart);
+    const finalStart = channelMarkerPattern.exec(afterStart);
     if (!finalStart) {
-      return { content: before, reasoning: afterStart.trim() };
+      return { content: before, reasoning: stripProtocolControls(afterStart) };
     }
 
-    const reasoning = afterStart.slice(0, finalStart.index).trim();
-    const finalContent = afterStart.slice(finalStart.index + finalStart[0].length).trim();
+    const reasoning = stripProtocolControls(afterStart.slice(0, finalStart.index));
+    const finalTail = afterStart
+      .slice(finalStart.index + finalStart[0].length)
+      .replace(finalChannelLabelPattern, "");
+    const finalContent = stripProtocolControls(finalTail);
     return {
       content: [before, finalContent].filter(Boolean).join("\n\n"),
       reasoning

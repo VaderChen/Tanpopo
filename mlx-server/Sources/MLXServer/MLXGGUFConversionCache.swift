@@ -3,13 +3,22 @@ import Foundation
 import MLX
 import MLXLMCommon
 
+struct FastGGUFRuntimeAssets: Sendable {
+    let configurationData: Data
+    let tokenizerData: Data
+    let tokenizerConfigurationData: Data
+    let processorConfigurationData: Data?
+    let generationConfigurationData: Data?
+}
+
 /// GGUF 轉換後權重的永久快取。快取鍵只依來源內容特徵與轉換策略建立，
 /// 不依模型名稱判斷；相同模型在不同 INT／Group／recurrent 策略下不會共用。
 enum MLXGGUFConversionCache {
     /// 快取鍵版本刻意維持 2，讓既有 safetensors 快取可繼續沿用；新寫入格式
     /// 使用 manifest 3 與 `.fgguf`，讀取端同時接受兩種格式。
     static let keySchemaVersion = 2
-    static let currentManifestSchemaVersion = 3
+    static let currentManifestSchemaVersion = 4
+    static let legacyFastGGUFManifestSchemaVersion = 3
     static let legacyManifestSchemaVersion = 2
     private static let sampleByteCount = 1_048_576
     private static let maximumShardBytes = 2 * 1_024 * 1_024 * 1_024
@@ -60,6 +69,23 @@ enum MLXGGUFConversionCache {
         let totalBytes: Int64
         let storedBytes: Int64?
         let shards: [String]
+        let configuration: String?
+        let tokenizer: String?
+        let tokenizerConfiguration: String?
+        let processorConfiguration: String?
+        let generationConfiguration: String?
+    }
+
+    struct StandalonePackage {
+        let weights: [String: MLXArray]
+        let groupSize: Int
+        let profile: String
+        let sourceName: String
+        let configurationData: Data
+        let tokenizerData: Data
+        let tokenizerConfigurationData: Data
+        let processorConfigurationData: Data?
+        let generationConfigurationData: Data?
     }
 
     enum CacheError: LocalizedError {
@@ -70,11 +96,11 @@ enum MLXGGUFConversionCache {
         var errorDescription: String? {
             switch self {
             case .invalidManifest:
-                "GGUF 轉換快取資訊無效。"
+                "Fast GGUF 資訊無效。"
             case .duplicateWeight(let name):
-                "GGUF 轉換快取包含重複權重：\(name)。"
+                "Fast GGUF 包含重複權重：\(name)。"
             case .weightCountMismatch(let expected, let actual):
-                "GGUF 轉換快取權重數量不符：預期 \(expected)，實際 \(actual)。"
+                "Fast GGUF 權重數量不符：預期 \(expected)，實際 \(actual)。"
             }
         }
     }
@@ -168,7 +194,7 @@ enum MLXGGUFConversionCache {
             }
             let shardURL = plan.rootURL.appendingPathComponent(filename)
             let shardWeights: [String: MLXArray]
-            if manifest.schemaVersion == currentManifestSchemaVersion {
+            if fastGGUFManifestVersions.contains(manifest.schemaVersion) {
                 (shardWeights, _) = try FastGGUFContainer.load(
                     from: shardURL,
                     expectedCacheKey: plan.key,
@@ -224,6 +250,7 @@ enum MLXGGUFConversionCache {
     static func store(
         weights: [String: MLXArray],
         plan: Plan,
+        runtimeAssets: FastGGUFRuntimeAssets,
         progress: ((Int64, Int64) -> Void)? = nil
     ) throws {
         let fileManager = FileManager.default
@@ -285,10 +312,11 @@ enum MLXGGUFConversionCache {
         let rawMiB = String(format: "%.1f", Double(totalBytes) / (1_024 * 1_024))
         let storedMiB = String(format: "%.1f", Double(storedBytes) / (1_024 * 1_024))
         fputs(
-            "FGGUF cache raw_mib=\(rawMiB) stored_mib=\(storedMiB) compressed=\(compressedTensorCount) raw=\(rawTensorCount)\n",
+            "Fast GGUF raw_mib=\(rawMiB) stored_mib=\(storedMiB) compressed=\(compressedTensorCount) raw=\(rawTensorCount)\n",
             stderr
         )
 
+        let assetNames = standaloneAssetNames(for: plan)
         let manifest = Manifest(
             schemaVersion: currentManifestSchemaVersion,
             key: plan.key,
@@ -302,7 +330,14 @@ enum MLXGGUFConversionCache {
             weightCount: weights.count,
             totalBytes: totalBytes,
             storedBytes: storedBytes,
-            shards: shardNames
+            shards: shardNames,
+            configuration: assetNames.configuration,
+            tokenizer: assetNames.tokenizer,
+            tokenizerConfiguration: assetNames.tokenizerConfiguration,
+            processorConfiguration: runtimeAssets.processorConfigurationData == nil
+                ? nil : assetNames.processorConfiguration,
+            generationConfiguration: runtimeAssets.generationConfigurationData == nil
+                ? nil : assetNames.generationConfiguration
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -312,6 +347,11 @@ enum MLXGGUFConversionCache {
         try encoder.encode(manifest).write(
             to: temporaryManifestURL,
             options: .atomic
+        )
+        try writeRuntimeAssets(
+            runtimeAssets,
+            names: assetNames,
+            directory: temporaryURL
         )
 
         if fileManager.fileExists(atPath: plan.manifestURL.path) {
@@ -328,6 +368,14 @@ enum MLXGGUFConversionCache {
                 }
                 try fileManager.moveItem(at: source, to: destination)
             }
+            for assetName in manifestAssetNames(manifest) {
+                let source = temporaryURL.appendingPathComponent(assetName)
+                let destination = plan.rootURL.appendingPathComponent(assetName)
+                if fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.removeItem(at: destination)
+                }
+                try fileManager.moveItem(at: source, to: destination)
+            }
             try fileManager.moveItem(at: temporaryManifestURL, to: plan.manifestURL)
         } catch {
             // 另一個程序可能已完成相同快取；只要完整 manifest
@@ -338,6 +386,139 @@ enum MLXGGUFConversionCache {
         }
     }
 
+    /// 將既有 schema 3 Fast GGUF 補齊為可在來源 GGUF 移除後獨立啟動的套件。
+    /// 資產先以原子寫入落地，最後才更新 manifest；中途失敗時原快取仍可照常使用。
+    static func ensureStandaloneAssets(
+        plan: Plan,
+        runtimeAssets: FastGGUFRuntimeAssets
+    ) throws {
+        guard FileManager.default.fileExists(atPath: plan.manifestURL.path) else { return }
+        let data = try Data(contentsOf: plan.manifestURL)
+        let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+        guard fastGGUFManifestVersions.contains(manifest.schemaVersion),
+              manifest.key == plan.key,
+              !manifest.shards.isEmpty else {
+            throw CacheError.invalidManifest
+        }
+        if manifest.schemaVersion == currentManifestSchemaVersion,
+           manifest.configuration != nil,
+           manifest.tokenizer != nil,
+           manifest.tokenizerConfiguration != nil,
+           let urls = try? standaloneAssetURLs(manifest: manifest, rootURL: plan.rootURL),
+           standaloneAssetFilesExist(urls) {
+            // 權重可沿用，但合成 config 的解析規則可能已修正；同步小型設定
+            // 資產即可，不必讓使用者重建數 GiB 的 Fast GGUF 分片。
+            if try Data(contentsOf: urls.configuration) != runtimeAssets.configurationData {
+                try runtimeAssets.configurationData.write(
+                    to: urls.configuration,
+                    options: .atomic
+                )
+            }
+            return
+        }
+
+        let names = standaloneAssetNames(for: plan)
+        try writeRuntimeAssets(runtimeAssets, names: names, directory: plan.rootURL)
+        let upgraded = Manifest(
+            schemaVersion: currentManifestSchemaVersion,
+            key: manifest.key,
+            runtimeVersion: manifest.runtimeVersion,
+            createdAt: manifest.createdAt,
+            sourceNames: manifest.sourceNames,
+            sourcePaths: manifest.sourcePaths,
+            profile: manifest.profile,
+            groupSize: manifest.groupSize,
+            recurrentPromotion: manifest.recurrentPromotion,
+            weightCount: manifest.weightCount,
+            totalBytes: manifest.totalBytes,
+            storedBytes: manifest.storedBytes,
+            shards: manifest.shards,
+            configuration: names.configuration,
+            tokenizer: names.tokenizer,
+            tokenizerConfiguration: names.tokenizerConfiguration,
+            processorConfiguration: runtimeAssets.processorConfigurationData == nil
+                ? nil : names.processorConfiguration,
+            generationConfiguration: runtimeAssets.generationConfigurationData == nil
+                ? nil : names.generationConfiguration
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(upgraded).write(to: plan.manifestURL, options: .atomic)
+    }
+
+    /// 來源 GGUF 已不存在時直接讀取 Fast GGUF manifest、執行資產與權重。
+    /// schema 3 可使用同目錄的標準 Hugging Face 資產作為相容 fallback；
+    /// schema 4 則固定讀取 manifest 指向的獨立資產。
+    static func loadStandalone(
+        manifestURL: URL,
+        memoryMapped: Bool,
+        progress: ((Int64, Int64) -> Void)? = nil
+    ) throws -> StandalonePackage {
+        let manifest = try JSONDecoder().decode(
+            Manifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        guard fastGGUFManifestVersions.contains(manifest.schemaVersion),
+              !manifest.key.isEmpty,
+              !manifest.shards.isEmpty,
+              manifest.groupSize == 32 || manifest.groupSize == 64 else {
+            throw CacheError.invalidManifest
+        }
+        let rootURL = manifestURL.deletingLastPathComponent()
+        let assetURLs = try standaloneAssetURLs(manifest: manifest, rootURL: rootURL)
+        let configurationData = try Data(contentsOf: assetURLs.configuration)
+        let tokenizerData = try Data(contentsOf: assetURLs.tokenizer)
+        var tokenizerConfigurationData = try Data(
+            contentsOf: assetURLs.tokenizerConfiguration
+        )
+        if manifest.schemaVersion == legacyFastGGUFManifestSchemaVersion {
+            tokenizerConfigurationData = try tokenizerConfigurationByAddingAdjacentTemplate(
+                tokenizerConfigurationData,
+                rootURL: rootURL
+            )
+        }
+
+        var weights = [String: MLXArray]()
+        weights.reserveCapacity(manifest.weightCount)
+        var completedBytes: Int64 = 0
+        if manifest.totalBytes > 0 { progress?(0, manifest.totalBytes) }
+        for filename in manifest.shards {
+            guard safeAdjacentFilename(filename), filename.hasSuffix(".fgguf") else {
+                throw CacheError.invalidManifest
+            }
+            let (shardWeights, _) = try FastGGUFContainer.load(
+                from: rootURL.appendingPathComponent(filename),
+                expectedCacheKey: manifest.key,
+                memoryMapped: memoryMapped
+            )
+            for (name, value) in shardWeights {
+                guard weights[name] == nil else { throw CacheError.duplicateWeight(name) }
+                weights[name] = value
+            }
+            completedBytes += shardWeights.values.reduce(Int64(0)) {
+                $0 + Int64($1.nbytes)
+            }
+            progress?(min(completedBytes, manifest.totalBytes), manifest.totalBytes)
+        }
+        guard weights.count == manifest.weightCount else {
+            throw CacheError.weightCountMismatch(
+                expected: manifest.weightCount,
+                actual: weights.count
+            )
+        }
+        return StandalonePackage(
+            weights: weights,
+            groupSize: manifest.groupSize,
+            profile: manifest.profile,
+            sourceName: manifest.sourceNames.first ?? manifestURL.lastPathComponent,
+            configurationData: configurationData,
+            tokenizerData: tokenizerData,
+            tokenizerConfigurationData: tokenizerConfigurationData,
+            processorConfigurationData: try assetURLs.processor.map { try Data(contentsOf: $0) },
+            generationConfigurationData: try assetURLs.generation.map { try Data(contentsOf: $0) }
+        )
+    }
+
     static func invalidate(plan: Plan) {
         let fileManager = FileManager.default
         if let data = try? Data(contentsOf: plan.manifestURL),
@@ -345,6 +526,11 @@ enum MLXGGUFConversionCache {
            manifest.key == plan.key {
             for filename in manifest.shards where
                 filename == URL(fileURLWithPath: filename).lastPathComponent {
+                try? fileManager.removeItem(
+                    at: plan.rootURL.appendingPathComponent(filename)
+                )
+            }
+            for filename in manifestAssetNames(manifest) where safeAdjacentFilename(filename) {
                 try? fileManager.removeItem(
                     at: plan.rootURL.appendingPathComponent(filename)
                 )
@@ -428,6 +614,12 @@ enum MLXGGUFConversionCache {
 
     private static let supportedManifestVersions: Set<Int> = [
         legacyManifestSchemaVersion,
+        legacyFastGGUFManifestSchemaVersion,
+        currentManifestSchemaVersion
+    ]
+
+    private static let fastGGUFManifestVersions: Set<Int> = [
+        legacyFastGGUFManifestSchemaVersion,
         currentManifestSchemaVersion
     ]
 
@@ -435,10 +627,159 @@ enum MLXGGUFConversionCache {
         switch schemaVersion {
         case legacyManifestSchemaVersion:
             filename.hasSuffix(".safetensors")
-        case currentManifestSchemaVersion:
+        case legacyFastGGUFManifestSchemaVersion, currentManifestSchemaVersion:
             filename.hasSuffix(".fgguf")
         default:
             false
         }
+    }
+
+    private struct StandaloneAssetNames {
+        let configuration: String
+        let tokenizer: String
+        let tokenizerConfiguration: String
+        let processorConfiguration: String
+        let generationConfiguration: String
+    }
+
+    private struct StandaloneAssetURLs {
+        let configuration: URL
+        let tokenizer: URL
+        let tokenizerConfiguration: URL
+        let processor: URL?
+        let generation: URL?
+    }
+
+    private static func standaloneAssetNames(for plan: Plan) -> StandaloneAssetNames {
+        StandaloneAssetNames(
+            configuration: "\(plan.shardPrefix).config.json",
+            tokenizer: "\(plan.shardPrefix).tokenizer.json",
+            tokenizerConfiguration: "\(plan.shardPrefix).tokenizer_config.json",
+            processorConfiguration: "\(plan.shardPrefix).preprocessor_config.json",
+            generationConfiguration: "\(plan.shardPrefix).generation_config.json"
+        )
+    }
+
+    private static func writeRuntimeAssets(
+        _ assets: FastGGUFRuntimeAssets,
+        names: StandaloneAssetNames,
+        directory: URL
+    ) throws {
+        try assets.configurationData.write(
+            to: directory.appendingPathComponent(names.configuration),
+            options: .atomic
+        )
+        try assets.tokenizerData.write(
+            to: directory.appendingPathComponent(names.tokenizer),
+            options: .atomic
+        )
+        try assets.tokenizerConfigurationData.write(
+            to: directory.appendingPathComponent(names.tokenizerConfiguration),
+            options: .atomic
+        )
+        if let data = assets.processorConfigurationData {
+            try data.write(
+                to: directory.appendingPathComponent(names.processorConfiguration),
+                options: .atomic
+            )
+        }
+        if let data = assets.generationConfigurationData {
+            try data.write(
+                to: directory.appendingPathComponent(names.generationConfiguration),
+                options: .atomic
+            )
+        }
+    }
+
+    private static func manifestAssetNames(_ manifest: Manifest) -> [String] {
+        [
+            manifest.configuration,
+            manifest.tokenizer,
+            manifest.tokenizerConfiguration,
+            manifest.processorConfiguration,
+            manifest.generationConfiguration
+        ].compactMap { $0 }
+    }
+
+    private static func standaloneAssetURLs(
+        manifest: Manifest,
+        rootURL: URL
+    ) throws -> StandaloneAssetURLs {
+        func required(_ filename: String?) throws -> URL {
+            guard let filename, safeAdjacentFilename(filename) else {
+                throw CacheError.invalidManifest
+            }
+            return rootURL.appendingPathComponent(filename)
+        }
+        func optional(_ filename: String?) throws -> URL? {
+            guard let filename else { return nil }
+            guard safeAdjacentFilename(filename) else { throw CacheError.invalidManifest }
+            return rootURL.appendingPathComponent(filename)
+        }
+
+        if manifest.schemaVersion == currentManifestSchemaVersion {
+            return StandaloneAssetURLs(
+                configuration: try required(manifest.configuration),
+                tokenizer: try required(manifest.tokenizer),
+                tokenizerConfiguration: try required(manifest.tokenizerConfiguration),
+                processor: try optional(manifest.processorConfiguration),
+                generation: try optional(manifest.generationConfiguration)
+            )
+        }
+        return StandaloneAssetURLs(
+            configuration: rootURL.appendingPathComponent("config.json"),
+            tokenizer: rootURL.appendingPathComponent("tokenizer.json"),
+            tokenizerConfiguration: rootURL.appendingPathComponent("tokenizer_config.json"),
+            processor: firstExistingURL(
+                names: ["preprocessor_config.json", "processor_config.json"],
+                rootURL: rootURL
+            ),
+            generation: firstExistingURL(
+                names: ["generation_config.json"],
+                rootURL: rootURL
+            )
+        )
+    }
+
+    private static func firstExistingURL(names: [String], rootURL: URL) -> URL? {
+        names.map(rootURL.appendingPathComponent).first {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+    }
+
+    private static func standaloneAssetFilesExist(_ urls: StandaloneAssetURLs) -> Bool {
+        let required = [urls.configuration, urls.tokenizer, urls.tokenizerConfiguration]
+        let optional = [urls.processor, urls.generation].compactMap { $0 }
+        return (required + optional).allSatisfy { url in
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = (attributes[.size] as? NSNumber)?.int64Value else {
+                return false
+            }
+            return size > 0
+        }
+    }
+
+    private static func tokenizerConfigurationByAddingAdjacentTemplate(
+        _ data: Data,
+        rootURL: URL
+    ) throws -> Data {
+        let templateURL = rootURL.appendingPathComponent("chat_template.jinja")
+        guard let template = try? String(contentsOf: templateURL, encoding: .utf8),
+              !template.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return data
+        }
+        guard var configuration = try JSONSerialization.jsonObject(with: data)
+                as? [String: Any] else {
+            throw CacheError.invalidManifest
+        }
+        configuration["chat_template"] = template
+        return try JSONSerialization.data(
+            withJSONObject: configuration,
+            options: [.sortedKeys]
+        )
+    }
+
+    private static func safeAdjacentFilename(_ filename: String) -> Bool {
+        !filename.isEmpty && filename == URL(fileURLWithPath: filename).lastPathComponent
     }
 }

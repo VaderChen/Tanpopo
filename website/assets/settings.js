@@ -2,6 +2,7 @@
   const { api, byId, showMessage, formatBytes, formatTime, t, setLanguage, setTheme, getTheme } = window.LlamaLoader;
   const directoryState = { inputID: "", path: "", parent: "" };
   let settingsState = {};
+  let clearingHFToken = false;
   let accessControlState = { policy: {}, keys: [] };
   let adminCredentialsState = { authenticationEnabled: true, account: "root" };
   let netPassState = {};
@@ -11,11 +12,44 @@
   let linuxZIPUpdateBusy = false;
   let linuxZIPUpdatePollTimer = 0;
   let linuxZIPUpdateReloadPending = false;
+  let settingsSaveQueue = Promise.resolve();
+  let pendingSettingsSaves = 0;
+  const saveButtonCounts = new WeakMap();
+  const saveMessageVersions = new WeakMap();
+  const settingVersions = new Map();
+  // 集中定義欄位與所屬表單，手動及自動儲存共用同一套欄位保存流程。
+  const settingFields = {
+    model_directory: { id: "modelDirectory", scope: "general" },
+    mlx_model_directory: { id: "mlxModelDirectory", scope: "general" },
+    resident_mode: { id: "residentMode", scope: "general" },
+    ui_language: { id: "uiLanguage", scope: "general" },
+    ui_theme: { selector: 'input[name="uiTheme"]', scope: "general" },
+    huggingface_endpoint: { id: "hfEndpoint", scope: "model-source" },
+    huggingface_token: { id: "hfToken", scope: "model-source" },
+    default_revision: { id: "defaultRevision", scope: "model-source" },
+    default_fast_gguf_enabled: { id: "defaultFastGGUFEnabled", scope: "fast-gguf-defaults" },
+    default_fast_gguf_strategy: { id: "defaultFastGGUFStrategy", scope: "fast-gguf-defaults" },
+    default_kv_cache_quantization_enabled: { id: "defaultKVCacheQuantizationEnabled", scope: "runtime-defaults" },
+    default_mmap_enabled: { id: "defaultMMapEnabled", scope: "runtime-defaults" },
+    default_dflash_enabled: { id: "defaultDFlashEnabled", scope: "runtime-defaults" },
+    remove_original_gguf_after_conversion: { id: "removeOriginalGGUFAfterConversion", scope: "experimental" },
+    memory_pressure_protection_enabled: { id: "memoryPressureProtectionEnabled", scope: "experimental" },
+    auto_performance_calibration_enabled: { id: "autoPerformanceCalibrationEnabled", scope: "calibration" }
+  };
+  const settingForms = {
+    general: ["saveSettingsButton", "settingsMessage"],
+    "model-source": ["saveModelSourceButton", "modelSourceMessage"],
+    "fast-gguf-defaults": ["saveFastGGUFDefaultsButton", "fastGGUFDefaultsMessage"],
+    "runtime-defaults": ["saveRuntimeDefaultsButton", "runtimeDefaultsMessage"],
+    experimental: ["saveExperimentalSettingsButton", "experimentalSettingsMessage"],
+    calibration: ["saveCalibrationSettingsButton", "calibrationSettingsMessage"]
+  };
   const settingsPaneHashes = {
     settingsGeneralPane: "general",
     settingsModelSourcePane: "model-source",
     settingsAdminPane: "admin-sign-in",
     settingsSecurityPane: "model-api-security",
+    settingsExperimentalPane: "experimental",
     settingsNetPassPane: "reverse-proxy",
     settingsSystemInfoPane: "system-info",
     settingsAboutPane: "about"
@@ -75,7 +109,10 @@
       "defaultFastGGUFEnabled",
       "defaultKVCacheQuantizationEnabled",
       "defaultMMapEnabled",
-      "defaultDFlashEnabled"
+      "defaultDFlashEnabled",
+      "removeOriginalGGUFAfterConversion",
+      "autoPerformanceCalibrationEnabled",
+      "memoryPressureProtectionEnabled"
     ].forEach((inputID) => {
       byId(`${inputID}Label`).textContent = byId(inputID).checked ? t("啟用") : t("關閉");
     });
@@ -120,78 +157,141 @@
     byId("defaultKVCacheQuantizationEnabled").checked = Boolean(settings.default_kv_cache_quantization_enabled);
     byId("defaultMMapEnabled").checked = Boolean(settings.default_mmap_enabled);
     byId("defaultDFlashEnabled").checked = Boolean(settings.default_dflash_enabled);
+    byId("removeOriginalGGUFAfterConversion").checked = Boolean(
+      settings.remove_original_gguf_after_conversion
+    );
+    byId("autoPerformanceCalibrationEnabled").checked = settings.auto_performance_calibration_enabled !== false;
+    byId("memoryPressureProtectionEnabled").checked = Boolean(
+      settings.memory_pressure_protection_enabled
+    );
     updateModelFeatureDefaultLabels();
     byId("hfEndpoint").value = settings.huggingface_endpoint || "";
     byId("defaultRevision").value = settings.default_revision || "main";
     byId("hfToken").value = "";
-    byId("clearHFToken").checked = false;
-    byId("clearHFToken").disabled = !settings.huggingface_token_set;
-    byId("tokenState").textContent = "清除 Access Token";
+    updateClearHFTokenButton();
   }
 
-  function settingsPayload(scope) {
-    const saveGeneral = scope === "general";
-    const saveModelSource = scope === "model-source";
-    const saveRuntimeDefaults = scope === "runtime-defaults";
-    const saveFastGGUFDefaults = scope === "fast-gguf-defaults";
+  function settingControls(field) {
+    const definition = settingFields[field];
+    return definition.selector ? [...document.querySelectorAll(definition.selector)] : [byId(definition.id)];
+  }
+
+  function settingValue(field) {
+    const controls = settingControls(field);
+    if (controls[0].type === "radio") return controls.find((input) => input.checked)?.value || "";
+    return controls[0].type === "checkbox" ? controls[0].checked : controls[0].value.trim();
+  }
+
+  function restoreSettingValues(patch, versions, saved) {
+    Object.entries(patch).forEach(([field, submitted]) => {
+      // 不覆蓋排隊中的新選擇，亦不清掉使用者在等候期間輸入的文字。
+      if (settingVersions.get(field) !== versions[field] || settingValue(field) !== submitted) return;
+      if (saved[field] === undefined) return;
+      settingControls(field).forEach((input) => {
+        if (input.type === "radio") input.checked = input.value === saved[field];
+        else if (input.type === "checkbox") input.checked = Boolean(saved[field]);
+        else input.value = saved[field];
+      });
+      if (field === "ui_language") setLanguage(saved[field]);
+      if (field === "ui_theme") setTheme(saved[field]);
+      if (field === "resident_mode") notifyNativeResidentMode(saved[field]);
+    });
+    updateResidentModeLabel();
+    updateModelFeatureDefaultLabels();
+    updateClearHFTokenButton();
+  }
+
+  function settingsWritePayload(current, patch) {
+    // 既有 PUT API 的必要欄位沿用最新值；其他欄位省略即保留，不提交整份舊快照。
     return {
-      model_directory: saveGeneral ? byId("modelDirectory").value.trim() : (settingsState.model_directory || byId("modelDirectory").value.trim()),
-      mlx_model_directory: saveGeneral ? byId("mlxModelDirectory").value.trim() : (settingsState.mlx_model_directory || byId("mlxModelDirectory").value.trim()),
-      resident_mode: saveGeneral || typeof settingsState.resident_mode !== "boolean" ? byId("residentMode").checked : settingsState.resident_mode,
-      default_fast_gguf_enabled: saveFastGGUFDefaults || typeof settingsState.default_fast_gguf_enabled !== "boolean"
-        ? byId("defaultFastGGUFEnabled").checked
-        : settingsState.default_fast_gguf_enabled,
-      default_fast_gguf_strategy: saveFastGGUFDefaults || !settingsState.default_fast_gguf_strategy
-        ? byId("defaultFastGGUFStrategy").value
-        : settingsState.default_fast_gguf_strategy,
-      default_kv_cache_quantization_enabled: saveRuntimeDefaults || typeof settingsState.default_kv_cache_quantization_enabled !== "boolean"
-        ? byId("defaultKVCacheQuantizationEnabled").checked
-        : settingsState.default_kv_cache_quantization_enabled,
-      default_mmap_enabled: saveRuntimeDefaults || typeof settingsState.default_mmap_enabled !== "boolean"
-        ? byId("defaultMMapEnabled").checked
-        : settingsState.default_mmap_enabled,
-      default_dflash_enabled: saveRuntimeDefaults || typeof settingsState.default_dflash_enabled !== "boolean"
-        ? byId("defaultDFlashEnabled").checked
-        : settingsState.default_dflash_enabled,
-      ui_language: saveGeneral ? byId("uiLanguage").value : (settingsState.ui_language || byId("uiLanguage").value),
-      ui_theme: saveGeneral ? (document.querySelector('input[name="uiTheme"]:checked')?.value || "tanpopo") : (settingsState.ui_theme || "tanpopo"),
-      huggingface_endpoint: saveModelSource ? byId("hfEndpoint").value.trim() : (settingsState.huggingface_endpoint || byId("hfEndpoint").value.trim()),
-      huggingface_token: saveModelSource ? byId("hfToken").value.trim() : "",
-      clear_huggingface_token: saveModelSource && byId("clearHFToken").checked,
-      default_revision: saveModelSource ? byId("defaultRevision").value.trim() : (settingsState.default_revision || byId("defaultRevision").value.trim())
+      model_directory: current.model_directory,
+      mlx_model_directory: current.mlx_model_directory,
+      resident_mode: current.resident_mode,
+      ui_language: current.ui_language,
+      ui_theme: current.ui_theme,
+      huggingface_endpoint: current.huggingface_endpoint,
+      default_revision: current.default_revision,
+      ...patch
     };
   }
 
-  async function saveSettings(scope, button, message, successMessage) {
+  function queueSettingsSave(button, message, operation, successMessage) {
+    pendingSettingsSaves += 1;
+    saveButtonCounts.set(button, (saveButtonCounts.get(button) || 0) + 1);
+    const version = (saveMessageVersions.get(message) || 0) + 1;
+    saveMessageVersions.set(message, version);
     button.disabled = true;
-    message.textContent = "";
-    try {
-      const payload = settingsPayload(scope);
-      try {
-        await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
-      } catch (error) {
-        const rejectedField = error.message.match(/unknown field\s+"([^"]+)"/i)?.[1];
-        const rollingUpdateFields = new Set([
-          "ui_theme",
-          "default_fast_gguf_enabled",
-          "default_fast_gguf_strategy",
-          "default_kv_cache_quantization_enabled",
-          "default_mmap_enabled",
-          "default_dflash_enabled"
-        ]);
-        if (!rejectedField || !rollingUpdateFields.has(rejectedField)) throw error;
-        const compatiblePayload = { ...payload };
-        delete compatiblePayload[rejectedField];
-        await api("/api/settings", { method: "PUT", body: JSON.stringify(compatiblePayload) });
-      }
-      await loadSettings();
-      message.textContent = `${t(successMessage)}。`;
-      showMessage(successMessage);
-    } catch (error) {
-      message.textContent = error.message;
-    } finally {
-      button.disabled = false;
+    message.textContent = t("正在儲存…");
+    message.setAttribute("role", "status");
+    const task = settingsSaveQueue.then(operation);
+    settingsSaveQueue = task.catch(() => {});
+    return task.then((saved) => {
+      if (saveMessageVersions.get(message) !== version) return;
+      message.textContent = saved === false ? "" : t(successMessage);
+      if (saved !== false) showMessage(successMessage);
+    }).catch((error) => {
+      if (saveMessageVersions.get(message) === version) message.textContent = error.message;
+      showMessage(error.message, "error");
+    }).finally(() => {
+      pendingSettingsSaves -= 1;
+      saveButtonCounts.set(button, saveButtonCounts.get(button) - 1);
+      button.disabled = saveButtonCounts.get(button) > 0;
+    });
+  }
+
+  async function saveSettings(scope, button, message, successMessage, fields = null) {
+    const automatic = fields !== null;
+    const names = fields || Object.keys(settingFields).filter((field) => settingFields[field].scope === scope);
+    const patch = Object.fromEntries(names.map((field) => [field, settingValue(field)]));
+    if (patch.remove_original_gguf_after_conversion && !settingsState.remove_original_gguf_after_conversion
+      && !window.confirm(t("啟用後，Fast GGUF 成功載入且模型服務正常時，原始 GGUF 會從硬碟永久移除。確定要啟用？"))) {
+      byId("removeOriginalGGUFAfterConversion").checked = false;
+      updateModelFeatureDefaultLabels();
+      return;
     }
+    const versions = Object.fromEntries(names.map((field) => {
+      const version = (settingVersions.get(field) || 0) + 1;
+      settingVersions.set(field, version);
+      return [field, version];
+    }));
+    await queueSettingsSave(button, message, async () => {
+      let previous = settingsState;
+      try {
+        previous = await api("/api/settings");
+        settingsState = previous;
+        settingsState = await api("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify(settingsWritePayload(previous, patch))
+        });
+        restoreSettingValues(patch, versions, { ...settingsState, huggingface_token: "" });
+      } catch (error) {
+        if (automatic) restoreSettingValues(patch, versions, previous);
+        throw error;
+      }
+    }, successMessage);
+  }
+
+  function setupSettingsAutosave() {
+    const exclusiveFields = ["default_kv_cache_quantization_enabled", "default_dflash_enabled"];
+    Object.entries(settingFields).forEach(([field, definition]) => {
+      settingControls(field).forEach((input) => {
+        if (!input.matches('select, input[type="checkbox"], input[type="radio"]')) return;
+        input.addEventListener("change", () => {
+          if (input.type === "radio" && !input.checked) return;
+          const [buttonID, messageID] = settingForms[definition.scope];
+          const fields = exclusiveFields.includes(field) ? exclusiveFields : [field];
+          saveSettings(definition.scope, byId(buttonID), byId(messageID), "設定已自動儲存", fields);
+        });
+      });
+    });
+  }
+
+  async function initializeSettingsControls(load, controls) {
+    const previous = controls.map((input) => [input, input.disabled]);
+    controls.forEach((input) => { input.disabled = true; });
+    // 初始讀取失敗時保持停用，避免把畫面的預設值誤當成已保存的設定。
+    await load();
+    previous.forEach(([input, disabled]) => { input.disabled = disabled; });
   }
 
   function displayVersion(value) {
@@ -867,31 +967,7 @@
       if (input.checked) setTheme(input.value);
     });
   });
-  byId("residentMode").addEventListener("change", async () => {
-    const toggle = byId("residentMode");
-    const requested = toggle.checked;
-    toggle.disabled = true;
-    updateResidentModeLabel();
-    try {
-      const settings = await api("/api/settings/resident-mode", {
-        method: "PUT",
-        body: JSON.stringify({ enabled: requested })
-      });
-      settingsState = settings;
-      toggle.checked = Boolean(settings.resident_mode);
-      updateResidentModeLabel();
-      notifyNativeResidentMode(settings.resident_mode);
-      showMessage(settings.resident_mode
-        ? "常駐模式已啟用，可從系統選單列重新開啟視窗"
-        : "常駐模式已關閉，關閉視窗將停止服務");
-    } catch (error) {
-      toggle.checked = !requested;
-      updateResidentModeLabel();
-      showMessage(error.message, "error");
-    } finally {
-      toggle.disabled = false;
-    }
-  });
+  byId("residentMode").addEventListener("change", updateResidentModeLabel);
 
   byId("directoryParentButton").addEventListener("click", () => {
     if (directoryState.parent) loadDirectory(directoryState.parent);
@@ -919,9 +995,56 @@
     await saveSettings("general", byId("saveSettingsButton"), byId("settingsMessage"), "設定已保存");
   });
 
+  function updateClearHFTokenButton() {
+    byId("clearHFToken").disabled = clearingHFToken
+      || (!settingsState.huggingface_token_set && !byId("hfToken").value.trim());
+  }
+
+  byId("hfToken").addEventListener("input", updateClearHFTokenButton);
+  byId("clearHFToken").addEventListener("click", async () => {
+    if (clearingHFToken || byId("saveModelSourceButton").disabled) return;
+    const input = byId("hfToken");
+    const saveButton = byId("saveModelSourceButton");
+    const message = byId("modelSourceMessage");
+    const inputWasDisabled = input.disabled;
+    clearingHFToken = true;
+    input.disabled = true;
+    updateClearHFTokenButton();
+    try {
+      await queueSettingsSave(saveButton, message, async () => {
+        const current = await api("/api/settings");
+        settingsState = current;
+        if (current.huggingface_token_set) {
+          if (!window.confirm(t("確定要清除本機儲存的 Access Token？需要時必須重新輸入。"))) return false;
+          settingsState = await api("/api/settings", {
+            method: "PUT",
+            body: JSON.stringify(settingsWritePayload(current, { clear_huggingface_token: true }))
+          });
+        }
+        settingsState.huggingface_token_set = false;
+        input.value = "";
+      }, "Access Token 已清除");
+    } finally {
+      clearingHFToken = false;
+      input.disabled = inputWasDisabled;
+      updateClearHFTokenButton();
+    }
+  });
+
   byId("modelSourceForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (clearingHFToken) return;
     await saveSettings("model-source", byId("saveModelSourceButton"), byId("modelSourceMessage"), "模型來源已保存");
+  });
+
+  byId("calibrationSettingsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSettings(
+      "calibration",
+      byId("saveCalibrationSettingsButton"),
+      byId("calibrationSettingsMessage"),
+      "效能校準設定已保存"
+    );
   });
 
   ["defaultFastGGUFEnabled", "defaultMMapEnabled"].forEach((inputID) => {
@@ -955,6 +1078,22 @@
       byId("saveFastGGUFDefaultsButton"),
       byId("fastGGUFDefaultsMessage"),
       "快速 GGUF 策略已保存"
+    );
+  });
+  [
+    "removeOriginalGGUFAfterConversion",
+    "autoPerformanceCalibrationEnabled",
+    "memoryPressureProtectionEnabled"
+  ].forEach((inputID) => {
+    byId(inputID).addEventListener("change", updateModelFeatureDefaultLabels);
+  });
+  byId("experimentalSettingsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSettings(
+      "experimental",
+      byId("saveExperimentalSettingsButton"),
+      byId("experimentalSettingsMessage"),
+      "實驗性設定已保存"
     );
   });
 
@@ -1067,43 +1206,61 @@
   byId("authenticationEnabled").addEventListener("change", async () => {
     const toggle = byId("authenticationEnabled");
     const message = byId("adminCredentialsMessage");
-    if (!adminCredentialsState.authenticationEnabled || toggle.checked) {
-      disableAuthenticationConfirmed = false;
+    const button = byId("saveAdminCredentialsButton");
+    const requested = toggle.checked;
+    const previous = adminCredentialsState.authenticationEnabled;
+    if (button.disabled || requested === previous) {
+      toggle.checked = previous;
       updateAdminCredentialFields();
       return;
     }
-
-    disableAuthenticationConfirmed = confirmDisableAuthentication();
-    if (!disableAuthenticationConfirmed) {
-      toggle.checked = true;
+    disableAuthenticationConfirmed = false;
+    if (!requested) {
+      disableAuthenticationConfirmed = confirmDisableAuthentication();
+      if (!disableAuthenticationConfirmed) {
+        toggle.checked = previous;
+        updateAdminCredentialFields();
+        return;
+      }
+    }
+    const password = requested ? byId("newAdminPassword").value : "";
+    if (requested && (!password || password !== byId("confirmAdminPassword").value)) {
+      toggle.checked = previous;
       updateAdminCredentialFields();
+      message.textContent = t(password
+        ? "新密碼與確認密碼不一致。"
+        : "啟用登入驗證前，請先填寫新密碼與確認密碼，再開啟此開關。");
+      byId(password ? "confirmAdminPassword" : "newAdminPassword").focus();
       return;
     }
-
     toggle.disabled = true;
-    message.textContent = "正在關閉登入驗證…";
     updateAdminCredentialFields();
     try {
-      await api("/api/admin-credentials", {
-        method: "PUT",
-        body: JSON.stringify({
-          account: adminCredentialsState.account,
-          current_password: "",
-          password: "",
-          authentication_enabled: false,
-          disable_authentication_confirmed: true
-        })
-      });
-      await loadAdminCredentials();
-      byId("logoutButton").hidden = true;
-      message.textContent = "登入驗證已關閉並保存。";
-      showMessage("管理介面已改為不需登入");
-    } catch (error) {
-      toggle.checked = true;
-      disableAuthenticationConfirmed = false;
-      message.textContent = error.message;
-      showMessage(error.message, "error");
-      updateAdminCredentialFields();
+      await queueSettingsSave(button, message, async () => {
+        try {
+          const result = await api("/api/admin-credentials", {
+            method: "PUT",
+            body: JSON.stringify({
+              account: adminCredentialsState.account,
+              current_password: "",
+              password,
+              authentication_enabled: requested,
+              disable_authentication_confirmed: disableAuthenticationConfirmed
+            })
+          });
+          adminCredentialsState.authenticationEnabled = Boolean(result.authentication_enabled);
+          toggle.checked = adminCredentialsState.authenticationEnabled;
+          disableAuthenticationConfirmed = false;
+          updateAdminCredentialFields();
+          byId("logoutButton").hidden = !result.authentication_enabled;
+          if (result.authentication_enabled) window.setTimeout(() => location.replace("/login.html"), 500);
+        } catch (error) {
+          toggle.checked = previous;
+          disableAuthenticationConfirmed = false;
+          updateAdminCredentialFields();
+          throw error;
+        }
+      }, requested ? "登入設定已保存，請重新登入" : "登入驗證已關閉並保存。");
     } finally {
       toggle.disabled = false;
     }
@@ -1116,6 +1273,7 @@
     const confirmPassword = byId("confirmAdminPassword").value;
     const button = byId("saveAdminCredentialsButton");
     const message = byId("adminCredentialsMessage");
+    if (button.disabled) return;
 
     if (newPassword !== confirmPassword) {
       message.textContent = "新密碼與確認密碼不一致。";
@@ -1161,35 +1319,61 @@
     }
   });
 
-  byId("apiKeyEnabled").addEventListener("change", () => {
-    updateSecurityMode();
-    renderAccessKeys();
+  async function saveAccessControl(fields = null) {
+    const button = byId("saveAccessControlButton");
+    const message = byId("accessControlMessage");
+    const controls = { api_key_enabled: "apiKeyEnabled", ip_allowlist_enabled: "ipAllowlistEnabled" };
+    const names = fields || Object.keys(controls);
+    const patch = Object.fromEntries(names.map((field) => [field, byId(controls[field]).checked]));
+    if (!fields) patch.ip_allowlist = allowlistValues();
+    const allowlistText = byId("ipAllowlist").value;
+    const versions = Object.fromEntries(names.map((field) => {
+      const key = `access.${field}`;
+      const version = (settingVersions.get(key) || 0) + 1;
+      settingVersions.set(key, version);
+      return [field, version];
+    }));
+    const restore = (policy) => {
+      names.forEach((field) => {
+        const input = byId(controls[field]);
+        if (settingVersions.get(`access.${field}`) === versions[field] && input.checked === patch[field]) {
+          input.checked = Boolean(policy[field]);
+        }
+      });
+      updateSecurityMode();
+      renderAccessKeys();
+    };
+    await queueSettingsSave(button, message, async () => {
+      let previous = accessControlState;
+      try {
+        previous = await api("/api/access-control");
+        accessControlState = previous;
+        accessControlState = await api("/api/access-control", {
+          method: "PUT",
+          body: JSON.stringify({ ...previous.policy, ...patch })
+        });
+        restore(accessControlState.policy);
+        if (!fields && byId("ipAllowlist").value === allowlistText) {
+          byId("ipAllowlist").value = (accessControlState.policy.ip_allowlist || []).join("\n");
+        }
+      } catch (error) {
+        if (fields) restore(previous.policy || {});
+        throw error;
+      }
+    }, fields ? "設定已自動儲存" : "安全設定已保存，執行中的 Runtime 將在數秒內套用。");
+  }
+
+  [["apiKeyEnabled", "api_key_enabled"], ["ipAllowlistEnabled", "ip_allowlist_enabled"]].forEach(([id, field]) => {
+    byId(id).addEventListener("change", () => {
+      updateSecurityMode();
+      renderAccessKeys();
+      saveAccessControl([field]);
+    });
   });
-  byId("ipAllowlistEnabled").addEventListener("change", updateSecurityMode);
 
   byId("accessControlForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = byId("saveAccessControlButton");
-    const message = byId("accessControlMessage");
-    button.disabled = true;
-    message.textContent = "";
-    try {
-      accessControlState = await api("/api/access-control", {
-        method: "PUT",
-        body: JSON.stringify({
-          api_key_enabled: byId("apiKeyEnabled").checked,
-          ip_allowlist_enabled: byId("ipAllowlistEnabled").checked,
-          ip_allowlist: allowlistValues()
-        })
-      });
-      await loadAccessControl();
-      message.textContent = "安全設定已保存，執行中的 Runtime 將在數秒內套用。";
-      showMessage("模型 API 安全設定已保存");
-    } catch (error) {
-      message.textContent = error.message;
-    } finally {
-      button.disabled = false;
-    }
+    await saveAccessControl();
   });
 
   byId("issueAccessKeyButton").addEventListener("click", async () => {
@@ -1232,7 +1416,23 @@
 
   setupSettingsNavigation();
   renderManagementURLs([]);
-  Promise.all([loadSettings(), loadAdminCredentials(), loadAccessControl(), loadSystemInfo(), loadAppVersion()])
+  window.addEventListener("beforeunload", (event) => {
+    if (!pendingSettingsSaves) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  const autoSaveControls = Object.keys(settingFields).flatMap(settingControls)
+    .filter((input) => input.matches('select, input[type="checkbox"], input[type="radio"]'));
+  Promise.all([
+    initializeSettingsControls(async () => {
+      await loadSettings();
+      setupSettingsAutosave();
+    }, [...autoSaveControls, ...Object.values(settingForms).map(([buttonID]) => byId(buttonID))]),
+    initializeSettingsControls(loadAdminCredentials, [byId("authenticationEnabled"), byId("saveAdminCredentialsButton")]),
+    initializeSettingsControls(loadAccessControl, [byId("apiKeyEnabled"), byId("ipAllowlistEnabled"), byId("saveAccessControlButton")]),
+    loadSystemInfo(),
+    loadAppVersion()
+  ])
     .catch((error) => showMessage(error.message, "error"));
   loadNetPassStatus(true);
   window.setInterval(() => {
