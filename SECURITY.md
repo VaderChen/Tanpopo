@@ -12,6 +12,7 @@
 
 ## 本機資料與網路邊界
 
+- 新安裝預設關閉管理介面登入，管理服務仍監聽 `0.0.0.0:10082`。如需讓其他裝置存取，應先開啟登入驗證、設定新密碼並限制防火牆範圍；範本帳密不適合網路公開使用。既有明確保存的登入設定不會因更新而覆寫。
 - `agent.properties` 與 `data/` 只供本機執行使用，不應提交至版本控制。
 - Hugging Face Token、模型 API Access Key 與 NetPass API Key 不應出現在 URL、原始碼、README、Release note 或公開日誌。
 - 模型 API Access Key 只保存雜湊；可回傳明文的金鑰只在核發當下顯示一次。

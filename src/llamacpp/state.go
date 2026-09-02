@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -53,9 +54,14 @@ func newRuntimeStateStore(path string) (*runtimeStateStore, error) {
 	store := &runtimeStateStore{path: absolute}
 	content, err := os.ReadFile(absolute)
 	if os.IsNotExist(err) {
+		// 初始 Runtime 依服務主機平台決定，不使用瀏覽器平台或覆寫既有選擇。
+		initialRuntime := domain.RuntimeLlamaServer
+		if runtime.GOOS == "darwin" {
+			initialRuntime = domain.RuntimeMLXServer
+		}
 		state := persistedRuntimeState{
 			Version:   runtimeStateVersion,
-			Runtime:   domain.RuntimeLlamaServer,
+			Runtime:   initialRuntime,
 			UpdatedAt: time.Now(),
 		}
 		if err := store.Save(state); err != nil {
@@ -132,6 +138,7 @@ func (s *runtimeStateStore) Save(state persistedRuntimeState) error {
 func normalizeRuntimeState(state persistedRuntimeState) persistedRuntimeState {
 	state.Runtime = strings.TrimSpace(state.Runtime)
 	if state.Runtime == "" {
+		// 舊版未記錄 Runtime 的狀態原本使用 llama-server，維持相容性。
 		state.Runtime = domain.RuntimeLlamaServer
 	}
 	state.Model = filepath.ToSlash(strings.TrimSpace(state.Model))

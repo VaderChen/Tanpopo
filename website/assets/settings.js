@@ -4,7 +4,7 @@
   let settingsState = {};
   let clearingHFToken = false;
   let accessControlState = { policy: {}, keys: [] };
-  let adminCredentialsState = { authenticationEnabled: true, account: "root" };
+  let adminCredentialsState = { authenticationEnabled: false, account: "root" };
   let netPassState = {};
   let netPassFormHydrated = false;
   let netPassPollBusy = false;

@@ -32,7 +32,7 @@ func DefaultAgentConfig() domain.AgentConfig {
 		RuntimeStatePath:      "./data/runtime_state.json",
 		DefaultAccount:        "root",
 		DefaultPassword:       "root",
-		DisableAuthentication: false,
+		DisableAuthentication: true,
 		SessionHours:          24,
 	}
 }

@@ -57,7 +57,9 @@ The first launch creates `agent.properties` from `agent.sample.properties`. The 
 http://127.0.0.1:10082
 ```
 
-Initial local credentials come from `agent.sample.properties` and are intended only for the first launch. Change them before allowing LAN access or enabling reverse proxy. You can also disable admin sign-in from Settings after confirming the warning; credentials remain local so authentication can be re-enabled later.
+On a fresh installation, a macOS server defaults to `mlx-server`; other server platforms default to `llama-server`. This follows the machine running Tanpopo, not the browser's operating system. Saved Runtime selections are preserved, and no model is started solely by choosing this default.
+
+Admin sign-in is off by default on new installations (`disable_authentication: true`), so the management interface opens without a login prompt. An explicitly saved authentication setting is preserved. Before allowing LAN access or enabling a reverse proxy, turn on **System settings → Admin sign-in** and set a new password; the default listener accepts connections on all interfaces. Template credentials remain local and are not suitable for network exposure. Disabling sign-in later still requires confirmation, and model API access-key/IP policies remain separate.
 
 On macOS, resident mode places Tanpopo in the system menu bar. Closing the window then hides only the UI; use **Quit Tanpopo** from the menu to stop the service completely. Resident mode is off by default.
 

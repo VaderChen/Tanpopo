@@ -8,8 +8,9 @@
 
 ## 主要功能
 
-- 本機帳號密碼登入；首次啟動後應立即變更範本提供的初始登入資料，也可在系統設定經確認後關閉登入驗證，不建立使用者資料庫。
+- 管理介面登入在新安裝時預設關閉，可直接進入管理畫面；既有明確保存的登入設定不會被覆寫。需要網路存取時應先開啟登入驗證並設定新密碼，不建立使用者資料庫。
 - llama-server 與 mlx-server Runtime 由部署包自動安裝、解析與版本管理，不需設定執行檔目錄。
+- 新安裝依服務主機平台選擇預設 Runtime：macOS 使用 `mlx-server`，其他平台使用 `llama-server`；與瀏覽器所在平台無關，不覆寫已保存的選擇，也不因預設值而自動載入模型。
 - GGUF 模型目錄預設為 `~/services/models`，MLX 模型目錄預設為 `~/services/mlx-models`，兩者都可在系統設定調整。
 - 支援 Hugging Face 公開、gated 與 private repository 的 GGUF 單檔或完整 MLX 模型下載。
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
@@ -84,7 +85,9 @@ http://127.0.0.1:10082
 
 區域網路內其他裝置可使用 `http://<主機區網 IP>:10082` 連線；實際可達範圍取決於主機防火牆與路由設定。
 
-初始登入資料由 `agent.sample.properties` 提供，僅供第一次本機啟動使用；正式使用、開放區域網路或啟用反向代理前必須先變更。可在「系統設定」即時修改管理帳號與密碼；保存後會撤銷所有既有 Session，並要求使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用只存在記憶體的瀏覽工作階段 Cookie；勾選後則建立以目前帳密衍生金鑰簽章的持久 Cookie，可跨 Tanpopo 服務重啟驗證，帳號或密碼一旦變更便立即失效。網站儲存空間不會保存帳號或密碼。
+新安裝的「管理介面登入」預設關閉（`disable_authentication: true`），不需登入即可進入管理畫面；既有明確保存的登入設定會保留。管理服務預設監聽所有網路介面，因此開放區域網路或啟用反向代理前，應先在「系統設定 → 管理介面登入」開啟驗證並設定新密碼，不可沿用範本初始帳密。之後關閉登入仍需確認；模型 API 的金鑰與 IP 白名單設定獨立管理。
+
+管理帳號密碼保存在本機。可在「系統設定」即時修改；保存後會撤銷所有既有 Session，啟用驗證時須使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用只存在記憶體的瀏覽工作階段 Cookie；勾選後則建立以目前帳密衍生金鑰簽章的持久 Cookie，可跨 Tanpopo 服務重啟驗證，帳號或密碼一旦變更便立即失效。網站儲存空間不會保存帳號或密碼。
 
 ## llama-server Runtime
 
@@ -342,7 +345,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
   "runtime_state_path": "./data/runtime_state.json",
   "default_account": "root",
   "default_pwd": "root",
-  "disable_authentication": false,
+  "disable_authentication": true,
   "session_hours": 24
 }
 ```
