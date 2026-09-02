@@ -1090,9 +1090,10 @@ public class Qwen35: Module, VLMModel {
     public func prepare(
         _ input: LMInput,
         cache: [any KVCache],
-        windowSize _: Int?
+        windowSize: Int?
     ) throws -> PrepareResult {
-        let inputIds = input.text.tokens
+        let tokens = input.text.tokens
+        let inputIds = tokens.ndim == 1 ? tokens[.newAxis] : tokens
 
         var pixelValues: MLXArray?
         var imageFrames: [THW]?
@@ -1133,22 +1134,41 @@ public class Qwen35: Module, VLMModel {
             inputEmbeddings = mergedEmbeds
         }
 
+        // 多模態座標只能根據完整輸入計算一次，之後與 embeddings 同步切分。
+        // 不把 pixelValues 再傳入各段，以免重設 RoPE state。
+        let attentionMask = input.text.mask.map { $0.ndim == 1 ? $0[.newAxis] : $0 }
+        let (positionIds, deltas) = Qwen3VLLanguage.getRopeIndex(
+            inputIds: inputIds,
+            imageGridTHW: imageFrames,
+            videoGridTHW: videoFrames,
+            spatialMergeSize: config.visionConfiguration.spatialMergeSize,
+            imageTokenId: config.imageTokenId,
+            videoTokenId: config.videoTokenId,
+            visionStartTokenId: config.visionStartTokenId,
+            attentionMask: attentionMask)
+        var state = LMOutput.State()
+        state[ropeDeltasKey] = deltas
         let typedCache = castCache(cache)
-        let output = withPreparedCache(cache, lengths: input.text.sequenceLengths) {
-            languageModel(
-                inputIds,
-                inputsEmbeds: inputEmbeddings,
-                cache: typedCache,
-                state: nil,
-                mask: input.text.mask,
-                positionIds: nil,
-                pixelValues: pixelValues,
-                imageGridTHW: imageFrames,
-                videoGridTHW: videoFrames
-            )
+        return try prefillInChunks(
+            tokenCount: inputIds.dim(1), windowSize: windowSize,
+            cache: cache, initialState: state
+        ) { range, state in
+            let text = LMInput.Text(
+                tokens: inputIds[0..., range], mask: attentionMask?[0..., range])
+            return withPreparedCache(cache, lengths: text.sequenceLengths) {
+                languageModel(
+                    text.tokens,
+                    inputsEmbeds: inputEmbeddings?[0..., range, 0...],
+                    cache: typedCache,
+                    state: state,
+                    mask: text.mask,
+                    positionIds: positionIds[0..., 0..., range])
+            }
         }
+    }
 
-        return .logits(output)
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        min(input.text.tokens.dim(-1), max(1, windowSize))
     }
 
     public func callAsFunction(

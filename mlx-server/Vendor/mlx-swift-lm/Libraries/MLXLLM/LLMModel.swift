@@ -14,34 +14,28 @@ public protocol LLMModel: LanguageModel, LoRAModel {
 
 extension LLMModel {
 
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        min(input.text.tokens.dim(-1), max(1, windowSize))
+    }
+
     /// Default prepare step for ``LLMModel``.
     ///
-    /// This will evaluate the prompt in chunks until there is a small number of
-    /// tokens left to feed into the `TokenIterator`.
+    /// 分段處理完整輸入，回傳最後位置的 logits 與需延續的 decoder state。
     public func prepare(_ input: LMInput, cache: [KVCache], windowSize: Int?) throws
         -> PrepareResult
     {
-        let prefillStepSize = windowSize ?? 512
-        var y = input.text
-
-        withPreparedCache(cache, lengths: y.sequenceLengths) {
-            // Prepare the prompt in chunks if larger than the prefill size.
-            // asyncEval lets the CPU build chunk N+1's graph while the GPU evaluates
-            // chunk N.
-            var state: LMOutput.State?
-            while y.tokens.size > prefillStepSize {
-                let input = y[.newAxis, ..<prefillStepSize]
-                let output = self(input, cache: cache.isEmpty ? nil : cache, state: state)
-                state = output.state
-                asyncEval(cache)
-                y = y[prefillStepSize...]
+        let tokens = input.text.tokens
+        let batched = tokens.ndim == 1 ? tokens[.newAxis] : tokens
+        let mask = input.text.mask.map { $0.ndim == 1 ? $0[.newAxis] : $0 }
+        return try prefillInChunks(
+            tokenCount: batched.dim(-1), windowSize: windowSize, cache: cache
+        ) { range, state in
+            let text = LMInput.Text(
+                tokens: batched[0..., range], mask: mask?[0..., range])
+            return withPreparedCache(cache, lengths: text.sequenceLengths) {
+                self(text, cache: cache.isEmpty ? nil : cache, state: state)
             }
-
-            // Single sync after the loop to flush any remaining async work.
-            eval(cache)
         }
-
-        return .tokens(y)
     }
 
     public func messageGenerator(tokenizer: Tokenizer) -> MessageGenerator {

@@ -178,7 +178,13 @@ POST /v1/completions
 POST /completion
 ```
 
-`/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts，以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 會在生成期間逐 Token 輸出 OpenAI 相容 SSE；客戶端關閉串流或取消請求時，SwiftNIO Channel 會立即取消對應的 MLX 生成 Task，不會等待整段回答生成完畢。`/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
+`/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts，以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 在完成格式、模型與生成名額檢查後便建立 OpenAI 相容 SSE，不等待 Tokenization 或 Prefill；建立時及之後每 10 秒送出保活註解，生成文字則隨 token 逐段輸出。保活與 assistant role chunk 不代表已有思考／回答文字，也不會消除長上下文的首 token 延遲。
+
+HTTP 層在等待回應期間仍持續偵測斷線。客戶端實際中斷 HTTP 請求／回應串流時，會透過請求專屬取消訊號停止後續 Prefill／生成，不影響其他使用者；已提交 GPU 的當前運算仍需收尾，不保證整體 GPU 使用率立即歸零。同一連線的 Keep-Alive 與 HTTP/1 pipelining 依序回應，並限制等待佇列與緩衝容量。
+
+MLX Runtime 的 SPEC 是支援多人並行，目前階段最多 4 個生成請求，第 5 個回傳 HTTP 429。長輸入在模型 forward 前檢查上下文與記憶體預算，必要時縮小本次 Prefill 分段，不截斷輸入、不改寫設定或校準紀錄；未宣告分段能力的路徑按完整輸入保守估算。非串流的上下文／預估記憶體超限回傳 HTTP 413，執行中記憶體超限回傳 HTTP 503；串流建立後的錯誤改送 SSE error。詳見 [MLX Runtime 規格](docs/MLX-RUNTIME-SPEC.md)及 [API 延遲與取消排查](docs/MLX-RUNTIME-TROUBLESHOOTING.md)。
+
+`/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
 
 內建 MLX Profile 包含一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。Profile 的量化選單決定 Q8 或 Q4，執行狀態頁的 Switch 決定本次是否啟用；開啟時 Go 後端會加入 `--kv-bits`、`--kv-group-size 64`、`--quantized-kv-start 2048`，並把 Context Size 轉成 `--max-kv-size`。KV Cache 量化與 DFlash 不可同時啟用。其他常用原生參數包含 `--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 

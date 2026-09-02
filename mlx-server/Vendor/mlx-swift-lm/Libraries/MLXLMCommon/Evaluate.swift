@@ -673,22 +673,27 @@ public struct TokenIterator: TokenIteratorProtocol {
     }
 
     mutating func prepare(input: LMInput, windowSize: Int? = nil) throws {
-        processor?.prompt(input.text.tokens)
-
-        switch try model.prepare(input, cache: cache, windowSize: windowSize) {
-        case .tokens(let tokens):
-            y = tokens
-
-            // evaluate the remainder of the prompt -- this primes the pump
-            let token = step(previous: y)
-            y = .init(tokens: token)
-            asyncEval(y.tokens)
-
-        case .logits(let result):
-            y = .init(tokens: convertToToken(logits: result.logits))
-            asyncEval(y.tokens)
-
-            break
+        try withError { error in
+            try GenerationSafety.checkCancellation()
+            try GenerationSafety.checkResources?()
+            processor?.prompt(input.text.tokens)
+            let prepared = try model.prepare(input, cache: cache, windowSize: windowSize)
+            try error.check()
+            try GenerationSafety.checkCancellation()
+            switch prepared {
+            case .tokens(let tokens):
+                y = tokens
+                let token = step(previous: y)
+                try error.check()
+                y = .init(tokens: token)
+            case .logits(let result):
+                // 多模態的 RoPE delta 等 state 必須延續到第一個 decode token。
+                state = result.state
+                y = .init(tokens: convertToToken(logits: result.logits))
+                try error.check()
+            }
+            eval(y.tokens)
+            try error.check()
         }
     }
 
@@ -1827,110 +1832,124 @@ private func generateLoopTask<Handler: TokenLoopHandler>(
 
     // Launch a Task to perform iteration asynchronously.
     let task = Task {
-        let performIteration = {
-            var iterator = iterator.consume()
-            var handler = handler.consume()
+        let performIteration = { () throws -> Void in
+            try withError { error in
+                var iterator = iterator.consume()
+                var handler = handler.consume()
 
-            var start = Date.timeIntervalSinceReferenceDate
-            var promptTime: TimeInterval = 0
-            var tokenCount = 0
-            var stopReason: GenerateStopReason?
+                var start = Date.timeIntervalSinceReferenceDate
+                var promptTime: TimeInterval = 0
+                var tokenCount = 0
+                var stopReason: GenerateStopReason?
 
-            let stopTokenIds = buildStopTokenIds(
-                modelConfiguration: modelConfiguration,
-                tokenizer: tokenizer
-            )
+                let stopTokenIds = buildStopTokenIds(
+                    modelConfiguration: modelConfiguration,
+                    tokenizer: tokenizer
+                )
 
-            tokenLoop: while let token = iterator.next() {
-                // Check for cancellation on every loop iteration.
-                if Task.isCancelled {
-                    stopReason = .cancelled
-                    break
-                }
-
-                if promptTime == 0 {
-                    let now = Date.timeIntervalSinceReferenceDate
-                    promptTime = now - start
-                    start = now
-                }
-
-                // Check for end-of-sequence tokens
-                if token == tokenizer.unknownTokenId || stopTokenIds.contains(token) {
-                    if includeStopToken {
-                        tokenCount += 1
-                        switch handler.onStopToken(token, emit: continuation.yield) {
-                        case .more:
-                            break
-                        case .stop:
-                            stopReason = .stop
-                            break tokenLoop
-                        case .cancelled:
-                            stopReason = .cancelled
-                            break tokenLoop
-                        }
-                    } else {
-                        iterator.discardGeneratedToken()
+                tokenLoop: while true {
+                    // Check for cancellation on every loop iteration.
+                    if GenerationSafety.isCancelled {
+                        stopReason = .cancelled
+                        break
                     }
-                    stopReason = .stop
-                    break
+                    try GenerationSafety.checkResources?()
+                    let nextToken = iterator.next()
+                    try error.check()
+                    guard let token = nextToken else { break }
+
+                    if promptTime == 0 {
+                        let now = Date.timeIntervalSinceReferenceDate
+                        promptTime = now - start
+                        start = now
+                    }
+
+                    // Check for end-of-sequence tokens
+                    if token == tokenizer.unknownTokenId || stopTokenIds.contains(token) {
+                        if includeStopToken {
+                            tokenCount += 1
+                            switch handler.onStopToken(token, emit: continuation.yield) {
+                            case .more:
+                                break
+                            case .stop:
+                                stopReason = .stop
+                                break tokenLoop
+                            case .cancelled:
+                                stopReason = .cancelled
+                                break tokenLoop
+                            }
+                        } else {
+                            iterator.discardGeneratedToken()
+                        }
+                        stopReason = .stop
+                        break
+                    }
+
+                    tokenCount += 1
+                    switch handler.onToken(token, emit: continuation.yield) {
+                    case .more:
+                        break
+                    case .stop:
+                        stopReason = .stop
+                        break tokenLoop
+                    case .cancelled:
+                        stopReason = .cancelled
+                        break tokenLoop
+                    }
                 }
 
-                tokenCount += 1
-                switch handler.onToken(token, emit: continuation.yield) {
-                case .more:
-                    break
-                case .stop:
-                    stopReason = .stop
-                    break tokenLoop
-                case .cancelled:
-                    stopReason = .cancelled
-                    break tokenLoop
+                if stopReason == nil {
+                    if GenerationSafety.isCancelled {
+                        stopReason = .cancelled
+                    } else if let maxTokens = iterator.maxTokens, iterator.tokenCount >= maxTokens {
+                        stopReason = .length
+                    } else {
+                        stopReason = .cancelled
+                    }
                 }
+
+                handler.onGenerationEnd(emit: continuation.yield)
+
+                let now = Date.timeIntervalSinceReferenceDate
+                let generateTime = now - start
+
+                let mtpStats = iterator as? MTPStatsCollecting
+                let info = GenerateCompletionInfo(
+                    promptTokenCount: promptTokenCount,
+                    generationTokenCount: tokenCount,
+                    promptTime: promptTime + iterator.promptPrefillTime,
+                    generationTime: generateTime,
+                    stopReason: stopReason ?? .cancelled,
+                    proposedDraftTokens: mtpStats?.proposedDraftTokens,
+                    acceptedDraftTokens: mtpStats?.acceptedDraftTokens,
+                    passthroughReason: mtpStats?.passthroughReason,
+                    speculativeDecodingTelemetry: iterator.speculativeDecodingTelemetry
+                )
+                // Synchronize with the stream to ensure tasks are completed
+                Stream().synchronize()
+                try error.check()
+                _ = continuation.yield(handler.infoEvent(info))
             }
+        }
 
-            if stopReason == nil {
-                if Task.isCancelled {
-                    stopReason = .cancelled
-                } else if let maxTokens = iterator.maxTokens, iterator.tokenCount >= maxTokens {
-                    stopReason = .length
+        do {
+            try await withError {
+                if let ticket = wiredMemoryTicket {
+                    try await WiredMemoryTicket.withWiredLimit(ticket) {
+                        try performIteration()
+                    }
                 } else {
-                    stopReason = .cancelled
+                    try performIteration()
                 }
             }
-
-            handler.onGenerationEnd(emit: continuation.yield)
-
-            let now = Date.timeIntervalSinceReferenceDate
-            let generateTime = now - start
-
-            let mtpStats = iterator as? MTPStatsCollecting
-            let info = GenerateCompletionInfo(
-                promptTokenCount: promptTokenCount,
-                generationTokenCount: tokenCount,
-                promptTime: promptTime + iterator.promptPrefillTime,
-                generationTime: generateTime,
-                stopReason: stopReason ?? .cancelled,
-                proposedDraftTokens: mtpStats?.proposedDraftTokens,
-                acceptedDraftTokens: mtpStats?.acceptedDraftTokens,
-                passthroughReason: mtpStats?.passthroughReason,
-                speculativeDecodingTelemetry: iterator.speculativeDecodingTelemetry
-            )
-            _ = continuation.yield(handler.infoEvent(info))
-
-            // Synchronize with the stream to ensure tasks are completed
-            Stream().synchronize()
-
-            // Finalize the stream
-            continuation.finish()
+        } catch {
+            // AsyncStream 本身不能拋錯，交回請求專屬 error box，由 HTTP 層
+            // 轉成 JSON / SSE error。失敗時不可再送出成功的 info event。
+            GenerationSafety.failure?.firstError = error
+            fputs("generation error: \(error.localizedDescription)\n", stderr)
         }
-
-        if let ticket = wiredMemoryTicket {
-            await WiredMemoryTicket.withWiredLimit(ticket) {
-                performIteration()
-            }
-        } else {
-            performIteration()
-        }
+        await GenerationSafety.didFinish?()
+        continuation.finish()
     }
 
     // When the consumer cancels (or ends) the stream, cancel our underlying task.

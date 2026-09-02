@@ -244,6 +244,9 @@ public protocol LanguageModel: BaseLanguageModel {
     /// - ``PrepareResult/logits(_:)`` to produce the next token from the prompt
     func prepare(_ input: LMInput, cache: [KVCache], windowSize: Int?) throws -> PrepareResult
 
+    /// 單次 Prefill forward 的最大 token 數；未宣告分段能力時保守視為整份輸入。
+    func prefillChunkSize(input: LMInput, windowSize: Int) -> Int
+
     /// Primary entry point to produce a step (single token) from the model
     func callAsFunction(_ input: LMInput.Text, cache: [KVCache]?, state: LMOutput.State?)
         -> LMOutput
@@ -257,6 +260,10 @@ public protocol LanguageModel: BaseLanguageModel {
 }
 
 extension LanguageModel {
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        input.text.tokens.dim(-1)
+    }
+
     public func callAsFunction(_ input: LMInput.Text, cache: [KVCache]?, state: LMOutput.State?)
         -> LMOutput
     {

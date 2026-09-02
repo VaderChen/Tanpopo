@@ -418,6 +418,10 @@ public class Gemma3TextModel: Module, LLMModel {
     }
 
     /// Handles prompt processing for sequences
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        input.text.tokens.dim(-1)
+    }
+
     public func prepare(
         _ input: LMInput, cache: [KVCache], windowSize: Int? = nil
     ) throws -> PrepareResult {

@@ -112,6 +112,7 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
     }
 
     mutating func prepare(input: LMInput, prefillStepSize: Int) throws {
+        try GenerationSafety.checkCancellation()
         let prompt = input.text.tokens
         guard prompt.size > 0 else {
             throw DFlashError.unsupportedGeneration("prompt 不可為空。")
@@ -122,9 +123,11 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
         var finalLogits: MLXArray?
         let captureLayerIDs = drafter.dflashDescriptor.targetLayerIDs
 
-        withPreparedCache(targetCache, lengths: input.text.sequenceLengths) {
+        try withPreparedCache(targetCache, lengths: input.text.sequenceLengths) {
             var start = 0
             while start < prompt.size {
+                try GenerationSafety.checkCancellation()
+                try GenerationSafety.checkResources?()
                 let end = Swift.min(prompt.size, start + Swift.max(1, prefillStepSize))
                 let chunk = prompt[start ..< end][.newAxis]
                 let output = target.dflashForward(
@@ -135,11 +138,12 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
                 )
                 hiddenChunks.append(output.hiddenStates)
                 finalLogits = output.logits
-                asyncEval(targetCache)
+                try checkedEval(targetCache, output.hiddenStates)
                 start = end
             }
             eval(targetCache)
         }
+        try GenerationSafety.checkCancellation()
 
         guard let finalLogits else {
             throw DFlashError.unsupportedGeneration("target prefill 沒有產生 logits。")

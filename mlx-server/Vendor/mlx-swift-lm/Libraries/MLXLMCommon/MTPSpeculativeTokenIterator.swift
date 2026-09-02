@@ -161,6 +161,7 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
     /// Prefill the main model with the prompt. The drafter has no cache to
     /// prime; its first-round inputs come from the prefill's `LMOutput.state`.
     mutating func prepare(input: LMInput, windowSize: Int? = nil) throws {
+        try GenerationSafety.checkCancellation()
         processor?.prompt(input.text.tokens)
 
         var prefillState = LMOutput.State()
@@ -175,6 +176,7 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
             let result = withPreparedCache(mainCache, lengths: targetInput.sequenceLengths) {
                 mainModel(targetInput, cache: mainCache, state: prefillState)
             }
+            try GenerationSafety.checkCancellation()
             var logits = result.logits[0..., -1, 0...]
             logits = processor?.process(logits: logits) ?? logits
             let token = sampler.sample(logits: logits)
@@ -210,6 +212,7 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
 
         switch try mainModel.prepare(input, cache: mainCache, windowSize: windowSize) {
         case .tokens(let tokens):
+            try GenerationSafety.checkCancellation()
             y = tokens
             // Final prompt position not yet evaluated -- run one forward to
             // produce the bonus token AND prime drafter state.
@@ -226,6 +229,7 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
             // decoding's bit-exact-equivalence-to-greedy guarantee.
             pendingTokens.append(token.item(Int.self))
         case .logits(let prefillResult):
+            try GenerationSafety.checkCancellation()
             // Some `prepare` implementations evaluate the final position
             // themselves and return logits directly; their `state` here may
             // or may not carry drafter state depending on whether the model

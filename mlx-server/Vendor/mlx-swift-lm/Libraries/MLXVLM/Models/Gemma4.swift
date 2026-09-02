@@ -264,25 +264,14 @@ private func gemma4PrepareTextOnly(
     cache: [any KVCache],
     windowSize: Int?,
     languageModel: Gemma4TextLanguageModel
-) -> PrepareResult {
-    let prefillStepSize = max(windowSize ?? 512, 1)
+) throws -> PrepareResult {
     let y = gemma4TextOnlyPromptTokens(input).expandedDimensions(axis: 0)
     let convertedCache = cache.map { $0 }
-    let totalPositions = y.dim(1)
-
-    var processed = 0
-    while totalPositions - processed > 1 {
-        let chunkLength = min(prefillStepSize, totalPositions - processed - 1)
-        _ = languageModel(
-            y[0..., processed ..< (processed + chunkLength)],
-            cache: convertedCache
-        )
-        asyncEval(cache)
-        processed += chunkLength
+    return try prefillInChunks(
+        tokenCount: y.dim(1), windowSize: windowSize, cache: cache
+    ) { range, _ in
+        languageModel(y[0..., range], cache: convertedCache)
     }
-
-    eval(cache)
-    return .logits(languageModel(y[0..., processed...], cache: convertedCache))
 }
 
 private func gemma4BlockSequenceIdsForMask(_ tokenTypeIds: MLXArray) -> MLXArray {
@@ -1986,6 +1975,11 @@ private final class Gemma4MultimodalEmbedder: Module, UnaryLayer {
 // MARK: - Model
 
 public final class Gemma4: Module, VLMModel, KVCacheDimensionProvider {
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        input.image == nil && input.video == nil && input.audio == nil
+            ? min(input.text.tokens.dim(-1), max(1, windowSize)) : input.text.tokens.dim(-1)
+    }
+
     @ModuleInfo(key: "vision_tower") private var visionTower: Gemma4VisionModel
     /// Module-internal — also reached by `Gemma4Assistant.swift` (drafter `bind()`
     /// walks here to cache the target's input embeddings, embed scale, and
@@ -2086,7 +2080,7 @@ public final class Gemma4: Module, VLMModel, KVCacheDimensionProvider {
             )
             return .logits(result)
         } else {
-            return gemma4PrepareTextOnly(
+            return try gemma4PrepareTextOnly(
                 input, cache: convertedCache, windowSize: windowSize, languageModel: languageModel)
         }
     }
@@ -2357,6 +2351,11 @@ private final class Gemma4UnifiedVisionEmbedder: Module {
 }
 
 public final class Gemma4Unified: Module, VLMModel, KVCacheDimensionProvider {
+    public func prefillChunkSize(input: LMInput, windowSize: Int) -> Int {
+        input.image == nil && input.video == nil && input.audio == nil
+            ? min(input.text.tokens.dim(-1), max(1, windowSize)) : input.text.tokens.dim(-1)
+    }
+
     @ModuleInfo(key: "language_model") private var languageModel: Gemma4TextLanguageModel
     @ModuleInfo(key: "vision_embedder") private var visionEmbedder: Gemma4UnifiedVisionEmbedder?
     @ModuleInfo(key: "embed_vision") private var embedVision: Gemma4MultimodalEmbedder?
@@ -2530,7 +2529,7 @@ public final class Gemma4Unified: Module, VLMModel, KVCacheDimensionProvider {
         -> PrepareResult
     {
         if input.image == nil, input.video == nil, input.audio == nil {
-            return gemma4PrepareTextOnly(
+            return try gemma4PrepareTextOnly(
                 input, cache: cache, windowSize: windowSize, languageModel: languageModel)
         }
 

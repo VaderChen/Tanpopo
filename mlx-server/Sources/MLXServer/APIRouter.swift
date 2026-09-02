@@ -112,6 +112,8 @@ actor APIRouter {
             return errorResponse(APIError.invalidRequest("JSON 格式錯誤：\(error.localizedDescription)"), status: 400)
         } catch let error as APIError {
             return errorResponse(error, status: 400)
+        } catch let error as MLXRequestError {
+            return errorResponse(error, status: error.status)
         } catch {
             fputs("request error: \(error.localizedDescription)\n", stderr)
             return errorResponse(error, status: 500)
@@ -194,30 +196,36 @@ actor APIRouter {
                 "message": message,
                 "finish_reason": finishReason
             ]],
-            "usage": usage
+            "usage": usage,
         ])
     }
 
     private func streamingChatCompletion(
-        generation: AsyncStream<Generation>,
+        generation: AsyncThrowingStream<Generation, Error>,
         options: GenerationOptions
     ) -> HTTPResponse {
         let id = "chatcmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
         let model = runtime.modelID
+        let cancellation = GenerationSafety.cancellation
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             let producer = Task {
-                continuation.yield(sseData([
-                    "id": id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [[
-                        "index": 0,
-                        "delta": ["role": "assistant"],
-                        "finish_reason": NSNull()
-                    ]]
-                ]))
+                // 命中 stop、消費者取消或回應被丟棄時，都停止對應模型工作。
+                defer { cancellation?.cancel() }
+                continuation.yield(
+                    sseData([
+                        "id": id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model,
+                        "choices": [
+                            [
+                                "index": 0,
+                                "delta": ["role": "assistant"],
+                                "finish_reason": NSNull(),
+                            ]
+                        ],
+                    ]))
 
                 var textFilter = StreamingTextFilter(stops: options.stops)
                 var finishReason = "stop"
@@ -225,65 +233,75 @@ actor APIRouter {
                 var toolCallIndex = 0
                 var stoppedByRequest = false
 
-                for await event in generation {
-                    if Task.isCancelled {
-                        continuation.finish()
-                        return
-                    }
-                    switch event {
-                    case .chunk(let text):
-                        let filtered = textFilter.append(text)
-                        if !filtered.text.isEmpty {
-                            continuation.yield(chatContentChunk(
-                                id: id,
-                                created: created,
-                                model: model,
-                                text: filtered.text
-                            ))
+                do {
+                    for try await event in generation {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
                         }
-                        if filtered.stopped {
-                            stoppedByRequest = true
-                            finishReason = "stop"
-                            break
-                        }
-                    case .toolCall(let call):
-                        let pendingText = textFilter.flush()
-                        if !pendingText.isEmpty {
-                            continuation.yield(chatContentChunk(
-                                id: id,
-                                created: created,
-                                model: model,
-                                text: pendingText
-                            ))
-                        }
-                        let calls = openAIToolCalls([call])
-                        if var callValue = calls.first {
-                            callValue["index"] = toolCallIndex
-                            toolCallIndex += 1
-                            continuation.yield(sseData([
-                                "id": id,
-                                "object": "chat.completion.chunk",
-                                "created": created,
-                                "model": model,
-                                "choices": [[
-                                    "index": 0,
-                                    "delta": ["tool_calls": [callValue]],
-                                    "finish_reason": NSNull()
-                                ]]
-                            ]))
-                        }
-                        finishReason = "tool_calls"
-                    case .info(let info):
-                        await runtime.logCompletion(info)
-                        if finishReason != "tool_calls" {
-                            switch info.stopReason {
-                            case .length: finishReason = "length"
-                            case .stop, .cancelled: finishReason = "stop"
+                        switch event {
+                        case .chunk(let text):
+                            let filtered = textFilter.append(text)
+                            if !filtered.text.isEmpty {
+                                continuation.yield(
+                                    chatContentChunk(
+                                        id: id,
+                                        created: created,
+                                        model: model,
+                                        text: filtered.text
+                                    ))
                             }
+                            if filtered.stopped {
+                                stoppedByRequest = true
+                                finishReason = "stop"
+                                break
+                            }
+                        case .toolCall(let call):
+                            let pendingText = textFilter.flush()
+                            if !pendingText.isEmpty {
+                                continuation.yield(
+                                    chatContentChunk(
+                                        id: id,
+                                        created: created,
+                                        model: model,
+                                        text: pendingText
+                                    ))
+                            }
+                            let calls = openAIToolCalls([call])
+                            if var callValue = calls.first {
+                                callValue["index"] = toolCallIndex
+                                toolCallIndex += 1
+                                continuation.yield(
+                                    sseData([
+                                        "id": id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created,
+                                        "model": model,
+                                        "choices": [
+                                            [
+                                                "index": 0,
+                                                "delta": ["tool_calls": [callValue]],
+                                                "finish_reason": NSNull(),
+                                            ]
+                                        ],
+                                    ]))
+                            }
+                            finishReason = "tool_calls"
+                        case .info(let info):
+                            await runtime.logCompletion(info)
+                            if finishReason != "tool_calls" {
+                                switch info.stopReason {
+                                case .length: finishReason = "length"
+                                case .stop, .cancelled: finishReason = "stop"
+                                }
+                            }
+                            usage = usageObject(info)
                         }
-                        usage = usageObject(info)
+                        if stoppedByRequest { break }
                     }
-                    if stoppedByRequest { break }
+                } catch {
+                    finishStreamError(error, continuation: continuation)
+                    return
                 }
 
                 if Task.isCancelled {
@@ -292,23 +310,26 @@ actor APIRouter {
                 }
                 let pendingText = textFilter.flush()
                 if !pendingText.isEmpty {
-                    continuation.yield(chatContentChunk(
-                        id: id,
-                        created: created,
-                        model: model,
-                        text: pendingText
-                    ))
+                    continuation.yield(
+                        chatContentChunk(
+                            id: id,
+                            created: created,
+                            model: model,
+                            text: pendingText
+                        ))
                 }
                 var finalChunk: [String: Any] = [
                     "id": id,
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": model,
-                    "choices": [[
-                        "index": 0,
-                        "delta": [:],
-                        "finish_reason": finishReason
-                    ]]
+                    "choices": [
+                        [
+                            "index": 0,
+                            "delta": [:],
+                            "finish_reason": finishReason,
+                        ]
+                    ],
                 ]
                 if let usage { finalChunk["usage"] = usage }
                 continuation.yield(sseData(finalChunk))
@@ -316,6 +337,7 @@ actor APIRouter {
                 continuation.finish()
             }
             continuation.onTermination = { @Sendable _ in
+                cancellation?.cancel()
                 producer.cancel()
             }
         }
@@ -384,54 +406,62 @@ actor APIRouter {
     }
 
     private func streamingCompletion(
-        generation: AsyncStream<Generation>,
+        generation: AsyncThrowingStream<Generation, Error>,
         options: GenerationOptions,
         llamaCompatible: Bool
     ) -> HTTPResponse {
         let id = "cmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
         let model = runtime.modelID
+        let cancellation = GenerationSafety.cancellation
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             let producer = Task {
+                defer { cancellation?.cancel() }
                 var textFilter = StreamingTextFilter(stops: options.stops)
                 var finishReason = "stop"
                 var finalInfo: GenerateCompletionInfo?
                 var stoppedByRequest = false
 
-                for await event in generation {
-                    if Task.isCancelled {
-                        continuation.finish()
-                        return
+                do {
+                    for try await event in generation {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+                        switch event {
+                        case .chunk(let text):
+                            let filtered = textFilter.append(text)
+                            if !filtered.text.isEmpty {
+                                continuation.yield(
+                                    completionChunk(
+                                        id: id,
+                                        created: created,
+                                        model: model,
+                                        text: filtered.text,
+                                        finishReason: nil,
+                                        llamaCompatible: llamaCompatible,
+                                        info: nil
+                                    ))
+                            }
+                            if filtered.stopped {
+                                stoppedByRequest = true
+                                finishReason = "stop"
+                            }
+                        case .toolCall:
+                            break
+                        case .info(let info):
+                            await runtime.logCompletion(info)
+                            finalInfo = info
+                            switch info.stopReason {
+                            case .length: finishReason = "length"
+                            case .stop, .cancelled: finishReason = "stop"
+                            }
+                        }
+                        if stoppedByRequest { break }
                     }
-                    switch event {
-                    case .chunk(let text):
-                        let filtered = textFilter.append(text)
-                        if !filtered.text.isEmpty {
-                            continuation.yield(completionChunk(
-                                id: id,
-                                created: created,
-                                model: model,
-                                text: filtered.text,
-                                finishReason: nil,
-                                llamaCompatible: llamaCompatible,
-                                info: nil
-                            ))
-                        }
-                        if filtered.stopped {
-                            stoppedByRequest = true
-                            finishReason = "stop"
-                        }
-                    case .toolCall:
-                        break
-                    case .info(let info):
-                        await runtime.logCompletion(info)
-                        finalInfo = info
-                        switch info.stopReason {
-                        case .length: finishReason = "length"
-                        case .stop, .cancelled: finishReason = "stop"
-                        }
-                    }
-                    if stoppedByRequest { break }
+                } catch {
+                    finishStreamError(error, continuation: continuation)
+                    return
                 }
 
                 if Task.isCancelled {
@@ -440,29 +470,34 @@ actor APIRouter {
                 }
                 let pendingText = textFilter.flush()
                 if !pendingText.isEmpty {
-                    continuation.yield(completionChunk(
+                    continuation.yield(
+                        completionChunk(
+                            id: id,
+                            created: created,
+                            model: model,
+                            text: pendingText,
+                            finishReason: nil,
+                            llamaCompatible: llamaCompatible,
+                            info: nil
+                        ))
+                }
+                continuation.yield(
+                    completionChunk(
                         id: id,
                         created: created,
                         model: model,
-                        text: pendingText,
-                        finishReason: nil,
+                        text: "",
+                        finishReason: finishReason,
                         llamaCompatible: llamaCompatible,
-                        info: nil
+                        info: finalInfo
                     ))
-                }
-                continuation.yield(completionChunk(
-                    id: id,
-                    created: created,
-                    model: model,
-                    text: "",
-                    finishReason: finishReason,
-                    llamaCompatible: llamaCompatible,
-                    info: finalInfo
-                ))
                 continuation.yield(Data("data: [DONE]\n\n".utf8))
                 continuation.finish()
             }
-            continuation.onTermination = { @Sendable _ in producer.cancel() }
+            continuation.onTermination = { @Sendable _ in
+                cancellation?.cancel()
+                producer.cancel()
+            }
         }
         return .sseStream(stream)
     }
@@ -480,7 +515,7 @@ actor APIRouter {
             var object: [String: Any] = [
                 "content": text,
                 "stop": finishReason != nil,
-                "stopped_limit": finishReason == "length"
+                "stopped_limit": finishReason == "length",
             ]
             if let info {
                 object["tokens_evaluated"] = info.promptTokenCount
@@ -571,6 +606,23 @@ actor APIRouter {
                 ]
             ]
         }
+    }
+
+    private func finishStreamError(
+        _ error: Error, continuation: AsyncThrowingStream<Data, Error>.Continuation
+    ) {
+        if !Task.isCancelled && !(error is CancellationError) {
+            fputs("stream error: \(error.localizedDescription)\n", stderr)
+            continuation.yield(sseData([
+                "error": [
+                    "message": error.localizedDescription,
+                    "type": "server_error",
+                    "code": "generation_failed"
+                ]
+            ]))
+            continuation.yield(Data("data: [DONE]\n\n".utf8))
+        }
+        continuation.finish()
     }
 
     private func errorResponse(_ error: Error, status: Int) -> HTTPResponse {

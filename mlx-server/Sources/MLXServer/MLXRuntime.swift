@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
@@ -20,6 +21,10 @@ actor MLXRuntime {
     private var memoryGuard: Task<Void, Never>?
     private var dflashDrafter: (any DFlashDrafterModel)?
     private var mtpDrafterContainer: MTPDrafterContainer?
+    // SPEC 要求多人並行；現階段上限為 4，名額與資源預算均依此值計算。
+    private let maximumConcurrentGenerations = 4
+    private var generationReservations: [UUID: Double] = [:]
+    private var generationMemoryBaseline: Double?
 
     init(configuration: ServerConfiguration) throws {
         self.configuration = configuration
@@ -212,7 +217,7 @@ actor MLXRuntime {
         var tokensPerSecond = 0.0
         var finishReason = "stop"
         var toolCalls: [ToolCall] = []
-        for await event in stream {
+        for try await event in stream {
             switch event {
             case .chunk(let text):
                 output += text
@@ -252,13 +257,40 @@ actor MLXRuntime {
         )
     }
 
-    /// 建立可直接輸出的生成事件串流。HTTP 層可在每個 chunk 到達時
-    /// 立即寫入 SSE，不需等待整段生成完成。
+    /// 先取得生成名額，再立即交還串流；Tokenization／Prefill 不得擋住 SSE header。
+    /// 超額請求仍在送出 header 前回傳 429，準備階段錯誤則由串流傳回。
     func stream(
         messages: [InputMessage],
         options: GenerationOptions
-    ) async throws -> AsyncStream<Generation> {
-        try await generationStream(messages: messages, options: options)
+    ) async throws -> AsyncThrowingStream<Generation, Error> {
+        let cancellation = GenerationSafety.cancellation ?? GenerationCancellation()
+        try reserveGeneration(cancellation.id)
+        return AsyncThrowingStream { continuation in
+            let producer = Task {
+                defer { cancellation.cancel() }
+                do {
+                    let upstream = try await withTaskCancellationHandler {
+                        try await GenerationSafety.$cancellation.withValue(cancellation) {
+                            try await self.cancellableGenerationStream(
+                                messages: messages, options: options, cancellation: cancellation)
+                        }
+                    } onCancel: {
+                        cancellation.cancel()
+                    }
+                    for try await event in upstream {
+                        try Task.checkCancellation()
+                        if case .terminated = continuation.yield(event) { return }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in
+                cancellation.cancel()
+                producer.cancel()
+            }
+        }
     }
 
     func logCompletion(_ info: GenerateCompletionInfo) {
@@ -268,8 +300,95 @@ actor MLXRuntime {
     private func generationStream(
         messages: [InputMessage],
         options: GenerationOptions
+    ) async throws -> AsyncThrowingStream<Generation, Error> {
+        let cancellation = GenerationSafety.cancellation ?? GenerationCancellation()
+        return try await withTaskCancellationHandler {
+            try await GenerationSafety.$cancellation.withValue(cancellation) {
+                try reserveGeneration(cancellation.id)
+                return try await cancellableGenerationStream(
+                    messages: messages, options: options, cancellation: cancellation)
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    private func reserveGeneration(_ id: UUID) throws {
+        try GenerationSafety.checkCancellation()
+        guard generationReservations.count < maximumConcurrentGenerations else {
+            throw MLXRequestError.busy(limit: maximumConcurrentGenerations)
+        }
+        generationReservations[id] = 0
+        fputs("generation accepted request_id=\(id.uuidString) active_requests=\(generationReservations.count)\n", stderr)
+    }
+
+    private func cancellableGenerationStream(
+        messages: [InputMessage],
+        options: GenerationOptions,
+        cancellation: GenerationCancellation
+    ) async throws -> AsyncThrowingStream<Generation, Error> {
+        let generationID = cancellation.id
+        var handedOff = false
+        defer {
+            if !handedOff { finishGeneration(generationID) }
+        }
+        // 必須先安裝 defer；尚未排到準備工作就取消時，也要釋放已取得的名額。
+        try GenerationSafety.checkCancellation()
+        try await withError { @Sendable [self] in try await self.prepare() }
+        let limits = MLXRequestLimits(
+            directory: modelDirectory, configuration: configuration, memoryMapPlan: memoryMapPlan)
+        try limits.checkResources()
+        let failure = GenerationFailure()
+        let upstream = try await GenerationSafety.$didFinish.withValue({ [self] in
+            await self.finishGeneration(generationID)
+        }) {
+            try await GenerationSafety.$failure.withValue(failure) {
+                try await GenerationSafety.$checkResources.withValue({ try limits.checkResources() }) {
+                    try await withError { @Sendable [self] in
+                        try await self.makeGenerationStream(
+                            messages: messages, options: options, limits: limits, generationID: generationID)
+                    }
+                }
+            }
+        }
+        handedOff = true
+        return AsyncThrowingStream { continuation in
+            let producer = Task {
+                defer { cancellation.cancel() }
+                do {
+                    for await event in upstream {
+                        try Task.checkCancellation()
+                        try failure.check()
+                        if case .terminated = continuation.yield(event) { return }
+                    }
+                    try failure.check()
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in
+                cancellation.cancel()
+                producer.cancel()
+            }
+        }
+    }
+
+    private func finishGeneration(_ id: UUID) {
+        if generationReservations.removeValue(forKey: id) != nil {
+            fputs("generation released request_id=\(id.uuidString) active_requests=\(generationReservations.count)\n", stderr)
+        }
+        if generationReservations.values.allSatisfy({ $0 == 0 }) {
+            generationMemoryBaseline = nil
+        }
+    }
+
+    private func makeGenerationStream(
+        messages: [InputMessage],
+        options: GenerationOptions,
+        limits: MLXRequestLimits,
+        generationID: UUID
     ) async throws -> AsyncStream<Generation> {
-        try await prepare()
         guard let container else {
             throw APIError.invalidRequest("MLX 模型尚未載入。")
         }
@@ -305,7 +424,15 @@ actor MLXRuntime {
             tools: tools,
             additionalContext: additionalContext
         )
-        let prepared = try await container.prepare(input: input)
+        // 只在下方 perform 中查詢 shape／媒體種類，await 完成後才單向移交生成。
+        nonisolated(unsafe) let prepared = try await container.prepare(input: input)
+        try GenerationSafety.checkCancellation()
+        guard prepared.text.tokens.ndim == 1
+                || (prepared.text.tokens.ndim == 2 && prepared.text.tokens.dim(0) == 1)
+        else {
+            throw APIError.invalidRequest("目前每個生成請求只接受一組輸入。")
+        }
+        let promptTokens = prepared.text.tokens.dim(-1)
         let resolvedTemperature = options.temperature
             ?? configuration.temperatureOverride
             ?? modelGenerationDefaults.temperature
@@ -322,7 +449,7 @@ actor MLXRuntime {
             ?? configuration.minP
         let resolvedRepetitionPenalty = configuration.repetitionPenalty
             ?? modelGenerationDefaults.repetitionPenalty
-        let parameters = GenerateParameters(
+        var parameters = GenerateParameters(
             maxTokens: max(1, options.maxTokens ?? configuration.maxTokens),
             maxKVSize: configuration.maxKVSize,
             kvBits: configuration.kvBits,
@@ -338,6 +465,21 @@ actor MLXRuntime {
             prefillStepSize: configuration.prefillStepSize,
             seed: options.seed
         )
+        let supportsChunking = await container.perform { context in
+            context.model.prefillChunkSize(input: prepared, windowSize: 1) == 1
+        }
+        try GenerationSafety.checkCancellation()
+        // 此段不跨 await：以同一份帳本完成估算與預留，避免並行請求重複
+        // 使用尚未配置的記憶體。已實際配置的部分不再重複扣除。
+        let baseline = generationMemoryBaseline ?? Double(limits.currentMemoryBytes())
+        let reservedFloor = baseline + generationReservations.values.reduce(0, +)
+        let plan = try limits.plan(
+            promptTokens: promptTokens, parameters: parameters, supportsChunking: supportsChunking,
+            reservedMemoryFloor: reservedFloor, maximumConcurrentRequests: maximumConcurrentGenerations)
+        parameters = plan.parameters
+        generationMemoryBaseline = baseline
+        generationReservations[generationID] = plan.reservedBytes
+        fputs("generation started request_id=\(generationID.uuidString) active_requests=\(generationReservations.count)\n", stderr)
         let wiredMemoryTicket = memoryMapPlan?.inferenceTicket()
 
         if mtpDrafterContainer != nil,
