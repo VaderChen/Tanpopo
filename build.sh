@@ -521,7 +521,7 @@ cp -R "reports/." "${PACKAGE_DIR}/website/reports/"
 find "${PACKAGE_DIR}/website" -type f -name '*.bak' -delete
 printf '%s\n' "${APP_VERSION}" > "${PACKAGE_DIR}/VERSION"
 cp "agent.sample.properties" "${PACKAGE_DIR}/agent.sample.properties"
-cp "README.md" "${PACKAGE_DIR}/README.md"
+cp README*.md "${PACKAGE_DIR}/"
 cp "run.command" "${PACKAGE_DIR}/run.command"
 
 cat > "${PACKAGE_DIR}/install.sh" <<'EOF'

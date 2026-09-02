@@ -1,6 +1,6 @@
 # Tanpopo
 
-[繁體中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+[English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 Tanpopo は Go で実装されたローカルモデルサービス管理ツールです。名称は日本語の「蒲公英（たんぽぽ）」に由来し、生成された Token が種のように外へ広がるイメージを表しています。GGUF 向けのクロスプラットフォーム `llama-server` と、Apple Silicon 向けのネイティブ Swift／MLX `mlx-server` を管理できます。
 
