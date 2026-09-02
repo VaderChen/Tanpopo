@@ -146,7 +146,7 @@ actor APIRouter {
 
     private func chatCompletion(_ body: Data) async throws -> HTTPResponse {
         let request = try decoder.decode(ChatCompletionRequest.self, from: body)
-        try await validateModel(request.model)
+        let model = resolveModel(request.model)
         let options = GenerationOptions(
             maxTokens: request.maxCompletionTokens ?? request.maxTokens,
             temperature: request.temperature,
@@ -161,7 +161,7 @@ actor APIRouter {
                 messages: request.messages,
                 options: options
             )
-            return streamingChatCompletion(generation: generation, options: options)
+            return streamingChatCompletion(generation: generation, options: options, model: model)
         }
         let result = try await runtime.generate(
             messages: request.messages,
@@ -169,7 +169,6 @@ actor APIRouter {
         )
         let id = "chatcmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
-        let model = runtime.modelID
         let usage: [String: Any] = [
             "prompt_tokens": result.promptTokens,
             "completion_tokens": result.completionTokens,
@@ -202,11 +201,11 @@ actor APIRouter {
 
     private func streamingChatCompletion(
         generation: AsyncThrowingStream<Generation, Error>,
-        options: GenerationOptions
+        options: GenerationOptions,
+        model: String
     ) -> HTTPResponse {
         let id = "chatcmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
-        let model = runtime.modelID
         let cancellation = GenerationSafety.cancellation
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             let producer = Task {
@@ -346,7 +345,7 @@ actor APIRouter {
 
     private func completion(_ body: Data, llamaCompatible: Bool) async throws -> HTTPResponse {
         let request = try decoder.decode(CompletionRequest.self, from: body)
-        try await validateModel(request.model)
+        let model = resolveModel(request.model)
         let options = GenerationOptions(
             maxTokens: request.maxTokens ?? request.nPredict,
             temperature: request.temperature,
@@ -362,6 +361,7 @@ actor APIRouter {
             return streamingCompletion(
                 generation: generation,
                 options: options,
+                model: model,
                 llamaCompatible: llamaCompatible
             )
         }
@@ -371,6 +371,7 @@ actor APIRouter {
         )
         if llamaCompatible {
             let object: [String: Any] = [
+                "model": model,
                 "content": result.text,
                 "stop": result.finishReason == "stop",
                 "stopped_limit": result.finishReason == "length",
@@ -382,7 +383,6 @@ actor APIRouter {
         }
         let id = "cmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
-        let model = runtime.modelID
         let usage: [String: Any] = [
             "prompt_tokens": result.promptTokens,
             "completion_tokens": result.completionTokens,
@@ -408,11 +408,11 @@ actor APIRouter {
     private func streamingCompletion(
         generation: AsyncThrowingStream<Generation, Error>,
         options: GenerationOptions,
+        model: String,
         llamaCompatible: Bool
     ) -> HTTPResponse {
         let id = "cmpl-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let created = Int(Date().timeIntervalSince1970)
-        let model = runtime.modelID
         let cancellation = GenerationSafety.cancellation
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             let producer = Task {
@@ -513,6 +513,7 @@ actor APIRouter {
     ) -> Data {
         if llamaCompatible {
             var object: [String: Any] = [
+                "model": model,
                 "content": text,
                 "stop": finishReason != nil,
                 "stopped_limit": finishReason == "length",
@@ -581,12 +582,19 @@ actor APIRouter {
         return event
     }
 
-    private func validateModel(_ requested: String?) async throws {
-        guard let requested, !requested.isEmpty else { return }
+    /// 單模型 Runtime 以目前載入的模型為準；客戶端名稱僅作相容性提示，
+    /// 不用來切換模型，也不將未知名稱當成請求錯誤。
+    private func resolveModel(_ requested: String?) -> String {
         let loaded = runtime.modelID
+        guard let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !requested.isEmpty
+        else { return loaded }
         if requested != loaded && requested != configuration.modelPath {
-            throw APIError.modelMismatch(requested)
+            // 不回顯任意客戶端字串，避免提示資料外洩或換行注入日誌。
+            let requestID = GenerationSafety.cancellation?.id.uuidString ?? "untracked"
+            fputs("request model fallback request_id=\(requestID) reason=model_mismatch\n", stderr)
         }
+        return loaded
     }
 
     private func openAIToolCalls(_ calls: [ToolCall]) -> [[String: Any]] {

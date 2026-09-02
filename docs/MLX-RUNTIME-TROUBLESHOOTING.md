@@ -2,9 +2,15 @@
 
 本文件說明外部程式直接呼叫模型 API 時，如何區分長輸入處理、串流等待與取消失效。服務行為與多人容量以 [MLX Runtime 規格](MLX-RUNTIME-SPEC.md)為準。
 
+## 客戶端模型名稱過期或不符
+
+單模型 mlx-server 的 Chat Completion 與 Completion 會將省略、null、空白或未知的 `model` 解析為目前已載入模型，不因名稱不符拒絕請求，也不依客戶端名稱切換模型。成功的 JSON 與 SSE 生成資料使用實際模型 ID；`/models` 與 `/v1/models` 可用來確認目前模型。
+
+若更新後仍收到模型名稱不符錯誤，先確認 API 位址是否指向更新後的 mlx-server，以及目前程序是否已重新啟動。fallback 不會啟動未運作的服務，也不略過 JSON 型別、權限或資源檢查；要使用另一個模型，仍需在 Tanpopo 選取並載入。
+
 ## 先區分三個時間點
 
-1. **建立 SSE**：完成請求格式、模型與生成名額檢查後送出 header 與保活註解。Chat Completion 另有 assistant role chunk，尚不代表模型已產生文字。
+1. **建立 SSE**：完成請求格式檢查、模型名稱解析與生成名額受理後送出 header 與保活註解。Chat Completion 另有 assistant role chunk，尚不代表模型已產生文字。
 2. **首個生成 token**：模型完成必要的輸入處理與 Prefill 後，才有思考／回答文字。等待期間每 10 秒的 `: keep-alive` 是標準 SSE 註解，不是文字內容或進度百分比。
 3. **工作結束**：完成、失敗或取消後釋放生成名額與預留資源；不能僅以畫面停止更新判斷。
 

@@ -280,7 +280,6 @@ private extension JSONValue {
 enum APIError: LocalizedError {
     case invalidRequest(String)
     case unsupportedContent(String)
-    case modelMismatch(String)
     case requestTooLarge
     case imageTooLarge
     case invalidImageURL(String)
@@ -289,7 +288,6 @@ enum APIError: LocalizedError {
         switch self {
         case .invalidRequest(let message): message
         case .unsupportedContent(let message): message
-        case .modelMismatch(let model): "目前服務載入的模型與請求不符：\(model)"
         case .requestTooLarge: "HTTP 請求內容超過大小限制。"
         case .imageTooLarge: "輸入圖片超過大小限制。"
         case .invalidImageURL(let value): "無法讀取 image_url：\(value)"

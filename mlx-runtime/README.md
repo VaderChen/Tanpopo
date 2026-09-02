@@ -8,6 +8,8 @@
 
 服務提供 `/health`、`/v1/models`、`/v1/chat/completions`、`/v1/completions`、`/completion` 與 `/props`。
 
+Chat Completion 與 Completion 的 `model` 省略、留空或與目前模型不符時，一律 fallback 至此程序已載入的模型；一般與串流的生成回應都標示實際模型 ID，不會根據客戶端名稱切換或重新載入模型。JSON 型別、權限與資源限制仍照常檢查。完整規則見 [請求模型名稱](../docs/MLX-RUNTIME-SPEC.md#請求模型名稱)；更新後需重新啟動 Runtime，既有程序才會使用新版行為。
+
 版本固定於 `mlx-server/Package.swift`。打包後安裝到
 `~/services/mlx-server/versions/<版本>/darwin-arm64`，並由 `current` 符號連結指向目前版本。
 SwiftPM 產生的 `.bundle` 資源會與 `bin/mlx-server` 放在相同目錄，確保 MLX Metal Library 可由原生執行檔載入。

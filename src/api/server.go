@@ -73,8 +73,7 @@ func NewServer(
 		snapshot := metrics.Snapshot()
 		availableBytes := uint64(0)
 		if info.MemoryBytes > 0 && snapshot.Memory.Available {
-			availableRatio := max(0, min(100, 100-snapshot.Memory.Percent)) / 100
-			availableBytes = uint64(float64(info.MemoryBytes) * availableRatio)
+			availableBytes = min(info.MemoryBytes, snapshot.MemoryAvailableBytes)
 		}
 		return llamacpp.MemorySnapshot{
 			TotalBytes:     info.MemoryBytes,

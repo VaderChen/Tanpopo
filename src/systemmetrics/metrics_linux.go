@@ -15,11 +15,12 @@ import (
 )
 
 func collectPlatform(ctx context.Context) Snapshot {
-	return Snapshot{
-		CPU:    collectLinuxCPU(ctx),
-		GPU:    collectLinuxGPU(ctx),
-		Memory: collectLinuxMemory(),
+	snapshot := Snapshot{
+		CPU: collectLinuxCPU(ctx),
+		GPU: collectLinuxGPU(ctx),
 	}
+	snapshot.Memory, snapshot.MemoryAvailableBytes = collectLinuxMemory()
+	return snapshot
 }
 
 func collectPlatformInfo(ctx context.Context) SystemInfo {
@@ -205,10 +206,10 @@ func readLinuxCPUCounters() (cpuCounters, bool) {
 	return cpuCounters{total: total, idle: idle}, true
 }
 
-func collectLinuxMemory() Metric {
+func collectLinuxMemory() (Metric, uint64) {
 	content, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		return Metric{}
+		return Metric{}, 0
 	}
 	values := make(map[string]float64)
 	for _, line := range strings.Split(string(content), "\n") {
@@ -224,9 +225,9 @@ func collectLinuxMemory() Metric {
 	total := values["MemTotal"]
 	available := values["MemAvailable"]
 	if total <= 0 || available < 0 {
-		return Metric{}
+		return Metric{}, 0
 	}
-	return Metric{Percent: (total - available) / total * 100, Available: true}
+	return Metric{Percent: (total - available) / total * 100, Available: true}, uint64(available * 1024)
 }
 
 func collectLinuxGPU(ctx context.Context) Metric {

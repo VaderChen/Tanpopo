@@ -24,6 +24,9 @@ type Snapshot struct {
 	GPU       Metric    `json:"gpu"`
 	Memory    Metric    `json:"memory"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// MemoryAvailableBytes 保留平台原有的啟動前保護口徑，不從顯示用百分比反推。
+	MemoryAvailableBytes uint64 `json:"-"`
 }
 
 // NetworkInterface 是單一非 loopback 網路介面的公開狀態摘要。

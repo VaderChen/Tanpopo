@@ -32,6 +32,7 @@
 - 管理介面支援 `AUTO`、繁體中文、英文、日文與韓文；選擇會保存於本機設定，`AUTO` 依作業系統及瀏覽器語系決定。
 - 介面提供蒲公英、晴空藍、櫻花粉與深夜紫四種配色，其中深夜紫為深色主題；切換後立即預覽並保存。
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
+  macOS 的 MEMORY 排除檔案快取與可清除頁面，保留 wired 與壓縮器的實體記憶體用量；啟動前的記憶體保護另外使用可用記憶體讀值，不從顯示百分比反推。計算方式、資料缺漏處理及與記憶體壓力的區別見 [系統記憶體指標](docs/SYSTEM-METRICS.md)。
 - 「系統設定 → 系統資訊」以唯讀方式顯示作業系統、Kernel、架構、主機名稱、CPU、GPU、記憶體、網路介面與目前可供其他裝置使用的管理網址；不顯示 loopback 管理網址。
 - APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。Linux 可在「系統設定 → 關於」上傳正式發布 ZIP，驗證後自動更新並重新啟動服務；此功能要求管理登入驗證已開啟。
 - 原生選單與「系統設定 → 關於」會顯示 `1.YY.MMDD build HHmm` 版本、目前可達的管理頁面網址、可複製的模型 API `/v1` URL，以及 GitHub 快速連結；本機 `127.0.0.1` 管理網址不列入公開資訊清單。
@@ -185,6 +186,8 @@ HTTP 層在等待回應期間仍持續偵測斷線。客戶端實際中斷 HTTP 
 MLX Runtime 的 SPEC 是支援多人並行，目前階段最多 4 個生成請求，第 5 個回傳 HTTP 429。長輸入在模型 forward 前檢查上下文與記憶體預算，必要時縮小本次 Prefill 分段，不截斷輸入、不改寫設定或校準紀錄；未宣告分段能力的路徑按完整輸入保守估算。非串流的上下文／預估記憶體超限回傳 HTTP 413，執行中記憶體超限回傳 HTTP 503；串流建立後的錯誤改送 SSE error。詳見 [MLX Runtime 規格](docs/MLX-RUNTIME-SPEC.md)及 [API 延遲與取消排查](docs/MLX-RUNTIME-TROUBLESHOOTING.md)。
 
 `/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
+
+單模型 mlx-server 的 Chat Completion 與 Completion 一律使用目前已載入的模型。客戶端省略 `model`、留空或填入未知／過期名稱時，自動 fallback 至目前模型，不再因名稱不符回傳錯誤；一般 JSON 與 SSE 回應均標示實際模型 ID。此行為不會切換或重新載入模型，也不略過格式、安全與資源檢查。
 
 內建 MLX Profile 包含一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1 Greedy 與 DFlash 2 Sampling。Profile 的量化選單決定 Q8 或 Q4，執行狀態頁的 Switch 決定本次是否啟用；開啟時 Go 後端會加入 `--kv-bits`、`--kv-group-size 64`、`--quantized-kv-start 2048`，並把 Context Size 轉成 `--max-kv-size`。KV Cache 量化與 DFlash 不可同時啟用。其他常用原生參數包含 `--kv-scheme`、`--prefill-step-size`、`--thinking` 與 `--no-thinking`。
 

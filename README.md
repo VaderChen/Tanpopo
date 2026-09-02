@@ -29,6 +29,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 - Choose `AUTO`, Traditional Chinese, English, Japanese, or Korean for the management interface.
 - Choose among Dandelion, Sky Blue, Sakura Pink, and the dark Midnight Purple theme.
 - View CPU, GPU, MEMORY, and network status in a bottom bar refreshed every three seconds. Utilization uses muted green, yellow, and red bands at 50% and 80%.
+  On macOS, MEMORY excludes file-backed cache and purgeable pages, while retaining wired and physical compressed memory. Pre-launch memory protection uses a separate available-memory reading, not the displayed percentage. See [System memory metrics](docs/SYSTEM-METRICS.md) (Traditional Chinese) for calculation details and the distinction from memory pressure.
 - Inspect read-only OS, kernel, architecture, hostname, CPU, GPU, memory, network interface, and reachable management URL details under **System settings → System information**. Loopback URLs are omitted from shared URL lists.
 - Check the latest stable GitHub Release at startup and every hour, including the build number for multiple releases on the same day. On Linux, an authenticated administrator can upload an official release ZIP under **System settings → About** to validate, install, and restart automatically.
 - Linux packages include a Vulkan-enabled llama.cpp build path, dependency and GPU-permission checks, a reusable `build-llama-server.sh`, and DRM GPU-utilization fallback when ROCm tools are unavailable.
@@ -115,7 +116,9 @@ POST /completion
 
 Use the Base URL shown in Runtime status, normally `http://127.0.0.1:8080/v1`. `/models` and `/v1/models` return the currently loaded model ID for clients that support model discovery.
 
-For `/v1/chat/completions`, `stream: true` establishes OpenAI-compatible SSE after request format, model, and generation-slot checks, without waiting for Tokenization or Prefill. A keep-alive comment is sent when the stream opens and every 10 seconds afterward; the initial assistant-role chunk is retained, and generated text streams as it becomes available. Neither keep-alive comments nor the role chunk count as generated answer text, and they do not eliminate long-context time to first token.
+The single-model MLX runtime always uses its currently loaded model for Chat Completion and Completion requests. If a client omits `model`, leaves it blank, or sends an unknown or stale model name, the request falls back to the loaded model instead of returning a model-mismatch error. JSON responses and SSE chunks report the actual model ID; this does not load or switch models, and request-format, security, and resource checks remain in effect.
+
+For `/v1/chat/completions`, `stream: true` establishes OpenAI-compatible SSE after request-format checks, model resolution, and generation-slot admission, without waiting for Tokenization or Prefill. A keep-alive comment is sent when the stream opens and every 10 seconds afterward; the initial assistant-role chunk is retained, and generated text streams as it becomes available. Neither keep-alive comments nor the role chunk count as generated answer text, and they do not eliminate long-context time to first token.
 
 The HTTP layer continues reading connections while responses are pending so that a client disconnect can signal request-scoped cancellation during input preparation, Prefill, or generation. Canceling one request does not stop the runtime or cancel other users' work. Already-submitted GPU work must drain; overall GPU utilization need not immediately fall to zero. HTTP/1 Keep-Alive and pipelined requests preserve response ordering with bounded per-connection buffering.
 
