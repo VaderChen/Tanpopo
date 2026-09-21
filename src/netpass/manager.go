@@ -73,10 +73,13 @@ type Manager struct {
 	runtimeDir     string
 	managementPort int
 
+	lifecycleMu sync.Mutex
 	mu          sync.Mutex
 	config      Config
 	status      Status
 	command     *exec.Cmd
+	done        chan struct{}
+	stopping    bool
 	outputCarry string
 }
 
@@ -160,7 +163,19 @@ func (m *Manager) UpdateConfig(update ConfigUpdate) (Status, error) {
 }
 
 func (m *Manager) Start() (Status, error) {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
+	if err := m.ctx.Err(); err != nil {
+		status := m.status
+		m.mu.Unlock()
+		return status, err
+	}
+	if m.stopping {
+		status := m.status
+		m.mu.Unlock()
+		return status, errors.New("NetPassClient 仍在停止中")
+	}
 	if m.status.Running {
 		status := m.status
 		m.mu.Unlock()
@@ -204,9 +219,12 @@ func (m *Manager) Start() (Status, error) {
 		m.status.LastError = fmt.Sprintf("啟動 NetPassClient 失敗: %v", err)
 		status := m.status
 		m.mu.Unlock()
-		return status, errors.New(m.status.LastError)
+		return status, errors.New(status.LastError)
 	}
 	m.command = command
+	m.done = make(chan struct{})
+	done := m.done
+	m.stopping = false
 	m.outputCarry = ""
 	m.status.Running = true
 	m.status.Connected = false
@@ -220,37 +238,49 @@ func (m *Manager) Start() (Status, error) {
 	status := m.status
 	m.mu.Unlock()
 
-	go m.wait(command)
+	go m.wait(command, done)
 	return status, nil
 }
 
 func (m *Manager) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return m.Shutdown(ctx)
+}
+
+// Shutdown 等待 Wait 與輸出清理完成；期間禁止 Start 重用同一設定檔。
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
-	command := m.command
-	m.command = nil
-	m.status.Running = false
-	m.status.Connected = false
-	m.status.PID = 0
-	m.status.ClientID = ""
-	m.status.PublicURL = ""
-	m.mu.Unlock()
-	_ = os.Remove(filepath.Join(m.runtimeDir, "config.json"))
+	command, done := m.command, m.done
 	if command == nil || command.Process == nil {
+		m.mu.Unlock()
 		return nil
 	}
+	m.stopping = true
+	m.mu.Unlock()
 	if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("停止 NetPassClient 失敗: %w", err)
 	}
-	return nil
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-func (m *Manager) wait(command *exec.Cmd) {
+func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
+	defer close(done)
 	err := command.Wait()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.command != command {
 		return
 	}
+	intentionalStop := m.stopping
+	m.stopping = false
 	m.command = nil
 	m.status.Running = false
 	m.status.Connected = false
@@ -258,7 +288,7 @@ func (m *Manager) wait(command *exec.Cmd) {
 	m.status.ClientID = ""
 	m.status.PublicURL = ""
 	_ = os.Remove(filepath.Join(m.runtimeDir, "config.json"))
-	if err != nil && m.ctx.Err() == nil {
+	if err != nil && m.ctx.Err() == nil && !intentionalStop {
 		m.status.LastError = fmt.Sprintf("NetPassClient 已停止: %v", err)
 	}
 }

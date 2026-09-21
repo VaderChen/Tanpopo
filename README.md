@@ -4,7 +4,7 @@
 
 Tanpopo is a local model service manager written in Go. Its name is the Japanese word for dandelion (たんぽぽ): generated tokens spread outward like dandelion seeds. It manages a cross-platform `llama-server` for GGUF models and a native Swift/MLX `mlx-server` on Apple Silicon.
 
-![Tanpopo management interface](images/cap001.jpg)
+![Tanpopo management interface](images/tanpopo-demo.gif)
 
 ## Highlights
 
@@ -34,6 +34,7 @@ Tanpopo is a local model service manager written in Go. Its name is the Japanese
 - Check the latest stable GitHub Release at startup and every hour, including the build number for multiple releases on the same day. On Linux, an authenticated administrator can upload an official release ZIP under **System settings → About** to validate, install, and restart automatically.
 - Linux packages include a Vulkan-enabled llama.cpp build path, dependency and GPU-permission checks, a reusable `build-llama-server.sh`, and DRM GPU-utilization fallback when ROCm tools are unavailable.
 - On macOS, run as a native AppKit/WKWebView app and optionally remain in the system menu bar.
+  In resident mode, the menu-bar dandelion follows GPU utilization only while a managed model is loaded and ready: green below 50%, yellow from 50% to below 80%, and red at 80% or above. No model, loading, startup failure, or unavailable data keeps the original system monochrome icon. It refreshes independently of the web view, including when the main window is hidden. Hover to see the current GPU percentage.
 
 ## Public test reports
 
@@ -108,6 +109,7 @@ Supported compatibility endpoints include:
 GET  /health
 GET  /v1/health
 GET  /props
+GET  /v1/props
 GET  /models
 GET  /v1/models
 POST /chat/completions
@@ -117,6 +119,8 @@ POST /completion
 ```
 
 Use the Base URL shown in Runtime status, normally `http://127.0.0.1:8080/v1`. `/models` and `/v1/models` return the currently loaded model ID for clients that support model discovery.
+
+MLX context discovery reports `context_length`, `max_model_len`, and `meta.n_ctx` on each model entry. `/props` and `/v1/props` also expose `default_generation_settings.n_ctx`; health responses include `context_length` and `max_model_len`. These fields share the effective input-plus-output token limit used by request validation, resolved from the launch limit and MLX, GGUF, or Fast GGUF model metadata. Unknown limits are omitted rather than guessed. Memory checks and four-request concurrency limits remain separate; restart the runtime after updating to enable the new response fields.
 
 The single-model MLX runtime always uses its currently loaded model for Chat Completion and Completion requests. If a client omits `model`, leaves it blank, or sends an unknown or stale model name, the request falls back to the loaded model instead of returning a model-mismatch error. JSON responses and SSE chunks report the actual model ID; this does not load or switch models, and request-format, security, and resource checks remain in effect.
 
@@ -192,6 +196,8 @@ go build -buildvcs=false -trimpath -o bin/Tanpopo ./src/cmd/llamaloader
 
 `run.command` calls `build.command --runtime` first. A runtime is reused only when its pinned version matches and no source file is newer than the prebuilt binary; otherwise it is rebuilt automatically. Set `TANPOPO_REBUILD_RUNTIMES=1` to force a runtime rebuild.
 
+Full builds (`build.command` / `build.sh`) and official packaging (`pack.command`, when available) empty the project's `dist/` once after initial checks and before producing new artifacts. Previous contents, including hidden files and signed installers, are permanently removed; copy anything you need elsewhere first. Cleanup refuses a symlink or non-directory `dist/` and does not touch settings, models, `bin/`, or runtime caches. `build.command --check`, `build.command --runtime`, and normal app startup do not perform this cleanup. The shared cleanup entry is `clean.command --dist`; running `clean.command` without arguments retains its full-clean behavior.
+
 ## License and notices
 
-See [LICENSE](LICENSE), [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Bundled runtime components retain their respective upstream licenses. Security reporting and local secret-handling guidance are documented in [SECURITY.md](SECURITY.md).
+See [LICENSE.en.md](LICENSE.en.md), [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Bundled runtime components retain their respective upstream licenses. Security reporting and local secret-handling guidance are documented in [SECURITY.md](SECURITY.md).

@@ -24,8 +24,10 @@ struct ServerConfiguration: Sendable {
     var modelKind = ModelKind.auto
     var maximumRequestBytes = 32 * 1_024 * 1_024
     var maximumImageBytes = 25 * 1_024 * 1_024
+    var imageAllowedOrigins = Set<String>()
     var maxTokens = 4096
     var maxKVSize: Int?
+    var contextSize: Int?
     var kvBits: Int?
     var kvGroupSize = 64
     // KV Cache 量化以節省長 Context 記憶體為主；先讓短 Context 維持 BF16，
@@ -103,6 +105,8 @@ struct ServerConfiguration: Sendable {
                 result.maxTokens = try parseInteger(nextValue(for: option), option: option, range: 1...1_048_576)
             case "--max-kv-size", "--ctx-size":
                 result.maxKVSize = try parseInteger(nextValue(for: option), option: option, range: 1...1_048_576)
+            case "--context-size":
+                result.contextSize = try parseInteger(nextValue(for: option), option: option, range: 1...1_048_576)
             case "--kv-bits":
                 let value = try parseInteger(nextValue(for: option), option: option, range: 4...8)
                 guard value == 4 || value == 8 else {
@@ -146,6 +150,12 @@ struct ServerConfiguration: Sendable {
                 result.thinkingEnabled = false
             case "--maximum-request-bytes":
                 result.maximumRequestBytes = try parseInteger(nextValue(for: option), option: option, range: 1...1_073_741_824)
+            case "--image-allowed-origin":
+                let value = try nextValue(for: option)
+                guard let origin = ImageSource.origin(value) else {
+                    throw ConfigurationError.invalidValue(option, value)
+                }
+                result.imageAllowedOrigins.insert(origin)
             case "--maximum-image-bytes":
                 result.maximumImageBytes = try parseInteger(nextValue(for: option), option: option, range: 1...1_073_741_824)
             case "--openloader-access-control":
@@ -353,6 +363,8 @@ struct ServerConfiguration: Sendable {
       --mmap-reserve-gb <數值>      記憶體保留目標：0、4、8、16、24、32、48、64、96 或 128 GB
       --max-tokens <數量>          預設最大輸出 Token，預設 4096
       --max-kv-size <數量>         KV Cache 最大 Token 數
+      --context-size <數量>        請求上下文上限，不改變 KV Cache 類型
+      --image-allowed-origin <URL> 授權圖片 HTTPS origin（可重複）；預設只接受 data URL
       --kv-bits <4|8>             KV Cache 量化位元
       --kv-group-size <數量>       KV Cache 量化群組大小，預設 64
       --kv-scheme <affine4|affine8>

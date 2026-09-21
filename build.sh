@@ -10,6 +10,7 @@ APP_BUILD="${TANPOPO_BUILD:-$(TZ=Asia/Taipei date '+%H%M')}"
 UPDATE_REPOSITORY="${TANPOPO_UPDATE_REPOSITORY:-VaderChen/Tanpopo}"
 BIN_DIR="${PROJECT_DIR}/bin"
 DIST_DIR="${PROJECT_DIR}/dist"
+CLEAN_BUILD_SCRIPT="${PROJECT_DIR}/clean.command"
 BUILD_TIME="$(date +%Y%m%d_%H%M%S)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LLAMA_SOURCE_DIR="${LLAMA_CPP_SOURCE_DIR:-}"
@@ -237,6 +238,7 @@ require_file "reports"
 require_file "agent.sample.properties"
 require_file "README.md"
 require_file "run.command"
+require_file "${CLEAN_BUILD_SCRIPT}"
 require_file "${RUNTIME_BUILD_SCRIPT}"
 require_file "${LLAMA_BUILD_ENTRY_SCRIPT}"
 require_file "${VULKAN_INSTALL_SCRIPT}"
@@ -322,6 +324,8 @@ if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
 
+# --check 已於上方結束；只在完整建置建立暫存輸出之前清空一次。
+bash "${CLEAN_BUILD_SCRIPT}" --dist
 mkdir -p "${BIN_DIR}" "${DIST_DIR}"
 WORK_DIR="$(mktemp -d "${DIST_DIR}/.package.XXXXXX")"
 PACKAGE_DIR="${WORK_DIR}/${PACKAGE_NAME}"

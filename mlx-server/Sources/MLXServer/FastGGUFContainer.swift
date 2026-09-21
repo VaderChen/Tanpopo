@@ -262,8 +262,11 @@ enum FastGGUFContainer {
 
     private static func validate(header: Header, fileSize: Int64) throws {
         var previousEnd = header.payloadOffset
+        var totalRawBytes: Int64 = 0
+        var names = Set<String>()
         for tensor in header.tensors.sorted(by: { $0.offset < $1.offset }) {
             guard !tensor.name.isEmpty,
+                  names.insert(tensor.name).inserted,
                   tensor.offset >= 0,
                   tensor.storedBytes >= 0,
                   tensor.rawBytes >= 0,
@@ -272,14 +275,18 @@ enum FastGGUFContainer {
                   let dtype = try? mlxDType(tensor.dtype),
                   expectedByteCount(shape: tensor.shape, dtype: dtype) == tensor.rawBytes,
                   tensor.encoding == "raw" || tensor.encoding == "lzfse",
-                  tensor.encoding != "raw" || tensor.storedBytes == tensor.rawBytes else {
+                  tensor.encoding != "raw" || tensor.storedBytes == tensor.rawBytes,
+                  tensor.encoding != "lzfse" || tensor.rawBytes <= Int64(maximumCompressionBytes) else {
                 throw ContainerError.invalidTensor(tensor.name)
             }
-            let start = header.payloadOffset + tensor.offset
-            let end = start + tensor.storedBytes
-            guard start >= previousEnd, end >= start, end <= fileSize else {
+            let (start, startOverflow) = header.payloadOffset.addingReportingOverflow(tensor.offset)
+            let (end, endOverflow) = start.addingReportingOverflow(tensor.storedBytes)
+            let (nextRawBytes, totalOverflow) = totalRawBytes.addingReportingOverflow(tensor.rawBytes)
+            guard !startOverflow, !endOverflow, !totalOverflow,
+                  start >= previousEnd, end >= start, end <= fileSize else {
                 throw ContainerError.invalidTensor(tensor.name)
             }
+            totalRawBytes = nextRawBytes
             if tensor.encoding == "raw",
                !MemoryMappedTensorArray.canMap(fileOffset: Int(start), dtype: dtype) {
                 throw ContainerError.invalidTensor(tensor.name)
@@ -398,7 +405,7 @@ enum FastGGUFContainer {
     private static func expectedByteCount(shape: [Int], dtype: DType) -> Int64? {
         var count: Int64 = 1
         for dimension in shape {
-            guard dimension >= 0 else { return nil }
+            guard dimension >= 0, dimension <= Int(Int32.max) else { return nil }
             let (next, overflow) = count.multipliedReportingOverflow(by: Int64(dimension))
             guard !overflow else { return nil }
             count = next

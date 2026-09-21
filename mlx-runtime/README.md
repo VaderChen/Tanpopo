@@ -8,6 +8,8 @@
 
 服務提供 `/health`、`/v1/models`、`/v1/chat/completions`、`/v1/completions`、`/completion` 與 `/props`。
 
+模型清單、`/props`（亦支援 `/v1/props`）與健康檢查會提供與請求驗證一致的有效上下文上限，供 AGENT 自動探索。數值由啟動限制與 MLX／GGUF／Fast GGUF metadata 共同決定；未知時省略，不寫死固定長度。欄位與語意見 [上下文長度探索](../docs/MLX-RUNTIME-SPEC.md#上下文長度探索)。
+
 Chat Completion 與 Completion 的 `model` 省略、留空或與目前模型不符時，一律 fallback 至此程序已載入的模型；一般與串流的生成回應都標示實際模型 ID，不會根據客戶端名稱切換或重新載入模型。JSON 型別、權限與資源限制仍照常檢查。完整規則見 [請求模型名稱](../docs/MLX-RUNTIME-SPEC.md#請求模型名稱)；更新後需重新啟動 Runtime，既有程序才會使用新版行為。
 
 版本固定於 `mlx-server/Package.swift`。打包後安裝到
@@ -43,3 +45,5 @@ HTTP 連線與生成工作共用每次請求獨立的取消訊號。外部程式
 串流請求先取得生成名額便交還 SSE，不等待 Tokenization／Prefill；名額已滿仍在送出 SSE header 前回傳 HTTP 429。SSE 建立時及之後每 10 秒送出 `: keep-alive` 註解，Chat Completion 另保留標準的 assistant role chunk。保活由 HTTP event loop 排程，不是生成文字或進度百分比，客戶端不可將它當成首個回答 token。
 
 畫面只顯示短問題，不表示完整輸入很短；`messages` 中的 system／developer 指令、歷史與工具結果，以及 `tools` 定義也會進入模型模板。應以日誌的 `prompt_tokens` 與實際 `prefill_step_size` 排查，而非只看最後一句問題或 GPU 使用率。通用診斷步驟見 [API 延遲與取消排查](../docs/MLX-RUNTIME-TROUBLESHOOTING.md)。
+
+API 圖片預設只接受內嵌 Base64 data URL；遠端 HTTPS 圖片須明確設定 `--image-allowed-origin`。請求上下文透過獨立的 `--context-size` 管理，不需要啟用 rotating Cache。完整規則見 [MLX Runtime 規格](../docs/MLX-RUNTIME-SPEC.md)。

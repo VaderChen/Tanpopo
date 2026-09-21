@@ -10,6 +10,7 @@ actor MLXRuntime {
     let modelDirectory: URL
     let modelID: String
     let kind: ModelKind
+    let contextLimit: Int?
 
     private let configuration: ServerConfiguration
     private let ggufWeightURL: URL?
@@ -39,6 +40,12 @@ actor MLXRuntime {
             : nil
         let resolvedModelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
         modelDirectory = resolvedModelDirectory
+        contextLimit = ModelContextLimit.resolve(
+            directory: resolvedModelDirectory,
+            ggufWeightURL: ggufWeightURL,
+            fastGGUFManifestURL: fastGGUFManifestURL,
+            configuredLimit: [configuration.contextSize, configuration.maxKVSize].compactMap { $0 }.min()
+        )
         modelGenerationDefaults = ModelGenerationDefaults.load(from: resolvedModelDirectory)
         modelID = isGGUF
             ? modelURL.deletingPathExtension().lastPathComponent
@@ -336,7 +343,7 @@ actor MLXRuntime {
         try GenerationSafety.checkCancellation()
         try await withError { @Sendable [self] in try await self.prepare() }
         let limits = MLXRequestLimits(
-            directory: modelDirectory, configuration: configuration, memoryMapPlan: memoryMapPlan)
+            directory: modelDirectory, contextLimit: contextLimit, memoryMapPlan: memoryMapPlan)
         try limits.checkResources()
         let failure = GenerationFailure()
         let upstream = try await GenerationSafety.$didFinish.withValue({ [self] in
@@ -393,13 +400,9 @@ actor MLXRuntime {
             throw APIError.invalidRequest("MLX 模型尚未載入。")
         }
 
-        var temporaryFiles: [URL] = []
-        var chat = try await makeChat(messages, temporaryFiles: &temporaryFiles)
-        defer {
-            for file in temporaryFiles {
-                try? FileManager.default.removeItem(at: file)
-            }
-        }
+        let temporaryImages = TemporaryImages()
+        defer { temporaryImages.removeAll() }
+        var chat = try await makeChat(messages, temporaryImages: temporaryImages)
         let tools = options.toolChoice?.disablesTools == true ? nil : options.tools
         if let instruction = options.toolChoice?.requiredInstruction {
             if let systemIndex = chat.lastIndex(where: { $0.role == .system }) {
@@ -564,7 +567,7 @@ actor MLXRuntime {
 
     private func makeChat(
         _ messages: [InputMessage],
-        temporaryFiles: inout [URL]
+        temporaryImages: TemporaryImages
     ) async throws -> [Chat.Message] {
         guard !messages.isEmpty else {
             throw APIError.invalidRequest("messages 不可為空。")
@@ -574,7 +577,7 @@ actor MLXRuntime {
         for message in messages {
             let parsed = try await parseContent(
                 message.content ?? .text(""),
-                temporaryFiles: &temporaryFiles
+                temporaryImages: temporaryImages
             )
             let role = message.role.lowercased()
             switch role {
@@ -609,7 +612,7 @@ actor MLXRuntime {
 
     private func parseContent(
         _ content: MessageContent,
-        temporaryFiles: inout [URL]
+        temporaryImages: TemporaryImages
     ) async throws -> (text: String, images: [UserInput.Image]) {
         switch content {
         case .text(let text):
@@ -628,7 +631,7 @@ actor MLXRuntime {
                     guard let value = part.imageURL?.url else {
                         throw APIError.invalidRequest("image_url 缺少 url。")
                     }
-                    let image = try await resolveImage(value, temporaryFiles: &temporaryFiles)
+                    let image = try await resolveImage(value, temporaryImages: temporaryImages)
                     images.append(.url(image))
                 default:
                     throw APIError.unsupportedContent("不支援的 content part：\(part.type)")
@@ -640,51 +643,13 @@ actor MLXRuntime {
 
     private func resolveImage(
         _ value: String,
-        temporaryFiles: inout [URL]
+        temporaryImages: TemporaryImages
     ) async throws -> URL {
-        if value.hasPrefix("data:") {
-            guard let comma = value.firstIndex(of: ","),
-                  value[..<comma].contains(";base64"),
-                  let data = Data(base64Encoded: String(value[value.index(after: comma)...])) else {
-                throw APIError.invalidImageURL("無效的 data URL")
-            }
-            return try persistTemporaryImage(data, temporaryFiles: &temporaryFiles)
-        }
-        guard let url = URL(string: value) else {
-            throw APIError.invalidImageURL(value)
-        }
-        if url.isFileURL {
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw APIError.invalidImageURL(value)
-            }
-            return url
-        }
-        if url.scheme == nil, FileManager.default.fileExists(atPath: value) {
-            return URL(fileURLWithPath: value)
-        }
-        guard url.scheme == "https" || url.scheme == "http" else {
-            throw APIError.invalidImageURL(value)
-        }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        if let response = response as? HTTPURLResponse,
-           !(200...299).contains(response.statusCode) {
-            throw APIError.invalidImageURL("\(value)（HTTP \(response.statusCode)）")
-        }
-        return try persistTemporaryImage(data, temporaryFiles: &temporaryFiles)
-    }
-
-    private func persistTemporaryImage(
-        _ data: Data,
-        temporaryFiles: inout [URL]
-    ) throws -> URL {
-        guard data.count <= configuration.maximumImageBytes else {
-            throw APIError.imageTooLarge
-        }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("llamaloader-mlx-\(UUID().uuidString).image")
-        try data.write(to: url, options: .atomic)
-        temporaryFiles.append(url)
-        return url
+        let data = try await ImageSource.load(
+            value, maximumBytes: configuration.maximumImageBytes,
+            allowedOrigins: configuration.imageAllowedOrigins
+        )
+        return try temporaryImages.store(data, maximumBytes: configuration.maximumImageBytes)
     }
 
     private func firstStop(in text: String, candidates: [String]) -> String.Index? {

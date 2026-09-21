@@ -121,6 +121,21 @@ private enum LaunchError: LocalizedError {
     }
 }
 
+private struct GPUStatusSnapshot: Decodable {
+    struct Metric: Decodable {
+        let available: Bool
+        let percent: Double
+    }
+
+    let gpu: Metric
+    let modelLoaded: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case gpu
+        case modelLoaded = "model_loaded"
+    }
+}
+
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler
@@ -131,6 +146,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var window: NSWindow?
     private var webView: WKWebView?
     private var statusItem: NSStatusItem?
+    private var gpuStatusTask: Task<Void, Never>?
     private var residentMode: Bool
     private var runtimeAPIURL: URL?
     private var isQuitting = false
@@ -378,13 +394,70 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = makeStatusIcon()
             button.imagePosition = .imageOnly
-            button.toolTip = options.title
         }
 
         statusItem = item
+        updateGPUStatusIcon(nil)
         refreshStatusMenu()
+        startGPUStatusUpdates()
+    }
+
+    private func startGPUStatusUpdates() {
+        guard gpuStatusTask == nil,
+              var components = URLComponents(url: options.url, resolvingAgainstBaseURL: false) else {
+            return
+        }
+        components.path = "/api/system/metrics"
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else { return }
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 2
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        // 由原生介面讀取既有快照，不依賴隱藏後可能被節流的 WKWebView。
+        // 循序請求避免重疊；停用常駐或結束程式時一併取消。
+        gpuStatusTask = Task { [weak self] in
+            while !Task.isCancelled {
+                var snapshot: GPUStatusSnapshot?
+                do {
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    if let response = response as? HTTPURLResponse, response.statusCode == 200 {
+                        snapshot = try JSONDecoder().decode(GPUStatusSnapshot.self, from: data)
+                    }
+                } catch {
+                    // 失敗時恢復單色，不把上一筆使用率當成目前狀態。
+                }
+                guard !Task.isCancelled, self != nil else { return }
+                self?.updateGPUStatusIcon(snapshot)
+                do {
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func updateGPUStatusIcon(_ snapshot: GPUStatusSnapshot?) {
+        guard let button = statusItem?.button else { return }
+        let percent: Double?
+        if let metric = snapshot?.gpu, metric.available, metric.percent.isFinite {
+            percent = min(100, max(0, metric.percent))
+        } else {
+            percent = nil
+        }
+        // 只有受管模型已就緒才套用負載顏色；舊版回應缺少旗標時也維持單色。
+        button.image = makeStatusIcon(gpuPercent: snapshot?.modelLoaded == true ? percent : nil)
+        let value = percent.map { String(format: "%.1f%%", $0) } ?? "N/A"
+        let modelState = snapshot?.modelLoaded == false ? " · 模型未就緒" : ""
+        let label = "\(options.title) · GPU \(value)\(modelState)"
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
     }
 
     private func refreshStatusMenu() {
@@ -404,7 +477,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let apiTitle = runtimeAPIURL?.absoluteString ?? "尚未提供"
         let copyAPIItem = NSMenuItem(
-            title: "複製 API URL：\(apiTitle)",
+            title: "複製 MCP URL：\(apiTitle)",
             action: #selector(copyAPIURL(_:)),
             keyEquivalent: ""
         )
@@ -433,10 +506,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         statusItem.menu = menu
     }
 
-    private func makeStatusIcon() -> NSImage {
+    private func makeStatusIcon(gpuPercent: Double?) -> NSImage {
+        // 與網頁狀態列使用相同的 50%／80% 分級；未知時保留系統單色樣式。
+        let color: NSColor
+        switch gpuPercent {
+        case let percent? where percent >= 80: color = .systemRed
+        case let percent? where percent >= 50: color = .systemYellow
+        case .some: color = .systemGreen
+        case .none: color = .black
+        }
         let icon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
-            NSColor.black.setStroke()
-            NSColor.black.setFill()
+            color.setStroke()
+            color.setFill()
             let center = NSPoint(x: 9, y: 10.5)
             let ray = NSBezierPath()
             ray.lineWidth = 1.25
@@ -474,11 +555,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             stem.stroke()
             return true
         }
-        icon.isTemplate = true
+        icon.isTemplate = gpuPercent == nil
         return icon
     }
 
     private func removeStatusItem() {
+        gpuStatusTask?.cancel()
+        gpuStatusTask = nil
         guard let statusItem else { return }
         NSStatusBar.system.removeStatusItem(statusItem)
         self.statusItem = nil

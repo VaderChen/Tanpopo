@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import MLX
 import MLXLMCommon
@@ -13,19 +14,15 @@ struct MLXRequestLimits: Sendable {
     private let maximumBufferBytes: Int
     private let resourceSampling = MLXRequestResourceSampling()
 
-    init(directory: URL, configuration: ServerConfiguration, memoryMapPlan: MLXMemoryMapPlan?) {
+    init(directory: URL, contextLimit: Int?, memoryMapPlan: MLXMemoryMapPlan?) {
+        self.contextLimit = contextLimit
         let root =
             (try? Data(contentsOf: directory.appendingPathComponent("config.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         let text = root["text_config"] as? [String: Any] ?? root
         func positive(_ key: String) -> Int? {
-            guard let value = (text[key] ?? root[key]) as? NSNumber,
-                value.doubleValue > 0, value.doubleValue < Double(Int.max)
-            else { return nil }
-            return value.intValue
+            Self.positiveMetadataInteger(text[key] ?? root[key])
         }
-        contextLimit = [configuration.maxKVSize, positive("max_position_embeddings")]
-            .compactMap { $0 }.filter { $0 > 0 }.min()
         let heads = positive("num_attention_heads") ?? 32
         let kvHeads = positive("num_key_value_heads") ?? heads
         let hidden = positive("hidden_size") ?? 4096
@@ -56,6 +53,16 @@ struct MLXRequestLimits: Sendable {
                 memoryMapPlan?.runtimeLimitBytes ?? max(1, physical - reserve),
                 Memory.memoryLimit))
         maximumBufferBytes = device.maxBufferSize > 0 ? device.maxBufferSize : memoryLimit
+    }
+
+    // JSON 的布林與小數也會橋接成 NSNumber；直接 intValue 可能把 0.5
+    // 變成 0，造成 head/interval 除以零或低估記憶體，必須先確認正整數。
+    static func positiveMetadataInteger(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID(),
+            let integer = Int(exactly: number.doubleValue), integer > 0
+        else { return nil }
+        return integer
     }
 
     /// 只縮小執行分段，不變更上下文、使用者設定或效能校準紀錄。

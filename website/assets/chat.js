@@ -315,12 +315,8 @@
     if (!response.ok) throw await responseError(response);
     if (!response.body) throw new Error(t("目前的瀏覽器不支援串流回應"));
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
     const snapshot = { content: "", reasoning: "", usage: null, finishReason: "" };
     const startedAt = performance.now();
-    let buffer = "";
-    let receivedDone = false;
     let frameID = 0;
     const notify = () => {
       if (frameID) return;
@@ -329,19 +325,7 @@
         onUpdate(snapshot, false);
       });
     };
-    const consumeEvent = (eventText) => {
-      const data = eventText.split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n");
-      if (!data) return;
-      if (data === "[DONE]") {
-        receivedDone = true;
-        return;
-      }
-      let payload;
-      try { payload = JSON.parse(data); } catch (_error) { return; }
-      if (payload?.error) throw new Error(payload.error.message || t("模型 Runtime 串流失敗"));
+    const consumeEvent = (payload) => {
       const choice = payload?.choices?.[0] || {};
       const delta = choice.delta || {};
       snapshot.content += decodeDeltaContent(delta.content);
@@ -351,23 +335,15 @@
       notify();
     };
 
-    while (!receivedDone) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      let boundary = /\r?\n\r?\n/.exec(buffer);
-      while (boundary) {
-        const eventText = buffer.slice(0, boundary.index);
-        buffer = buffer.slice(boundary.index + boundary[0].length);
-        consumeEvent(eventText);
-        if (receivedDone) break;
-        boundary = /\r?\n\r?\n/.exec(buffer);
+    try {
+      await window.TanpopoChatStream.consume(response.body, consumeEvent);
+    } finally {
+      if (frameID) {
+        window.cancelAnimationFrame(frameID);
+        frameID = 0;
       }
-      if (done) break;
-    }
-    if (!receivedDone && buffer.trim()) consumeEvent(buffer);
-    if (frameID) {
-      window.cancelAnimationFrame(frameID);
-      frameID = 0;
+      // 即使串流失敗，也先呈現尚未經過動畫影格的最後一批文字。
+      onUpdate(snapshot, false);
     }
     if (!snapshot.content && !snapshot.reasoning) throw new Error(t("模型 Runtime 沒有回傳對話內容"));
     const completionTokens = Number(snapshot.usage?.completion_tokens || 0);
@@ -445,8 +421,8 @@
     const streaming = createStreamingMessage();
     updateComposer();
 
+    let latest = { content: "", reasoning: "", usage: null };
     try {
-      let latest = { content: "", reasoning: "", usage: null };
       const result = await streamChat(
         state.messages,
         byId("chatRuntimeKey").value.trim(),
@@ -458,7 +434,15 @@
       const assistant = { role: "assistant", content: latest.content };
       state.messages.push(assistant);
     } catch (error) {
-      streaming.row.remove();
+      // 保留已收到的內容；未完成的回答不加入後續送給模型的歷史。
+      if (latest.content || latest.reasoning) {
+        streaming.row.classList.remove("pending");
+        streaming.thinking.classList.remove("is-streaming");
+        streaming.meta.hidden = false;
+        streaming.meta.textContent = t("回答未完成");
+      } else {
+        streaming.row.remove();
+      }
       const message = t(error.message);
       appendMessage("assistant", message, { error: true });
       showMessage(message, "error");

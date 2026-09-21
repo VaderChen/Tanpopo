@@ -2,7 +2,8 @@
   const { api, byId, showMessage, formatTime, t } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
-  const state = { commands: [], modelsByRuntime: {}, selectedID: "" };
+  const variants = window.TanpopoRuntimeVariants;
+  const state = { unavailableReasons: {}, commands: [], modelsByRuntime: {}, selectedID: "" };
 
   function commandUsesMTP(command) {
     return command?.runtime === MLX_RUNTIME && (command.extra_args || []).some((argument) =>
@@ -12,7 +13,8 @@
 
   function commandPayload() {
     return {
-      runtime: byId("commandRuntime").value,
+      runtime: variants.family(byId("commandRuntime").value),
+      runtime_variant: variants.isVariant(byId("commandRuntime").value) ? byId("commandRuntime").value : "",
       name: byId("commandName").value.trim(),
       draft_model: byId("commandDraftModel").value.trim(),
       server_host: byId("commandHost").value.trim(),
@@ -31,7 +33,7 @@
 
   function fillForm(command) {
     state.selectedID = command?.id || "";
-    byId("commandRuntime").value = command?.runtime || LLAMA_RUNTIME;
+    variants.restore(byId("commandRuntime"), command);
     byId("commandName").value = command?.name || "新啟動參數";
     byId("commandDraftModel").value = command?.draft_model || "";
     byId("commandHost").value = command?.server_host || "0.0.0.0";
@@ -63,12 +65,14 @@
       const name = document.createElement("strong");
       name.textContent = command.name;
       const summary = document.createElement("span");
-      const runtimeLabel = command.runtime === MLX_RUNTIME ? "MLX" : "llama";
+      const runtimeLabel = variants.label(variants.optionValue(command), command);
       const mmapReserve = command.mmap_reserve_gb > 0 ? ` · ${t("MMap 保留")} ${command.mmap_reserve_gb} GB` : "";
       const kvCache = command.kv_cache_quantization
         ? ` · KV Cache ${command.kv_cache_quantization.toUpperCase()}`
         : "";
       summary.textContent = `${runtimeLabel} · ${command.server_host}:${command.server_port} · Context ${command.context_size}${command.draft_model ? " · Draft" : ""}${mmapReserve}${kvCache}`;
+      const reason = state.unavailableReasons[command.id];
+      if (reason) summary.textContent += ` · 不可用：${reason}`;
       button.append(name, summary);
       button.addEventListener("click", () => fillForm(command));
       container.append(button);
@@ -77,11 +81,22 @@
 
   function renderPreview() {
     const command = commandPayload();
+    variants.updateLabel(byId("commandRuntime"), command);
     const isMLX = command.runtime === MLX_RUNTIME;
+    let extraArgs = command.extra_args;
+    if (variants.isVariant(command.runtime_variant)) {
+      extraArgs = extraArgs.filter((argument, index, all) => {
+        const managed = (value) => /^(?:--parallel|-np|--device|-dev|--tanpopo-amd-mode)(?:=|$)/.test(value);
+        return !managed(argument) && !(index > 0 && managed(all[index - 1]) && !all[index - 1].includes("="));
+      });
+      extraArgs.push("--device", variants.mode(command) === "strix-halo"
+        ? "<偵測到的 Strix Halo GPU>" : "<偵測到的 AMD Vulkan GPU>", "--parallel", "4");
+    }
     const args = [
-      ...withoutManagedKVCacheArguments(command.extra_args),
+      ...withoutManagedKVCacheArguments(extraArgs),
       "--model", isMLX ? "<選擇的 MLX 模型目錄或 GGUF>" : "<選擇的 GGUF>"
     ];
+    if (!isMLX) args.push("--alias", "<GGUF 檔名>");
     if (command.draft_model) {
       if (isMLX && !commandUsesMTP(command)) args.push("--model-type", "text");
       args.push(isMLX
@@ -90,6 +105,7 @@
     }
     args.push("--host", command.server_host || "<Host>", "--port", String(command.server_port || "<Port>"));
     if (isMLX) {
+      args.push("--context-size", String(command.context_size || "<Context>"));
       if (command.kv_cache_quantization) {
         args.push(
           "--kv-bits", command.kv_cache_quantization === "q4" ? "4" : "8",
@@ -137,6 +153,7 @@
 
   function withoutManagedKVCacheArguments(arguments) {
     const managed = new Set([
+      "--alias", "-a",
       "--cache-type-k", "-ctk", "--cache-type-v", "-ctv",
       "--kv-bits", "--kv-group-size", "--kv-scheme", "--quantized-kv-start"
     ]);
@@ -154,7 +171,7 @@
   }
 
   function renderDraftOptions() {
-    const runtimeName = byId("commandRuntime").value || LLAMA_RUNTIME;
+    const runtimeName = variants.family(byId("commandRuntime").value);
     const models = state.modelsByRuntime[runtimeName] || [];
     const datalist = byId("draftModelOptions");
     datalist.replaceChildren();
@@ -169,6 +186,8 @@
 
   async function loadCommands(preferredID = "") {
     const payload = await api("/api/startup-commands");
+    variants.apply(byId("commandRuntime"), payload.capabilities, payload.commands || []);
+    state.unavailableReasons = payload.unavailable_reasons || {};
     state.commands = payload.commands || [];
     const selected = state.commands.find((command) => command.id === preferredID)
       || state.commands.find((command) => command.id === state.selectedID)

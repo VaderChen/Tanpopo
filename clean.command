@@ -2,10 +2,11 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 
 clean_build_directory() {
   local directory_name="$1"
+  local preserve_directory="${2:-false}"
   local target_path="${PROJECT_DIR}/${directory_name}"
 
   local expected_parent=""
@@ -42,10 +43,32 @@ clean_build_directory() {
     exit 1
   fi
 
+  # 除目標本身，也驗證父目錄；mlx-server 或 desktop-ui 若是符號連結，
+  # 其 .build / prebuilt 可能實際位於專案外，不可直接清除。
+  local physical_parent=""
+  physical_parent="$(cd "${expected_parent}" && pwd -P)"
+  if [[ "${physical_parent}" != "${expected_parent}" ]]; then
+    echo "拒絕穿過父目錄符號連結進行清理：${target_path}" >&2
+    exit 1
+  fi
+
+  # find 預設不跟隨符號連結，並涵蓋隱藏檔與巢狀目錄。
   find "${target_path}" -mindepth 1 -depth -delete
-  rmdir "${target_path}"
+  if [[ "${preserve_directory}" != "true" ]]; then
+    rmdir "${target_path}"
+  fi
   echo "已清理：${target_path}"
 }
+
+if [[ "$#" -gt 0 ]]; then
+  if [[ "$#" -ne 1 || "$1" != "--dist" ]]; then
+    echo "用法：$0 [--dist]" >&2
+    exit 1
+  fi
+  # 完整建置／封裝共用此入口，不清除 Runtime 快取或其他建置目錄。
+  clean_build_directory "dist" true
+  exit 0
+fi
 
 echo "=== Tanpopo 清理建置產物 ==="
 clean_build_directory "bin"

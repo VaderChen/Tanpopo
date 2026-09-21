@@ -173,13 +173,17 @@ func NewStore(path string) (*Store, error) {
 func (s *Store) Get() domain.Settings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := s.settings
-	result.ExtraArgs = append([]string(nil), s.settings.ExtraArgs...)
+	return cloneSettings(s.settings)
+}
+
+func cloneSettings(value domain.Settings) domain.Settings {
+	result := value
+	result.ExtraArgs = append([]string(nil), value.ExtraArgs...)
 	result.DownloadFavorites = append(
-		make([]domain.DownloadFavorite, 0, len(s.settings.DownloadFavorites)),
-		s.settings.DownloadFavorites...,
+		make([]domain.DownloadFavorite, 0, len(value.DownloadFavorites)),
+		value.DownloadFavorites...,
 	)
-	result.PerformanceCalibrations = clonePerformanceCalibrations(s.settings.PerformanceCalibrations)
+	result.PerformanceCalibrations = clonePerformanceCalibrations(value.PerformanceCalibrations)
 	return result
 }
 
@@ -210,7 +214,25 @@ func (s *Store) Public() domain.PublicSettings {
 }
 
 func (s *Store) Save(value domain.Settings) error {
-	value = normalizeSettings(value)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked(value)
+}
+
+// Update 將讀取、修改、驗證與落盤視為同一筆交易。
+// 回呼只能修改傳入快照，不可再次呼叫此 Store；失敗不影響既有設定。
+func (s *Store) Update(change func(*domain.Settings) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value := cloneSettings(s.settings)
+	if err := change(&value); err != nil {
+		return err
+	}
+	return s.saveLocked(value)
+}
+
+func (s *Store) saveLocked(value domain.Settings) error {
+	value = normalizeSettings(cloneSettings(value))
 	if err := ValidateSettings(value); err != nil {
 		return err
 	}
@@ -222,9 +244,7 @@ func (s *Store) Save(value domain.Settings) error {
 	if err := writeFileAtomic(s.path, content, 0600); err != nil {
 		return err
 	}
-	s.mu.Lock()
 	s.settings = value
-	s.mu.Unlock()
 	return nil
 }
 

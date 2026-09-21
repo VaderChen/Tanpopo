@@ -22,6 +22,7 @@ type persistedRuntimeState struct {
 	Version                 int       `json:"version"`
 	DesiredRunning          bool      `json:"desired_running"`
 	Runtime                 string    `json:"runtime"`
+	RuntimeVariant          string    `json:"runtime_variant,omitempty"`
 	Model                   string    `json:"model,omitempty"`
 	MMProj                  string    `json:"mmproj,omitempty"`
 	DraftModel              string    `json:"draft_model,omitempty"`
@@ -178,6 +179,9 @@ func validateRuntimeState(state persistedRuntimeState) error {
 	}
 	if state.Runtime != domain.RuntimeLlamaServer && state.Runtime != domain.RuntimeMLXServer {
 		return errors.New("runtime 不支援")
+	}
+	if state.RuntimeVariant != "" && (state.Runtime != domain.RuntimeLlamaServer || !domain.IsAMDRuntimeVariant(state.RuntimeVariant)) {
+		return errors.New("runtime_variant 不支援")
 	}
 	for label, value := range map[string]string{
 		"model": state.Model, "mmproj": state.MMProj, "draft_model": state.DraftModel,

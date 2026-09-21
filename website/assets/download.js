@@ -225,8 +225,7 @@
 
   async function deleteDownloadedModel(format, model, button) {
     const name = downloadedModelName(model.path);
-    const relativePath = String(model.path || "").replace(/^gguf:/, "").replace(/\\/g, "/");
-    const removesDirectory = format === "MLX" || relativePath.includes("/");
+    const removesDirectory = format === "MLX";
     const warning = removesDirectory
       ? t("確定要刪除此模型的完整目錄嗎？目錄內所有檔案都會從硬碟移除，且無法復原。")
       : t("確定要刪除此模型嗎？模型檔案將從硬碟移除，且無法復原。");

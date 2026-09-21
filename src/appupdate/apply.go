@@ -28,6 +28,11 @@ func Apply(options ApplyOptions) error {
 	if err != nil {
 		return err
 	}
+	updateLock, err := acquireUpdateLock(targetDir, options.LockFD)
+	if err != nil {
+		return err
+	}
+	defer updateLock.Close()
 	workspace, err := filepath.Abs(options.Workspace)
 	if err != nil {
 		return err
@@ -63,11 +68,20 @@ func Apply(options ApplyOptions) error {
 	}); err != nil {
 		return err
 	}
-	installer := exec.Command(filepath.Join(payloadDir, "install.sh"))
-	installer.Dir = payloadDir
-	installer.Stdin = nil
-	installer.Stdout = os.Stdout
-	installer.Stderr = os.Stderr
+	// 子程序重新驗證原始 ZIP，並使用全新解壓內容，避免依賴前一階段的可變檔案。
+	archivePath := filepath.Join(workspace, "update.zip")
+	if err := verifyOfficialArchive(archivePath, payloadDir); err != nil {
+		return fail(err)
+	}
+	verifiedRoot, err := os.MkdirTemp(workspace, "verified-")
+	if err != nil {
+		return fail(err)
+	}
+	payloadDir, version, err = extractAndValidate(archivePath, verifiedRoot)
+	if err != nil {
+		return fail(err)
+	}
+	installer := updateInstaller(payloadDir)
 	if err := installer.Run(); err != nil {
 		return fail(fmt.Errorf("更新套件安裝失敗: %w", err))
 	}
@@ -93,9 +107,10 @@ func Apply(options ApplyOptions) error {
 		return fail(errors.New("目前服務未能在 90 秒內停止，已取消更新切換"))
 	}
 	failAfterStop := func(cause error) error {
-		result := fail(cause)
-		_ = launchTarget(targetDir)
-		return result
+		if restartErr := launchTarget(targetDir); restartErr != nil {
+			cause = errors.Join(cause, fmt.Errorf("舊版重新啟動失敗: %w", restartErr))
+		}
+		return fail(cause)
 	}
 
 	for _, persistent := range []string{"agent.properties", "data"} {
@@ -123,23 +138,30 @@ func Apply(options ApplyOptions) error {
 		return failAfterStop(fmt.Errorf("備份目前安裝失敗: %w", err))
 	}
 	if err := os.Rename(payloadDir, targetDir); err != nil {
-		_ = os.Rename(backupDir, targetDir)
+		if rollbackErr := os.Rename(backupDir, targetDir); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("切換失敗且無法還原，舊版備份位於 %s: %w", backupDir, rollbackErr))
+		}
 		return failAfterStop(fmt.Errorf("切換新版安裝失敗: %w", err))
 	}
 
 	newStatusPath := filepath.Join(targetDir, "data", statusFilename)
 	if err := launchTarget(targetDir); err != nil {
 		failedDir := targetDir + ".failed-" + strconv.Itoa(os.Getpid())
-		_ = os.Rename(targetDir, failedDir)
-		if rollbackErr := os.Rename(backupDir, targetDir); rollbackErr == nil {
-			_ = writeStatus(filepath.Join(targetDir, "data", statusFilename), Status{
-				State:   "failed",
-				Message: "新版啟動失敗，已還原舊版：" + err.Error(),
-				Version: version,
-			})
-			_ = launchTarget(targetDir)
+		if moveErr := os.Rename(targetDir, failedDir); moveErr != nil {
+			return fail(errors.Join(err, fmt.Errorf("保留失敗新版時發生錯誤，舊版備份位於 %s: %w", backupDir, moveErr)))
 		}
-		return err
+		if rollbackErr := os.Rename(backupDir, targetDir); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("無法還原舊版，備份位於 %s: %w", backupDir, rollbackErr))
+		}
+		message := "新版啟動失敗，已還原並重新啟動舊版：" + err.Error()
+		if restartErr := launchTarget(targetDir); restartErr != nil {
+			err = errors.Join(err, fmt.Errorf("舊版重新啟動失敗: %w", restartErr))
+			message = "已還原舊版檔案，但服務未通過啟動確認：" + err.Error()
+		}
+		statusErr := writeStatus(filepath.Join(targetDir, "data", statusFilename), Status{
+			State: "failed", Message: message, Version: version,
+		})
+		return errors.Join(err, statusErr)
 	}
 	if err := writeStatus(newStatusPath, Status{
 		State:   "completed",
@@ -152,31 +174,15 @@ func Apply(options ApplyOptions) error {
 	return nil
 }
 
-func launchTarget(targetDir string) error {
-	runScript := filepath.Join(targetDir, "run.sh")
-	if !isRegularFile(runScript) {
-		return errors.New("更新後缺少 run.sh")
-	}
-	logDir := filepath.Join(targetDir, "data")
-	if err := os.MkdirAll(logDir, 0700); err != nil {
-		return err
-	}
-	logFile, err := os.OpenFile(filepath.Join(logDir, "app-update.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	command := exec.Command(runScript)
-	command.Dir = targetDir
-	command.Stdin = nil
-	command.Stdout = logFile
-	command.Stderr = logFile
-	detachCommand(command)
-	if err := command.Start(); err != nil {
-		_ = logFile.Close()
-		return err
-	}
-	_ = command.Process.Release()
-	return logFile.Close()
+// 更新準備只寫入暫存發布目錄中的 Runtime；current 使用套件內相對連結，
+// 與應用程式目錄一同切換或復原，不改動仍在使用的共用 Runtime。
+func updateInstaller(payloadDir string) *exec.Cmd {
+	command := exec.Command(filepath.Join(payloadDir, "install.sh"))
+	command.Dir = payloadDir
+	command.Env = append(os.Environ(), "LLAMA_CPP_INSTALL_DIR="+filepath.Join(payloadDir, "llama.cpp"))
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command
 }
 
 func copyPath(source, destination string) error {

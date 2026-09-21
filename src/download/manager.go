@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"net/url"
@@ -1301,12 +1302,24 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 	}
 
 	m.update(id, func(job *domain.DownloadJob) { job.State = "downloading" })
-	if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+	if err := os.MkdirAll(request.ModelDirectory, 0755); err != nil {
 		m.fail(id, err.Error())
 		return
 	}
-	partPath := destination + ".part-" + id
-	file, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	root, err := os.OpenRoot(request.ModelDirectory)
+	if err != nil {
+		m.fail(id, err.Error())
+		return
+	}
+	defer root.Close()
+	// 所有寫入與替換皆透過同一 root handle，避免符號連結與檢查後替換競態。
+	relative := filepath.FromSlash(localDestination(request))
+	if err := root.MkdirAll(filepath.Dir(relative), 0755); err != nil {
+		m.fail(id, err.Error())
+		return
+	}
+	partPath := relative + ".part-" + id
+	file, err := root.OpenFile(partPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		m.fail(id, err.Error())
 		return
@@ -1315,7 +1328,7 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 	defer func() {
 		file.Close()
 		if removePart {
-			os.Remove(partPath)
+			root.Remove(partPath)
 		}
 	}()
 
@@ -1354,7 +1367,7 @@ func (m *Manager) run(ctx context.Context, id string, request Request, destinati
 		m.cancelled(id, destination)
 		return
 	}
-	if err := replaceFile(partPath, destination, request.Overwrite, id); err != nil {
+	if err := replaceFile(root, partPath, relative, request.Overwrite, id); err != nil {
 		m.fail(id, err.Error())
 		return
 	}
@@ -1451,6 +1464,12 @@ func (m *Manager) downloadChunked(
 	file *os.File,
 	total int64,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if total < 1 || m.chunkSize < 1 {
+		return errors.New("下載分段大小無效")
+	}
 	if err := file.Truncate(total); err != nil {
 		return err
 	}
@@ -1458,22 +1477,26 @@ func (m *Manager) downloadChunked(
 		job.BytesDone = 0
 		job.BytesTotal = total
 	})
-	ranges := planDownloadRanges(total, m.chunkSize)
-	workerCount := m.chunkWorkers
-	if workerCount < 1 {
-		workerCount = 1
+	workerCount := max(1, m.chunkWorkers)
+	segmentCount := (total-1)/m.chunkSize + 1
+	if int64(workerCount) > segmentCount {
+		workerCount = int(segmentCount)
 	}
-	if workerCount > len(ranges) {
-		workerCount = len(ranges)
-	}
-
 	workerContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	queue := make(chan downloadByteRange, len(ranges))
-	for _, item := range ranges {
-		queue <- item
-	}
-	close(queue)
+	queue := make(chan downloadByteRange, workerCount)
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		defer close(queue)
+		for item := range planDownloadRanges(total, m.chunkSize) {
+			select {
+			case <-workerContext.Done():
+				return
+			case queue <- item:
+			}
+		}
+	}()
 
 	var workers sync.WaitGroup
 	var failureOnce sync.Once
@@ -1502,6 +1525,7 @@ func (m *Manager) downloadChunked(
 		}()
 	}
 	workers.Wait()
+	<-producerDone
 	if failure != nil {
 		return failure
 	}
@@ -1559,19 +1583,21 @@ func (m *Manager) downloadRange(
 	return nil
 }
 
-func planDownloadRanges(total, chunkSize int64) []downloadByteRange {
-	if total < 1 || chunkSize < 1 {
-		return nil
-	}
-	ranges := make([]downloadByteRange, 0, (total+chunkSize-1)/chunkSize)
-	for start := int64(0); start < total; start += chunkSize {
-		end := start + chunkSize - 1
-		if end >= total {
-			end = total - 1
+// 逐段產生工作，記憶體用量不隨遠端宣告的總長度增加。
+func planDownloadRanges(total, chunkSize int64) iter.Seq[downloadByteRange] {
+	return func(yield func(downloadByteRange) bool) {
+		if total < 1 || chunkSize < 1 {
+			return
 		}
-		ranges = append(ranges, downloadByteRange{Start: start, End: end})
+		for start := int64(0); start < total; {
+			size := min(chunkSize, total-start)
+			end := start + size - 1
+			if !yield(downloadByteRange{Start: start, End: end}) {
+				return
+			}
+			start = end + 1
+		}
 	}
-	return ranges
 }
 
 func parseContentRange(value string) (start, end, total int64, ok bool) {
@@ -1783,10 +1809,10 @@ func escapeURLPath(value string) string {
 	return strings.Join(parts, "/")
 }
 
-func replaceFile(partPath, destination string, overwrite bool, id string) error {
-	destinationInfo, statErr := os.Stat(destination)
+func replaceFile(root *os.Root, partPath, destination string, overwrite bool, id string) error {
+	destinationInfo, statErr := root.Lstat(destination)
 	if os.IsNotExist(statErr) {
-		return os.Rename(partPath, destination)
+		return root.Rename(partPath, destination)
 	}
 	if statErr != nil {
 		return statErr
@@ -1799,16 +1825,16 @@ func replaceFile(partPath, destination string, overwrite bool, id string) error 
 	}
 
 	backupPath := destination + ".backup-" + id
-	if err := os.Rename(destination, backupPath); err != nil {
+	if err := root.Rename(destination, backupPath); err != nil {
 		return fmt.Errorf("建立舊模型暫存備份失敗: %w", err)
 	}
-	if err := os.Rename(partPath, destination); err != nil {
-		if restoreErr := os.Rename(backupPath, destination); restoreErr != nil {
+	if err := root.Rename(partPath, destination); err != nil {
+		if restoreErr := root.Rename(backupPath, destination); restoreErr != nil {
 			return fmt.Errorf("替換模型失敗: %v；還原舊模型亦失敗: %v（備份位於 %s）", err, restoreErr, backupPath)
 		}
 		return fmt.Errorf("替換模型失敗，已還原舊模型: %w", err)
 	}
-	if err := os.Remove(backupPath); err != nil {
+	if err := root.Remove(backupPath); err != nil {
 		return fmt.Errorf("模型已替換，但無法移除暫存備份 %s: %w", backupPath, err)
 	}
 	return nil

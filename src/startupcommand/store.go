@@ -21,7 +21,7 @@ type fileData struct {
 }
 
 const (
-	currentFileVersion = 13
+	currentFileVersion = 15
 	defaultContextSize = 256 * 1024
 )
 
@@ -189,6 +189,7 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 	base.ID = "default"
 	base.Name = "預設參數（256K）"
 	base.Runtime = domain.RuntimeLlamaServer
+	base.RuntimeVariant = ""
 	base.DraftModel = ""
 	base.ContextSize = defaultContextSize
 	base.ExtraArgs = []string{}
@@ -198,6 +199,13 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 
 	presets := []domain.StartupCommand{
 		base,
+		{
+			ID: "amd-vulkan", Name: "LLaMA Server（AMD Vulkan）四人", Runtime: domain.RuntimeLlamaServer,
+			RuntimeVariant: domain.RuntimeVariantAMDVulkan, ServerHost: base.ServerHost,
+			ServerPort: base.ServerPort, ContextSize: defaultContextSize, GPULayers: -1,
+			KVCacheQuantization: domain.KVCacheQuantizationQ4,
+			ExtraArgs:           []string{"--tanpopo-amd-mode=auto", "--parallel", "4"}, CreatedAt: now, UpdatedAt: now,
+		},
 		newPreset(base, "kv-cache-q8", "KV Cache Q8（256K）", []string{
 			"--flash-attn", "on",
 		}, domain.KVCacheQuantizationQ8),
@@ -483,6 +491,9 @@ func Validate(command domain.StartupCommand) error {
 	if command.Runtime != domain.RuntimeLlamaServer && command.Runtime != domain.RuntimeMLXServer {
 		return errors.New("Runtime 僅支援 llama-server 或 mlx-server")
 	}
+	if command.RuntimeVariant != "" && (command.Runtime != domain.RuntimeLlamaServer || !domain.IsAMDRuntimeVariant(command.RuntimeVariant)) {
+		return errors.New("不支援的 Runtime 版本")
+	}
 	if len(command.DraftModel) > 1024 || strings.ContainsAny(command.DraftModel, "\r\n\x00") {
 		return errors.New("Draft 模型不可換行且最多 1024 個字元")
 	}
@@ -522,6 +533,7 @@ func normalize(command domain.StartupCommand) domain.StartupCommand {
 	command.ID = strings.TrimSpace(command.ID)
 	command.Name = strings.TrimSpace(command.Name)
 	command.Runtime = strings.TrimSpace(command.Runtime)
+	command.RuntimeVariant = strings.TrimSpace(command.RuntimeVariant)
 	if command.Runtime == "" {
 		command.Runtime = domain.RuntimeLlamaServer
 	}

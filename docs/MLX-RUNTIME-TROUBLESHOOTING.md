@@ -8,6 +8,14 @@
 
 若更新後仍收到模型名稱不符錯誤，先確認 API 位址是否指向更新後的 mlx-server，以及目前程序是否已重新啟動。fallback 不會啟動未運作的服務，也不略過 JSON 型別、權限或資源檢查；要使用另一個模型，仍需在 Tanpopo 選取並載入。
 
+## AGENT 無法自動偵測上下文長度
+
+新版 mlx-server 會在 `/v1/models` 的 `data[]` 回報 `context_length`、`max_model_len` 與 `meta.n_ctx`；`/props`（亦支援 `/v1/props`）回報同值的 `default_generation_settings.n_ctx`，`/health` 也提供 `context_length`。這些欄位與 Runtime 真正檢查的上下文上限共用同一份資料，不是僅供顯示的 Profile 名稱。
+
+若 AGENT 仍表示無法偵測，先以唯讀 GET 確認連到的服務是否已有這些欄位，再核對客戶端讀取的欄位路徑與 Model ID。只換執行檔、沒有停止並重新載入模型，原程序仍會回傳舊格式；端點回應 HTTP 200 也不代表一定有提供長度。模型 metadata 與啟動參數皆未提供有效長度時，伺服器會省略相關欄位，客戶端仍需自行設定或提示未知，不應推定無限長。
+
+API 回報的是完整輸入與最大輸出的合計上限。客戶端需替回答保留空間，也不能由這個值推定實體記憶體足夠或四個並行請求皆可用滿。詳細來源與欄位對照見 [上下文長度探索](MLX-RUNTIME-SPEC.md#上下文長度探索)。
+
 ## 先區分三個時間點
 
 1. **建立 SSE**：完成請求格式檢查、模型名稱解析與生成名額受理後送出 header 與保活註解。Chat Completion 另有 assistant role chunk，尚不代表模型已產生文字。

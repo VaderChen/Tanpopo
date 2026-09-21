@@ -24,3 +24,14 @@ func processAlive(pid int) bool {
 func detachCommand(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
+
+func killProcessGroup(pid int) error {
+	if pid <= 1 {
+		return errors.New("無效的程序群組")
+	}
+	err := syscall.Kill(-pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
+}

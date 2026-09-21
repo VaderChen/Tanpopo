@@ -8,7 +8,8 @@
   <script src="/assets/theme-init.js?v=20260829-1"></script>
   <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
   <script src="/assets/common.js?v=20260902-73" defer></script>
-  <script src="/assets/commands.js?v=20260829-6" defer></script>
+  <script src="/assets/runtime-variants.js?v=20260909-4" defer></script>
+  <script src="/assets/commands.js?v=20260911-1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -65,7 +66,7 @@
             <label class="field">
               <span>Runtime</span>
               <select id="commandRuntime" required>
-                <option value="llama-server">llama-server（跨平台／GGUF）</option>
+                <option value="llama-server">LLaMA Server（標準版）</option>
                 <option value="mlx-server">mlx-server（Apple Silicon／MLX）</option>
               </select>
             </label>
@@ -137,6 +138,7 @@
             <label class="field">
               <span>額外參數（每行一個 argument）</span>
               <textarea id="commandExtraArgs" rows="5" placeholder="--flash-attn=on&#10;--jinja"></textarea>
+              <small>AMD 模式：--tanpopo-amd-mode=auto、vulkan 或 strix-halo；一次只能指定一種，選單名稱隨參數切換。</small>
             </label>
           </div>
 

@@ -201,20 +201,6 @@
     updateClearHFTokenButton();
   }
 
-  function settingsWritePayload(current, patch) {
-    // 既有 PUT API 的必要欄位沿用最新值；其他欄位省略即保留，不提交整份舊快照。
-    return {
-      model_directory: current.model_directory,
-      mlx_model_directory: current.mlx_model_directory,
-      resident_mode: current.resident_mode,
-      ui_language: current.ui_language,
-      ui_theme: current.ui_theme,
-      huggingface_endpoint: current.huggingface_endpoint,
-      default_revision: current.default_revision,
-      ...patch
-    };
-  }
-
   function queueSettingsSave(button, message, operation, successMessage) {
     pendingSettingsSaves += 1;
     saveButtonCounts.set(button, (saveButtonCounts.get(button) || 0) + 1);
@@ -261,7 +247,7 @@
         settingsState = previous;
         settingsState = await api("/api/settings", {
           method: "PUT",
-          body: JSON.stringify(settingsWritePayload(previous, patch))
+          body: JSON.stringify(patch)
         });
         restoreSettingValues(patch, versions, { ...settingsState, huggingface_token: "" });
       } catch (error) {
@@ -1018,7 +1004,7 @@
           if (!window.confirm(t("確定要清除本機儲存的 Access Token？需要時必須重新輸入。"))) return false;
           settingsState = await api("/api/settings", {
             method: "PUT",
-            body: JSON.stringify(settingsWritePayload(current, { clear_huggingface_token: true }))
+            body: JSON.stringify({ clear_huggingface_token: true })
           });
         }
         settingsState.huggingface_token_set = false;

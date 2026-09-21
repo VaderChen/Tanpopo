@@ -204,7 +204,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
             return false
         }
         guard remainingBits > 0 else { return true }
-        let mask = UInt8(0xff << (8 - remainingBits))
+            let mask = UInt8.max << (8 - remainingBits)
         return remote.bytes[fullBytes] & mask == network.bytes[fullBytes] & mask
     }
 

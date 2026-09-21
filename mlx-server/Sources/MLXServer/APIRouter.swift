@@ -94,10 +94,10 @@ actor APIRouter {
         do {
             switch (method, routePath) {
             case ("GET", "/health"), ("GET", "/v1/health"):
-                return .json(object: ["status": "ok"])
+                return .json(object: addingContextLimit(to: ["status": "ok"]))
             case ("GET", "/models"), ("GET", "/v1/models"):
                 return await modelsResponse()
-            case ("GET", "/props"):
+            case ("GET", "/props"), ("GET", "/v1/props"):
                 return await propsResponse()
             case ("POST", "/chat/completions"), ("POST", "/v1/chat/completions"):
                 return try await chatCompletion(body)
@@ -120,28 +120,44 @@ actor APIRouter {
         }
     }
 
+    private func addingContextLimit(to object: [String: Any]) -> [String: Any] {
+        guard let limit = runtime.contextLimit else { return object }
+        var result = object
+        result["context_length"] = limit
+        result["max_model_len"] = limit
+        return result
+    }
+
     private func modelsResponse() async -> HTTPResponse {
         let id = runtime.modelID
+        var model = addingContextLimit(to: [
+            "id": id,
+            "object": "model",
+            "created": Int(Date().timeIntervalSince1970),
+            "owned_by": "local"
+        ])
+        if let limit = runtime.contextLimit {
+            model["meta"] = ["n_ctx": limit]
+        }
         return .json(object: [
             "object": "list",
-            "data": [[
-                "id": id,
-                "object": "model",
-                "created": Int(Date().timeIntervalSince1970),
-                "owned_by": "local"
-            ]]
+            "data": [model]
         ])
     }
 
     private func propsResponse() async -> HTTPResponse {
         let id = runtime.modelID
         let kind = runtime.kind.rawValue
-        return .json(object: [
+        var props = addingContextLimit(to: [
             "model_path": configuration.modelPath,
             "model_alias": id,
             "chat_template": "mlx-swift-lm",
             "modalities": kind == ModelKind.vision.rawValue ? ["text", "image"] : ["text"]
         ])
+        if let limit = runtime.contextLimit {
+            props["default_generation_settings"] = ["n_ctx": limit]
+        }
+        return .json(object: props)
     }
 
     private func chatCompletion(_ body: Data) async throws -> HTTPResponse {

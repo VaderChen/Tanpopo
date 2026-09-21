@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>Tanpopo 操作展示</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f4f2ed; color: #202822; font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif; }
+    header { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid #d8dfd8; background: #eaf0e9; }
+    .title { display: flex; align-items: center; gap: 14px; }
+    #number { color: #39735c; font-size: 14px; font-weight: 700; letter-spacing: 2px; }
+    #chapter { font-size: 21px; font-weight: 650; }
+    .meta { display: flex; gap: 22px; align-items: center; }
+    .badge { font-size: 12px; color: #4b6456; letter-spacing: .5px; border: 1px solid #b8cabc; border-radius: 99px; padding: 7px 12px; }
+    .steps { display: flex; gap: 5px; }
+    .step { width: 28px; height: 4px; border-radius: 4px; background: #c7d5c8; }
+    .step.active { background: #39735c; }
+    iframe { display: block; width: 100vw; height: calc(100vh - 68px); border: 0; }
+    #pointer { position: fixed; left: 1140px; top: 190px; z-index: 100; width: 27px; height: 33px; pointer-events: none; transition: left .28s ease, top .28s ease; filter: drop-shadow(0 2px 2px #0003); }
+    #pointer::before { content: ""; position: absolute; left: -12px; top: -12px; width: 35px; height: 35px; border: 2px solid #43866c; border-radius: 50%; opacity: 0; }
+    #pointer.click::before { animation: ripple .5s ease-out; }
+    @keyframes ripple { from { transform: scale(.4); opacity: .9; } to { transform: scale(1.6); opacity: 0; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title"><span id="number">01 / 03</span><span id="chapter">選擇模型，一鍵啟動</span></div>
+    <div class="meta"><span class="badge">DEMO · 模擬資料 · 流程已加速</span><div class="steps"><i class="step active"></i><i class="step"></i><i class="step"></i></div></div>
+  </header>
+  <iframe title="Tanpopo 真實管理介面" src="/main.html"></iframe>
+  <div id="pointer"><svg viewBox="0 0 27 33"><path d="M3 2v25l6.3-6.5 5.8 10 5-2.9-5.9-10H24Z" fill="#202d26" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg></div>
+</body>
+</html>

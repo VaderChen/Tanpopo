@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -93,7 +94,7 @@ func TestRangeDownloadUsesBoundedWorkersAndPreservesContent(t *testing.T) {
 
 func TestPlanDownloadRangesUses64MiBChunks(t *testing.T) {
 	t.Parallel()
-	ranges := planDownloadRanges(defaultDownloadChunk*2+17, defaultDownloadChunk)
+	ranges := slices.Collect(planDownloadRanges(defaultDownloadChunk*2+17, defaultDownloadChunk))
 	if len(ranges) != 3 {
 		t.Fatalf("分段數 = %d，預期 3", len(ranges))
 	}

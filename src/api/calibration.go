@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"LlamaLoader/src/domain"
+	"LlamaLoader/src/llamacpp"
 	"LlamaLoader/src/systemmetrics"
 )
 
@@ -41,6 +42,10 @@ func (s *Server) handleRuntimeCalibrationPlan(w http.ResponseWriter, r *http.Req
 	command, err := s.startupCommands.Get(commandID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := llamacpp.ValidateRuntimeVariant(command); err != nil {
+		writeError(w, http.StatusConflict, err)
 		return
 	}
 	settings := s.settings.Get()
@@ -90,6 +95,10 @@ func (s *Server) handleRuntimeCalibrationSave(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := llamacpp.ValidateRuntimeVariant(command); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
 	if err := validatePerformanceTuning(command.Runtime, request.Tuning); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -124,21 +133,23 @@ func (s *Server) handleRuntimeCalibrationSave(w http.ResponseWriter, r *http.Req
 		Runs:                      append([]float64(nil), request.Runs...),
 		UpdatedAt:                 time.Now(),
 	}
-	settings := s.settings.Get()
-	if !settings.AutoCalibrationEnabled {
-		writeError(w, http.StatusConflict, errors.New("自動效能校準目前未啟用"))
-		return
-	}
-	updated := make([]domain.PerformanceCalibration, 0, len(settings.PerformanceCalibrations)+1)
-	updated = append(updated, profile)
-	for _, existing := range settings.PerformanceCalibrations {
-		if existing.Key != key {
-			updated = append(updated, existing)
+	statusCode := http.StatusBadRequest
+	if err := s.settings.Update(func(settings *domain.Settings) error {
+		if !settings.AutoCalibrationEnabled {
+			statusCode = http.StatusConflict
+			return errors.New("自動效能校準目前未啟用")
 		}
-	}
-	settings.PerformanceCalibrations = updated
-	if err := s.settings.Save(settings); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		updated := make([]domain.PerformanceCalibration, 0, len(settings.PerformanceCalibrations)+1)
+		updated = append(updated, profile)
+		for _, existing := range settings.PerformanceCalibrations {
+			if existing.Key != key {
+				updated = append(updated, existing)
+			}
+		}
+		settings.PerformanceCalibrations = updated
+		return nil
+	}); err != nil {
+		writeError(w, statusCode, err)
 		return
 	}
 	s.llama.MarkSavedPerformanceCalibration(request.Model, request.StartupCommandID, request.Tuning)
@@ -164,6 +175,8 @@ func performanceCalibrationIdentity(
 		GPUModel: info.GPUModel, MemoryBytes: info.MemoryBytes,
 	})
 	commandFingerprint = stableSHA256(struct {
+		RuntimeVariant      string   `json:"runtime_variant,omitempty"`
+		RuntimeBuild        string   `json:"runtime_build,omitempty"`
 		Runtime             string   `json:"runtime"`
 		ServerHost          string   `json:"server_host"`
 		ServerPort          int      `json:"server_port"`
@@ -174,6 +187,7 @@ func performanceCalibrationIdentity(
 		KVCacheQuantization string   `json:"kv_cache_quantization"`
 		ExtraArgs           []string `json:"extra_args"`
 	}{
+		RuntimeVariant: command.RuntimeVariant, RuntimeBuild: llamacpp.RuntimeVariantFingerprint(command.RuntimeVariant),
 		Runtime: command.Runtime, ServerHost: command.ServerHost, ServerPort: command.ServerPort,
 		ContextSize: command.ContextSize, GPULayers: command.GPULayers, Threads: command.Threads,
 		MMapReserveGB: command.MMapReserveGB, KVCacheQuantization: command.KVCacheQuantization,

@@ -154,6 +154,7 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   10 * time.Minute,
@@ -286,7 +287,7 @@ func writeRuntimeChatError(w http.ResponseWriter, response *http.Response) {
 }
 
 func proxyRuntimeChatStream(w http.ResponseWriter, response *http.Response) {
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("目前的 HTTP 連線不支援串流回應"))
 		return
@@ -295,7 +296,10 @@ func proxyRuntimeChatStream(w http.ResponseWriter, response *http.Response) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+	controller := http.NewResponseController(w)
+	if err := controller.Flush(); err != nil {
+		return
+	}
 
 	buffer := make([]byte, 32*1024)
 	for {
@@ -304,7 +308,9 @@ func proxyRuntimeChatStream(w http.ResponseWriter, response *http.Response) {
 			if _, writeErr := w.Write(buffer[:readCount]); writeErr != nil {
 				return
 			}
-			flusher.Flush()
+			if err := controller.Flush(); err != nil {
+				return
+			}
 		}
 		if readErr != nil {
 			return

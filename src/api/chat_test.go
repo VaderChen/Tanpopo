@@ -1,12 +1,48 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type failedFlushWriter struct {
+	*httptest.ResponseRecorder
+	flushCount int
+	failAt     int
+}
+
+func (w *failedFlushWriter) FlushError() error {
+	w.flushCount++
+	if w.flushCount >= w.failAt {
+		return errors.New("client disconnected")
+	}
+	return nil
+}
+
+type countedStreamReader struct{ reads int }
+
+func (r *countedStreamReader) Read(buffer []byte) (int, error) {
+	r.reads++
+	if r.reads > 2 {
+		return 0, io.EOF
+	}
+	return copy(buffer, "data: {}\n\n"), nil
+}
+
+func TestProxyRuntimeChatStreamStopsOnFlushFailure(t *testing.T) {
+	for _, failAt := range []int{1, 2} {
+		body := &countedStreamReader{}
+		writer := &failedFlushWriter{ResponseRecorder: httptest.NewRecorder(), failAt: failAt}
+		proxyRuntimeChatStream(writer, &http.Response{Body: io.NopCloser(body)})
+		if body.reads != failAt-1 {
+			t.Errorf("第 %d 次 Flush 失敗後仍讀取上游：reads=%d", failAt, body.reads)
+		}
+	}
+}
 
 func TestProxyRuntimeChatStreamPreservesSSEAndFlushes(t *testing.T) {
 	const stream = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n" +

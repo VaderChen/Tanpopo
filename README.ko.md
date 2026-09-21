@@ -174,4 +174,4 @@ go build -buildvcs=false -trimpath -o bin/Tanpopo ./src/cmd/llamaloader
 
 ## 라이선스
 
-[LICENSE](LICENSE), [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 확인하세요. 보안 제보 및 로컬 비밀 정보 처리 지침은 [SECURITY.md](SECURITY.md)에 있습니다.
+[LICENSE.ko.md](LICENSE.ko.md), [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 확인하세요. 보안 제보 및 로컬 비밀 정보 처리 지침은 [SECURITY.md](SECURITY.md)에 있습니다.

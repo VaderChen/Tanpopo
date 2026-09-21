@@ -100,6 +100,11 @@ func NewServer(
 	}
 }
 
+// Shutdown 在主程序結束前等待對外通道停止，不能只依賴背景 goroutine。
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.netPass.Shutdown(ctx)
+}
+
 // resolveReportPath 同時支援原始碼工作區與封裝後目錄：開發模式的
 // reports 位於 website 的同層，正式封裝則放在 website/reports。
 func resolveReportPath(webPath string) string {
@@ -142,6 +147,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/system/metrics", s.handleSystemMetrics)
 	mux.HandleFunc("GET /api/system/info", s.requireAPI(s.handleSystemInfo))
+	mux.HandleFunc("GET /api/runtime/capabilities", s.requireAPI(s.handleRuntimeCapabilities))
 	mux.HandleFunc("GET /api/netpass/status", s.requireAPI(s.handleNetPassStatus))
 	mux.HandleFunc("PUT /api/netpass/config", s.requireAPI(s.handleNetPassConfigUpdate))
 	mux.HandleFunc("POST /api/netpass/start", s.requireAPI(s.handleNetPassStart))
@@ -230,7 +236,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleSystemMetrics(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.metrics.Snapshot())
+	status := s.llama.Status()
+	// 僅提供常駐圖示所需的就緒旗標，不公開模型名稱、路徑或啟動參數。
+	writeJSON(w, http.StatusOK, struct {
+		systemmetrics.Snapshot
+		ModelLoaded bool `json:"model_loaded"`
+	}{
+		Snapshot:    s.metrics.Snapshot(),
+		ModelLoaded: status.Running && status.Ready && strings.TrimSpace(status.Model) != "",
+	})
 }
 
 func (s *Server) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
@@ -437,7 +451,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !s.sessions.Login(w, r, request.Account, request.Password, request.RememberMe) {
+	authenticated, err := s.sessions.Login(w, r, request.Account, request.Password, request.RememberMe)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errors.New("無法建立或保存登入紀錄，請稍後重試"))
+		return
+	}
+	if !authenticated {
 		writeError(w, http.StatusUnauthorized, errors.New("帳號或密碼錯誤"))
 		return
 	}
@@ -445,7 +464,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	s.sessions.Logout(w, r)
+	if err := s.sessions.Logout(w, r); err != nil {
+		writeError(w, http.StatusInternalServerError, errors.New("無法保存登出紀錄，請重試"))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -496,23 +518,23 @@ func (s *Server) handleAdminCredentialsUpdate(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	updated, err := config.UpdateAgentSecurity(
-		s.agentConfigPath,
-		!request.AuthenticationEnabled,
-		request.Account,
-		request.Password,
-		request.Password != "",
-	)
-	if err == nil {
-		s.sessions.UpdateSecurity(
-			!updated.DisableAuthentication,
-			updated.DefaultAccount,
-			updated.DefaultPassword,
+	var updated domain.AgentConfig
+	err := s.sessions.UpdateSecurityWith(func() (session.Security, error) {
+		var err error
+		updated, err = config.UpdateAgentSecurity(
+			s.agentConfigPath, !request.AuthenticationEnabled,
+			request.Account, request.Password, request.Password != "",
 		)
-		if updated.DisableAuthentication {
-			_ = s.netPass.Stop()
-		}
+		return session.Security{
+			Enabled:  !updated.DisableAuthentication,
+			Account:  updated.DefaultAccount,
+			Password: updated.DefaultPassword,
+		}, err
+	})
+	if err == nil && updated.DisableAuthentication {
+		_ = s.netPass.Stop()
 	}
+
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -536,9 +558,10 @@ func (s *Server) handleResidentModeUpdate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	value := s.settings.Get()
-	value.ResidentMode = request.Enabled
-	if err := s.settings.Save(value); err != nil {
+	if err := s.settings.Update(func(value *domain.Settings) error {
+		value.ResidentMode = request.Enabled
+		return nil
+	}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -546,9 +569,9 @@ func (s *Server) handleResidentModeUpdate(w http.ResponseWriter, r *http.Request
 }
 
 type settingsUpdateRequest struct {
-	ModelDirectory          string  `json:"model_directory"`
-	MLXModelDirectory       string  `json:"mlx_model_directory"`
-	ResidentMode            bool    `json:"resident_mode"`
+	ModelDirectory          *string `json:"model_directory"`
+	MLXModelDirectory       *string `json:"mlx_model_directory"`
+	ResidentMode            *bool   `json:"resident_mode"`
 	DefaultFastGGUFEnabled  *bool   `json:"default_fast_gguf_enabled"`
 	DefaultFastGGUFStrategy *string `json:"default_fast_gguf_strategy"`
 	DefaultKVCacheEnabled   *bool   `json:"default_kv_cache_quantization_enabled"`
@@ -557,12 +580,18 @@ type settingsUpdateRequest struct {
 	RemoveOriginalGGUF      *bool   `json:"remove_original_gguf_after_conversion"`
 	AutoCalibrationEnabled  *bool   `json:"auto_performance_calibration_enabled"`
 	MemoryProtectionEnabled *bool   `json:"memory_pressure_protection_enabled"`
-	UILanguage              string  `json:"ui_language"`
-	UITheme                 string  `json:"ui_theme"`
-	HuggingFaceEndpoint     string  `json:"huggingface_endpoint"`
+	UILanguage              *string `json:"ui_language"`
+	UITheme                 *string `json:"ui_theme"`
+	HuggingFaceEndpoint     *string `json:"huggingface_endpoint"`
 	HuggingFaceToken        string  `json:"huggingface_token"`
 	ClearHuggingFaceToken   bool    `json:"clear_huggingface_token"`
-	DefaultRevision         string  `json:"default_revision"`
+	DefaultRevision         *string `json:"default_revision"`
+}
+
+func applySetting[T any](target *T, value *T) {
+	if value != nil {
+		*target = *value
+	}
 }
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
@@ -571,72 +600,29 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	current := s.settings.Get()
-	token := current.HuggingFaceToken
-	if request.ClearHuggingFaceToken {
-		token = ""
-	} else if strings.TrimSpace(request.HuggingFaceToken) != "" {
-		token = strings.TrimSpace(request.HuggingFaceToken)
-	}
-	defaultFastGGUFEnabled := current.DefaultFastGGUFEnabled
-	if request.DefaultFastGGUFEnabled != nil {
-		defaultFastGGUFEnabled = *request.DefaultFastGGUFEnabled
-	}
-	defaultFastGGUFStrategy := current.DefaultFastGGUFStrategy
-	if request.DefaultFastGGUFStrategy != nil {
-		defaultFastGGUFStrategy = *request.DefaultFastGGUFStrategy
-	}
-	defaultKVCacheEnabled := current.DefaultKVCacheEnabled
-	if request.DefaultKVCacheEnabled != nil {
-		defaultKVCacheEnabled = *request.DefaultKVCacheEnabled
-	}
-	defaultMMapEnabled := current.DefaultMMapEnabled
-	if request.DefaultMMapEnabled != nil {
-		defaultMMapEnabled = *request.DefaultMMapEnabled
-	}
-	defaultDFlashEnabled := current.DefaultDFlashEnabled
-	if request.DefaultDFlashEnabled != nil {
-		defaultDFlashEnabled = *request.DefaultDFlashEnabled
-	}
-	removeOriginalGGUF := current.RemoveOriginalGGUF
-	if request.RemoveOriginalGGUF != nil {
-		removeOriginalGGUF = *request.RemoveOriginalGGUF
-	}
-	autoCalibrationEnabled := current.AutoCalibrationEnabled
-	if request.AutoCalibrationEnabled != nil {
-		autoCalibrationEnabled = *request.AutoCalibrationEnabled
-	}
-	memoryProtectionEnabled := current.MemoryProtectionEnabled
-	if request.MemoryProtectionEnabled != nil {
-		memoryProtectionEnabled = *request.MemoryProtectionEnabled
-	}
-	value := domain.Settings{
-		ModelDirectory:          request.ModelDirectory,
-		MLXModelDirectory:       request.MLXModelDirectory,
-		ResidentMode:            request.ResidentMode,
-		DefaultFastGGUFEnabled:  defaultFastGGUFEnabled,
-		DefaultFastGGUFStrategy: defaultFastGGUFStrategy,
-		DefaultKVCacheEnabled:   defaultKVCacheEnabled,
-		DefaultMMapEnabled:      defaultMMapEnabled,
-		DefaultDFlashEnabled:    defaultDFlashEnabled,
-		RemoveOriginalGGUF:      removeOriginalGGUF,
-		AutoCalibrationEnabled:  autoCalibrationEnabled,
-		MemoryProtectionEnabled: memoryProtectionEnabled,
-		UILanguage:              request.UILanguage,
-		UITheme:                 request.UITheme,
-		HuggingFaceEndpoint:     request.HuggingFaceEndpoint,
-		HuggingFaceToken:        token,
-		DefaultRevision:         request.DefaultRevision,
-		ServerHost:              current.ServerHost,
-		ServerPort:              current.ServerPort,
-		ContextSize:             current.ContextSize,
-		GPULayers:               current.GPULayers,
-		Threads:                 current.Threads,
-		ExtraArgs:               current.ExtraArgs,
-		DownloadFavorites:       current.DownloadFavorites,
-		PerformanceCalibrations: current.PerformanceCalibrations,
-	}
-	if err := s.settings.Save(value); err != nil {
+	if err := s.settings.Update(func(current *domain.Settings) error {
+		applySetting(&current.ModelDirectory, request.ModelDirectory)
+		applySetting(&current.MLXModelDirectory, request.MLXModelDirectory)
+		applySetting(&current.ResidentMode, request.ResidentMode)
+		applySetting(&current.DefaultFastGGUFEnabled, request.DefaultFastGGUFEnabled)
+		applySetting(&current.DefaultFastGGUFStrategy, request.DefaultFastGGUFStrategy)
+		applySetting(&current.DefaultKVCacheEnabled, request.DefaultKVCacheEnabled)
+		applySetting(&current.DefaultMMapEnabled, request.DefaultMMapEnabled)
+		applySetting(&current.DefaultDFlashEnabled, request.DefaultDFlashEnabled)
+		applySetting(&current.RemoveOriginalGGUF, request.RemoveOriginalGGUF)
+		applySetting(&current.AutoCalibrationEnabled, request.AutoCalibrationEnabled)
+		applySetting(&current.MemoryProtectionEnabled, request.MemoryProtectionEnabled)
+		applySetting(&current.UILanguage, request.UILanguage)
+		applySetting(&current.UITheme, request.UITheme)
+		applySetting(&current.HuggingFaceEndpoint, request.HuggingFaceEndpoint)
+		applySetting(&current.DefaultRevision, request.DefaultRevision)
+		if request.ClearHuggingFaceToken {
+			current.HuggingFaceToken = ""
+		} else if strings.TrimSpace(request.HuggingFaceToken) != "" {
+			current.HuggingFaceToken = strings.TrimSpace(request.HuggingFaceToken)
+		}
+		return nil
+	}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -751,19 +737,12 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	status := s.llama.Status()
-	if status.Running && activeModelMatches(status, request.Format, request.Path) {
-		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務"))
-		return
-	}
-	settings := s.settings.Get()
-	if err := llamacpp.DeleteStoredModel(
-		settings.MLXModelDirectory,
-		settings.ModelDirectory,
-		request.Format,
-		request.Path,
-	); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if err := s.llama.DeleteStoredModel(request.Format, request.Path); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, llamacpp.ErrModelInUse) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -777,18 +756,17 @@ func (s *Server) handleModelConversionCacheDelete(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	status := s.llama.Status()
-	if status.Running && activeModelMatches(status, "gguf", request.Path) {
-		writeError(w, http.StatusConflict, errors.New("此模型正在使用中，請先停止模型服務再移除 Fast GGUF"))
-		return
-	}
 	settings := s.settings.Get()
 	deletedBytes, deletedCount, err := s.llama.DeleteGGUFConversionCache(
 		settings.ModelDirectory,
 		request.Path,
 	)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		status := http.StatusBadRequest
+		if errors.Is(err, llamacpp.ErrModelInUse) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -798,33 +776,10 @@ func (s *Server) handleModelConversionCacheDelete(w http.ResponseWriter, r *http
 	})
 }
 
-func activeModelMatches(status domain.LlamaStatus, format, modelPath string) bool {
-	format = strings.ToLower(strings.TrimSpace(format))
-	modelPath = filepath.ToSlash(strings.TrimSpace(modelPath))
-	modelPath = strings.TrimPrefix(modelPath, "gguf:")
-	activePath := filepath.ToSlash(strings.TrimSpace(status.Model))
-	activeFormat := "gguf"
-	if status.Runtime == domain.RuntimeMLXServer && !strings.HasPrefix(activePath, "gguf:") {
-		activeFormat = "mlx"
-	}
-	if activeFormat != format {
-		return false
-	}
-	activePath = strings.TrimPrefix(activePath, "gguf:")
-	if format == "mlx" {
-		return activePath == modelPath || strings.HasPrefix(activePath, modelPath+"/")
-	}
-	separator := strings.Index(modelPath, "/")
-	if separator < 0 {
-		return activePath == modelPath
-	}
-	modelDirectory := modelPath[:separator]
-	return activePath == modelDirectory || strings.HasPrefix(activePath, modelDirectory+"/")
-}
-
 type startupCommandRequest struct {
 	Name                string   `json:"name"`
 	Runtime             string   `json:"runtime"`
+	RuntimeVariant      string   `json:"runtime_variant"`
 	DraftModel          string   `json:"draft_model"`
 	ServerHost          string   `json:"server_host"`
 	ServerPort          int      `json:"server_port"`
@@ -840,6 +795,7 @@ func (r startupCommandRequest) command() domain.StartupCommand {
 	return domain.StartupCommand{
 		Name:                r.Name,
 		Runtime:             r.Runtime,
+		RuntimeVariant:      r.RuntimeVariant,
 		DraftModel:          r.DraftModel,
 		ServerHost:          r.ServerHost,
 		ServerPort:          r.ServerPort,
@@ -853,12 +809,30 @@ func (r startupCommandRequest) command() domain.StartupCommand {
 }
 
 func (s *Server) handleStartupCommands(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"commands": s.startupCommands.List()})
+	commands := s.startupCommands.List()
+	unavailableReasons := map[string]string{}
+	for _, command := range commands {
+		if err := llamacpp.ValidateRuntimeVariant(command); err != nil {
+			unavailableReasons[command.ID] = err.Error()
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"commands": commands, "capabilities": llamacpp.RuntimeCapabilities(),
+		"unavailable_reasons": unavailableReasons,
+	})
+}
+
+func (s *Server) handleRuntimeCapabilities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"capabilities": llamacpp.RuntimeCapabilities()})
 }
 
 func (s *Server) handleStartupCommandCreate(w http.ResponseWriter, r *http.Request) {
 	var request startupCommandRequest
 	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := llamacpp.ValidateRuntimeVariantConfiguration(request.command()); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -873,6 +847,10 @@ func (s *Server) handleStartupCommandCreate(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleStartupCommandUpdate(w http.ResponseWriter, r *http.Request) {
 	var request startupCommandRequest
 	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := llamacpp.ValidateRuntimeVariantConfiguration(request.command()); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -965,15 +943,15 @@ func (s *Server) handleDownloadFavoriteAdd(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	settings := s.settings.Get()
-	for _, existing := range settings.DownloadFavorites {
-		if sameDownloadFavorite(existing, favorite) {
-			writeJSON(w, http.StatusOK, map[string]any{"favorites": settings.DownloadFavorites})
-			return
+	if err := s.settings.Update(func(settings *domain.Settings) error {
+		for _, existing := range settings.DownloadFavorites {
+			if sameDownloadFavorite(existing, favorite) {
+				return nil
+			}
 		}
-	}
-	settings.DownloadFavorites = append([]domain.DownloadFavorite{favorite}, settings.DownloadFavorites...)
-	if err := s.settings.Save(settings); err != nil {
+		settings.DownloadFavorites = append([]domain.DownloadFavorite{favorite}, settings.DownloadFavorites...)
+		return nil
+	}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -986,15 +964,16 @@ func (s *Server) handleDownloadFavoriteDelete(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	settings := s.settings.Get()
-	filtered := settings.DownloadFavorites[:0]
-	for _, existing := range settings.DownloadFavorites {
-		if !sameDownloadFavorite(existing, favorite) {
-			filtered = append(filtered, existing)
+	if err := s.settings.Update(func(settings *domain.Settings) error {
+		filtered := settings.DownloadFavorites[:0]
+		for _, existing := range settings.DownloadFavorites {
+			if !sameDownloadFavorite(existing, favorite) {
+				filtered = append(filtered, existing)
+			}
 		}
-	}
-	settings.DownloadFavorites = filtered
-	if err := s.settings.Save(settings); err != nil {
+		settings.DownloadFavorites = filtered
+		return nil
+	}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -1089,6 +1068,13 @@ func (s *Server) handleLlamaStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	calibrationApplied := false
+	if startupCommand.RuntimeVariant != "" {
+		llamacpp.RefreshRuntimeCapabilities()
+		if err := llamacpp.ValidateRuntimeVariant(startupCommand); err != nil {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+	}
 	if request.CalibrationOverride != nil {
 		if err := validatePerformanceTuning(startupCommand.Runtime, *request.CalibrationOverride); err != nil {
 			writeError(w, http.StatusBadRequest, err)

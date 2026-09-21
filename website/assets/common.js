@@ -534,6 +534,8 @@
     ["模型未提供最終回答", "The model did not provide a final answer", "モデルから最終回答がありません", "모델이 최종 답변을 제공하지 않았습니다"],
     ["目前的瀏覽器不支援串流回應", "This browser does not support streaming responses", "このブラウザーはストリーミング応答に対応していません", "이 브라우저는 스트리밍 응답을 지원하지 않습니다"],
     ["模型 Runtime 串流失敗", "Model Runtime streaming failed", "モデル Runtime のストリーミングに失敗しました", "모델 Runtime 스트리밍에 실패했습니다"],
+    ["模型 Runtime 串流格式錯誤", "Invalid model Runtime stream format", "モデル Runtime のストリーム形式が不正です", "모델 Runtime 스트림 형식이 잘못되었습니다"],
+    ["模型 Runtime 串流中斷，回答未完成", "The model Runtime stream was interrupted; the response is incomplete", "モデル Runtime のストリームが中断され、回答が完了していません", "모델 Runtime 스트림이 중단되어 답변이 완료되지 않았습니다"],
     ["模型 Runtime 沒有回傳對話內容", "The model Runtime returned no chat content", "モデル Runtime から会話内容が返されませんでした", "모델 Runtime이 대화 내용을 반환하지 않았습니다"],
     ["取消中…", "Cancelling…", "キャンセル中…", "취소 중…"],
     ["下載已取消", "Download cancelled", "ダウンロードをキャンセルしました", "다운로드를 취소했습니다"],

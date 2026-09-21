@@ -10,6 +10,23 @@
 - 名稱不符時只記錄 fallback 原因與請求識別碼，不記錄客戶端任意填入的模型字串。
 - `model` 為非字串、非 null 的 JSON 值仍視為格式錯誤；權限、內容、模型能力、上下文、記憶體與並行名額檢查保持不變。伺服器未啟動或模型不可用時，不偽裝成成功回應。
 
+## 上下文長度探索
+
+Runtime 啟動時解析並固定一份有效上下文上限，對外能力資訊與所有生成請求的上下文檢查共用此數值，不依模型名稱建立特例，也不寫死 256K。
+
+- 有效值取 `--context-size`、`--max-kv-size`（別名 `--ctx-size`）與模型長度中已知正整數的最小值；全部未知時不回報長度欄位。Tanpopo 在所有模式都傳入 `--context-size`，包括記憶體保護降級後的值；此參數只限制請求長度，不啟用 rotating KV Cache。
+- MLX safetensors 讀取 `config.json` 的 `text_config.max_position_embeddings`，未提供有效值時才讀根層 `max_position_embeddings`。
+- GGUF 依 `general.architecture` 讀取對應的 `<architecture>.context_length`；Fast GGUF 使用該 manifest 指定的模型設定資產，沿用既有 schema 與安全路徑驗證，不誤讀同目錄其他模型的設定，也不額外載入權重。
+- 不將 `max_tokens`、滑動視窗、tokenizer 的無限長度哨兵值或記憶體餘額當作上下文長度；無效、零、負數與無法確定的長度不以假值補齊。
+
+| 端點 | 有效上下文上限欄位 |
+| --- | --- |
+| `/models`、`/v1/models` | `data[].context_length`、`data[].max_model_len`、`data[].meta.n_ctx` |
+| `/props`、`/v1/props` | `context_length`、`max_model_len`、`default_generation_settings.n_ctx` |
+| `/health`、`/v1/health` | `context_length`、`max_model_len`；保留原本的 `status` |
+
+以上均為同一請求「完整輸入＋最大輸出」的 token 上限，不是最大輸出長度，也不代表四個使用者一定能同時用滿。記憶體、並行名額與權限檢查保持不變；能力查詢不執行 tokenization 或推論。更改啟動參數或模型後，需重新啟動 Runtime 才會取得新值。
+
 ## 並行容量
 
 核心 SPEC 是「支援多人並行」。**目前階段先將上限定為 4 人**，並非永久固定只能支援四人。容量以同一 Runtime 中進行中的生成請求計算，非串流與串流請求共用名額；不得以修正長輸入或記憶體問題為由改成單人服務。
@@ -75,3 +92,13 @@
 長 Prefill 的串流驗收應分別記錄 SSE header／首個 chunk 與首個實際生成 token 的時間；等待期間應持續收到保活註解，取消後不得再啟動尚未開始的生成工作。
 
 目前已完成語法與 Release 組態編譯檢查，不等同於上述推論驗收已全部完成。通用診斷方法見 [API 延遲與取消排查](MLX-RUNTIME-TROUBLESHOOTING.md)。
+
+## API 圖片來源與大小
+
+- 預設只接受 `data:image/...;base64,...`，拒絕服務主機本機路徑、`file:`、HTTP 與未授權的 HTTPS URL。
+- 需要遠端圖片時，管理者可在啟動參數加入 `--image-allowed-origin https://images.example.com`；可重複指定。只接受完整 HTTPS origin，不接受路徑、查詢、使用者資訊或萬用字元。來源以 scheme、host、port 一致為準，所有重新導向皆重新核對來源。
+- 授權代表信任該主機、DNS 與所提供的資源；應選擇管理者掌控的圖片儲存服務。API 呼叫者不能自行新增來源。內嵌圖片不需要開放遠端來源。
+- Base64 在解碼前與解碼後都檢查上限；遠端下載依 Content-Length 與逐塊累計數量檢查，預設最多 25 MiB（`--maximum-image-bytes`）。超限立即取消，不先接收完整內容。
+- 遠端下載不共用 Cookie、憑證或快取，閒置請求期限 15 秒、資源總期限 30 秒；請求取消會取消圖片下載。
+
+新參數需要本次來源編譯的 mlx-server；開發啟動器會因原始碼更新重建 Runtime。正式部署需重新建置並安裝包含新 Runtime 的發布包。

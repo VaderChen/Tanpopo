@@ -78,6 +78,7 @@ func NewManager(settings SettingsProvider, accessControlPath, runtimeStatePath s
 		status: domain.LlamaStatus{
 			DesiredRunning:          saved.DesiredRunning,
 			Runtime:                 saved.Runtime,
+			RuntimeVariant:          saved.RuntimeVariant,
 			Model:                   saved.Model,
 			MMProj:                  saved.MMProj,
 			DraftModel:              saved.DraftModel,
@@ -108,15 +109,12 @@ func (m *Manager) Start(
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
 	settings := m.settings()
-	memoryProtection := memoryProtectionResult{EffectiveContextSize: startupCommand.ContextSize}
-	if settings.MemoryProtectionEnabled {
-		var protectionErr error
-		startupCommand, draftModel, dflashEnabled, memoryProtection, protectionErr = m.applyMemoryPressureProtectionLocked(
-			settings, model, mmproj, draftModel, dflashEnabled, startupCommand,
-		)
-		if protectionErr != nil {
-			return m.status, protectionErr
-		}
+	// 本次開關必須先套用，記憶體估算與實際命令共用相同的有效 KV 模式。
+	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
+		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
+	}
+	if !kvCacheQuantizationEnabled {
+		startupCommand.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
 	mtpEnabled := startupCommand.Runtime == domain.RuntimeMLXServer &&
 		hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
@@ -142,12 +140,6 @@ func (m *Manager) Start(
 	if skipGGUFConversionCache && startupCommand.Runtime != domain.RuntimeMLXServer {
 		return m.status, errors.New("不建立 Fast GGUF 只適用於 mlx-server 載入 GGUF")
 	}
-	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
-		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
-	}
-	if !kvCacheQuantizationEnabled {
-		startupCommand.KVCacheQuantization = domain.KVCacheQuantizationNone
-	}
 	if (dflashEnabled || mtpEnabled) && startupCommand.Runtime == domain.RuntimeMLXServer {
 		startupCommand.ExtraArgs = withoutDraftModelArguments(startupCommand.ExtraArgs)
 	} else {
@@ -168,6 +160,19 @@ func (m *Manager) Start(
 		startupCommand.DraftModel = draftModel
 		if dflashEnabled && startupCommand.Runtime != domain.RuntimeMLXServer {
 			startupCommand.ExtraArgs = append(startupCommand.ExtraArgs, "--spec-type", "draft-dflash")
+		}
+	}
+	if !dflashEnabled && !mtpEnabled {
+		draftModel = ""
+	}
+	memoryProtection := memoryProtectionResult{EffectiveContextSize: startupCommand.ContextSize}
+	if settings.MemoryProtectionEnabled {
+		var protectionErr error
+		startupCommand, draftModel, dflashEnabled, memoryProtection, protectionErr = m.applyMemoryPressureProtectionLocked(
+			settings, model, mmproj, draftModel, dflashEnabled, startupCommand,
+		)
+		if protectionErr != nil {
+			return m.status, protectionErr
 		}
 	}
 	conversionExpected := false
@@ -241,7 +246,26 @@ func (m *Manager) Start(
 }
 
 func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj string, mmapEnabled bool, startupCommand domain.StartupCommand) (domain.LlamaStatus, error) {
-	binary, err := ResolveServerBinary()
+	var binary string
+	var err error
+	var amdCapability RuntimeCapability
+	if startupCommand.RuntimeVariant != "" {
+		if !domain.IsAMDRuntimeVariant(startupCommand.RuntimeVariant) {
+			return m.status, errors.New("不支援的 Runtime 版本")
+		}
+		// 不沿用介面的快取結果；裝置或成品可能已經被移除。
+		mode, modeErr := AMDModeFromArguments(startupCommand.ExtraArgs)
+		if modeErr != nil {
+			return m.status, modeErr
+		}
+		amdCapability = detectAMDRuntime(mode)
+		if !amdCapability.Available {
+			return m.status, errors.New(amdCapability.Reason)
+		}
+		binary = amdCapability.Binary
+	} else {
+		binary, err = ResolveServerBinary()
+	}
 	if err != nil {
 		return m.status, err
 	}
@@ -295,7 +319,9 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		loadMode = "mmap"
 	}
 	args = append(args, "--load-mode", loadMode)
-	args = append(args, "--model", modelPath)
+	// 對外 API 統一使用檔名，避免模型清單與回應帶出主機目錄。
+	args = withoutNamedValueArguments(args, "--alias", "-a")
+	args = append(args, "--model", modelPath, "--alias", filepath.Base(modelPath))
 	if mmprojPath != "" {
 		args = append(args, "--mmproj", mmprojPath)
 	}
@@ -314,8 +340,16 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	if startupCommand.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(startupCommand.Threads))
 	}
+	if amdCapability.Available {
+		args = withoutNamedValueArguments(args, "--device", "-dev", "--parallel", "-np", "--tanpopo-amd-mode")
+		args = append(args, "--device", amdCapability.Device, "--parallel", "4")
+	}
 
 	command := exec.Command(binary, args...)
+	if amdCapability.Available {
+		command.Env = amdRuntimeEnvironment(amdCapability.Mode)
+		m.logs.Append("\nAMD Runtime 模式：" + amdCapability.Mode + "；裝置：" + amdCapability.DeviceName + "\n")
+	}
 	command.Stdout = m.logs
 	command.Stderr = m.logs
 	m.logs.Append("\n$ " + binary + " " + strings.Join(args, " ") + "\n")
@@ -328,12 +362,14 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	m.stopping = false
 	m.pendingGGUFRemoval = nil
 	m.status = domain.LlamaStatus{
-		Running:    true,
-		Runtime:    domain.RuntimeLlamaServer,
-		PID:        command.Process.Pid,
-		Model:      filepath.ToSlash(strings.TrimSpace(model)),
-		MMProj:     filepath.ToSlash(strings.TrimSpace(mmproj)),
-		DraftModel: filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
+		Running:        true,
+		Runtime:        domain.RuntimeLlamaServer,
+		RuntimeVariant: startupCommand.RuntimeVariant,
+		AMDMode:        amdCapability.Mode,
+		PID:            command.Process.Pid,
+		Model:          filepath.ToSlash(strings.TrimSpace(model)),
+		MMProj:         filepath.ToSlash(strings.TrimSpace(mmproj)),
+		DraftModel:     filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
 		DraftKind: func() string {
 			if strings.TrimSpace(startupCommand.DraftModel) != "" {
 				return "dflash"
@@ -485,6 +521,8 @@ func (m *Manager) startMLXLocked(
 		"--port", strconv.Itoa(startupCommand.ServerPort),
 		"--openloader-access-control", m.accessControlPath,
 	)
+	args = withoutNamedValueArguments(args, "--context-size")
+	args = append(args, "--context-size", strconv.Itoa(startupCommand.ContextSize))
 	// 未量化的 256K rotating KV Cache 對大型模型會一次占用過多記憶體；
 	// 一般 MLX 與 DFlash 使用可逐步成長的 Cache。只有參數明確啟用 KV
 	// 量化時，才把啟動參數的 Context Size 套用為 rotating Cache 上限。
@@ -812,6 +850,9 @@ func (m *Manager) Restore(resolveCommand func(string) (domain.StartupCommand, er
 	if err == nil && command.Runtime != saved.Runtime {
 		err = fmt.Errorf("啟動參數 Runtime 已由 %s 變更為 %s", saved.Runtime, command.Runtime)
 	}
+	if err == nil && command.RuntimeVariant != saved.RuntimeVariant {
+		err = errors.New("啟動參數的 Runtime 版本已變更，請手動確認後重新載入模型")
+	}
 	if err == nil {
 		_, err = m.Start(
 			saved.Model,
@@ -849,6 +890,7 @@ func (m *Manager) persistStatusLocked(desiredRunning bool) error {
 		Version:                 runtimeStateVersion,
 		DesiredRunning:          desiredRunning,
 		Runtime:                 m.status.Runtime,
+		RuntimeVariant:          m.status.RuntimeVariant,
 		Model:                   m.status.Model,
 		MMProj:                  m.status.MMProj,
 		DraftModel:              m.status.DraftModel,
@@ -1469,6 +1511,11 @@ func (m *Manager) DeleteGGUFConversionCache(
 	ggufDirectory string,
 	modelPath string,
 ) (deletedBytes int64, deletedCount int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status.Running && ActiveModelMatches(m.status, "gguf", modelPath) {
+		return 0, 0, ErrModelInUse
+	}
 	modelPath = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(modelPath)), mlxGGUFPathPrefix)
 	if modelPath == "" {
 		return 0, 0, errors.New("模型路徑不可為空")
@@ -2066,11 +2113,50 @@ func ggufConversionCacheMatches(
 	return uniqueName && strings.EqualFold(entry.sourceName, filename)
 }
 
-// DeleteStoredModel 只刪除模型掃描器實際列出的 Target，並以 SafeJoin 限制
-// 目標必須位於對應模型根目錄內。MLX 模型以完整目錄為單位刪除；位於
-// 子目錄的 GGUF 會刪除模型根目錄下的第一層完整資料夾，連同 mmproj 與
-// 其他附屬檔案一起移除。直接放在共用根目錄的 GGUF 只刪除該檔案，避免
-// 誤刪整個模型根目錄。mmproj 與 DFlash Draft 不屬於此清單。
+var ErrModelInUse = errors.New("此模型正在使用中，請先停止模型服務")
+
+// DeleteStoredModel 與 Start／Stop 共用鎖，保護檢查與刪除不可被啟動插入。
+func (m *Manager) DeleteStoredModel(format, modelPath string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status.Running && ActiveModelMatches(m.status, format, modelPath) {
+		return ErrModelInUse
+	}
+	settings := m.settings()
+	return DeleteStoredModel(settings.MLXModelDirectory, settings.ModelDirectory, format, modelPath)
+}
+
+// ActiveModelMatches 依實際資產範圍判斷 Target、Draft 與 mmproj。
+func ActiveModelMatches(status domain.LlamaStatus, format, modelPath string) bool {
+	format = strings.ToLower(strings.TrimSpace(format))
+	modelPath = filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(modelPath), "gguf:")))
+	for _, asset := range []struct {
+		path       string
+		projection bool
+	}{
+		{status.Model, false}, {status.DraftModel, false}, {status.MMProj, true},
+	} {
+		activePath := filepath.ToSlash(strings.TrimSpace(asset.path))
+		if activePath == "" {
+			continue
+		}
+		activeFormat := "gguf"
+		if !asset.projection && status.Runtime == domain.RuntimeMLXServer && !strings.HasPrefix(activePath, "gguf:") {
+			activeFormat = "mlx"
+		}
+		if activeFormat != format {
+			continue
+		}
+		activePath = filepath.ToSlash(filepath.Clean(strings.TrimPrefix(activePath, "gguf:")))
+		if activePath == modelPath || (format == "mlx" && strings.HasPrefix(activePath, modelPath+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+// DeleteStoredModel 只刪除掃描器列出的 Target，並以 os.Root 限制路徑。
+// MLX 使用完整模型目錄；GGUF 僅移除選定檔案，保留共用資產與其他模型。
 func DeleteStoredModel(mlxDirectory, ggufDirectory, format, modelPath string) error {
 	format = strings.ToLower(strings.TrimSpace(format))
 	modelPath = filepath.ToSlash(strings.TrimSpace(modelPath))
@@ -2116,27 +2202,23 @@ func DeleteStoredModel(mlxDirectory, ggufDirectory, format, modelPath string) er
 		return errors.New("找不到可刪除的模型，請重新整理清單後再試")
 	}
 
-	target, err := download.SafeJoin(root, modelPath)
-	if err != nil {
+	if _, err := download.SafeJoin(root, modelPath); err != nil {
 		return fmt.Errorf("模型路徑格式錯誤: %w", err)
 	}
+	modelRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("開啟模型目錄失敗: %w", err)
+	}
+	defer modelRoot.Close()
+	target := filepath.FromSlash(modelPath)
 	if removeTree {
-		if err := os.RemoveAll(target); err != nil {
+		if err := modelRoot.RemoveAll(target); err != nil {
 			return fmt.Errorf("刪除 MLX 模型失敗: %w", err)
 		}
 		return nil
 	}
-	if separator := strings.Index(modelPath, "/"); separator > 0 {
-		modelDirectory, err := download.SafeJoin(root, modelPath[:separator])
-		if err != nil {
-			return fmt.Errorf("GGUF 模型目錄格式錯誤: %w", err)
-		}
-		if err := os.RemoveAll(modelDirectory); err != nil {
-			return fmt.Errorf("刪除 GGUF 模型目錄失敗: %w", err)
-		}
-		return nil
-	}
-	if err := os.Remove(target); err != nil {
+	// 掃描器允許任意深度與共用目錄；檔案位置不能證明整個目錄的所有權。
+	if err := modelRoot.Remove(target); err != nil {
 		return fmt.Errorf("刪除 GGUF 模型失敗: %w", err)
 	}
 	return nil

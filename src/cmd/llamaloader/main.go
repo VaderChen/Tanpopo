@@ -41,6 +41,7 @@ func main() {
 	updateTarget := flag.String("update-target", "", "內部使用：目前安裝目錄")
 	updateWorkspace := flag.String("update-workspace", "", "內部使用：更新暫存目錄")
 	updateParentPID := flag.Int("update-parent-pid", 0, "內部使用：等待結束的主服務 PID")
+	updateLockFD := flag.Int("update-lock-fd", 0, "內部使用：繼承的更新鎖描述符")
 	flag.Parse()
 
 	if strings.TrimSpace(*applyUpdatePayload) != "" {
@@ -49,6 +50,7 @@ func main() {
 			TargetDir:  *updateTarget,
 			Workspace:  *updateWorkspace,
 			ParentPID:  *updateParentPID,
+			LockFD:     *updateLockFD,
 		}); err != nil {
 			log.Fatal(err)
 		}
@@ -161,18 +163,23 @@ func run(agentPath, samplePath string) error {
 
 	serviceContext, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignal()
-	sessions := session.NewStore(
+	sessions, err := session.NewPersistentStore(
+		filepath.Join(filepath.Dir(agentConfig.SettingsPath), "sessions.json"),
 		agentConfig.DefaultAccount,
 		agentConfig.DefaultPassword,
 		time.Duration(agentConfig.SessionHours)*time.Hour,
 		!agentConfig.DisableAuthentication,
 	)
+	if err != nil {
+		return fmt.Errorf("載入登入紀錄失敗: %w", err)
+	}
 	downloads := download.NewManager(2)
 	llama, err := llamacpp.NewManager(settings.Get, agentConfig.AccessControlPath, agentConfig.RuntimeStatePath)
 	if err != nil {
 		return fmt.Errorf("載入模型服務狀態失敗: %w", err)
 	}
-	handler := api.NewServer(serviceContext, webPath, agentConfigPath, settings, startupCommands, accessControl, sessions, downloads, llama).Handler()
+	apiServer := api.NewServer(serviceContext, webPath, agentConfigPath, settings, startupCommands, accessControl, sessions, downloads, llama)
+	handler := apiServer.Handler()
 	address := net.JoinHostPort(agentConfig.HTTPHost, strconv.Itoa(agentConfig.HTTPPort))
 	httpServer := &http.Server{
 		Addr:              address,
@@ -180,6 +187,7 @@ func run(agentPath, samplePath string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
+		BaseContext:       func(net.Listener) context.Context { return serviceContext },
 	}
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -198,6 +206,11 @@ func run(agentPath, samplePath string) error {
 		log.Printf("%s 已啟動：http://%s", agentConfig.ServiceName, address)
 		serverError <- httpServer.Serve(listener)
 	}()
+
+	if err := appupdate.ReportReady(localManagementURL(agentConfig.HTTPHost, agentConfig.HTTPPort)); err != nil {
+		stopSignal()
+		return errors.Join(err, shutdownServices(httpServer, 15*time.Second, llama.Shutdown, apiServer.Shutdown, downloads.Wait))
+	}
 
 	uiDone, uiLaunched, uiErr := desktopui.Launch(serviceContext, desktopui.Options{
 		URL:       localManagementURL(agentConfig.HTTPHost, agentConfig.HTTPPort),
@@ -246,17 +259,24 @@ waitForShutdown:
 	}
 	stopSignal()
 
-	shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownContext); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+	return errors.Join(listenError, shutdownServices(httpServer, 15*time.Second, llama.Shutdown, apiServer.Shutdown, downloads.Wait))
+}
+
+// 每個服務使用獨立期限；HTTP 逾時不能略過模型子程序與下載的清理。
+func shutdownServices(server *http.Server, timeout time.Duration, cleanups ...func(context.Context) error) error {
+	httpContext, cancelHTTP := context.WithTimeout(context.Background(), timeout)
+	httpErr := server.Shutdown(httpContext)
+	cancelHTTP()
+	if httpErr != nil {
+		httpErr = errors.Join(httpErr, server.Close())
 	}
-	_ = llama.Shutdown(shutdownContext)
-	_ = downloads.Wait(shutdownContext)
-	if listenError != nil {
-		return listenError
+	failures := []error{httpErr}
+	for _, cleanup := range cleanups {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		failures = append(failures, cleanup(ctx))
+		cancel()
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func localManagementURL(host string, port int) string {

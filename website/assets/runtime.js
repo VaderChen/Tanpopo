@@ -2,6 +2,7 @@
   const { api, byId, showMessage, formatBytes, formatTime, t } = window.LlamaLoader;
   const LLAMA_RUNTIME = "llama-server";
   const MLX_RUNTIME = "mlx-server";
+  const variants = window.TanpopoRuntimeVariants;
   const RUNTIME_TEST_TIMEOUT_MS = 180000;
   const RUNTIME_TEST_REPEAT_TIMEOUT_MS = 540000;
   const RUNTIME_TEST_LONG_TIMEOUT_MS = 600000;
@@ -16,6 +17,7 @@
     sensitivity: "base"
   });
   const state = {
+    unavailableReasons: {},
     settings: null,
     models: [],
     mainModels: [],
@@ -42,7 +44,7 @@
   }
 
   function selectedRuntime() {
-    return byId("runtimeSelect").value || LLAMA_RUNTIME;
+    return variants.family(byId("runtimeSelect").value);
   }
 
   function localizedMemoryProtectionAction(value) {
@@ -385,9 +387,11 @@
     const select = byId("commandSelect");
     const previous = preserveSelection ? select.value : "";
     const payload = await api("/api/startup-commands");
+    variants.apply(byId("runtimeSelect"), payload.capabilities, payload.commands || []);
+    state.unavailableReasons = payload.unavailable_reasons || {};
     state.commands = payload.commands || [];
     if (state.runtime?.runtime && (state.runtime.running || !state.selectionTouched)) {
-      byId("runtimeSelect").value = state.runtime.runtime || LLAMA_RUNTIME;
+      variants.restore(byId("runtimeSelect"), state.runtime);
     }
     renderCommandOptions(previous);
     renderRuntime(state.runtime);
@@ -396,12 +400,13 @@
   function renderCommandOptions(preferredID = "") {
     const select = byId("commandSelect");
     const runtimeName = selectedRuntime();
-    const commands = state.commands.filter((command) => (command.runtime || LLAMA_RUNTIME) === runtimeName);
+    const commands = state.commands.filter((command) => variants.optionValue(command) === byId("runtimeSelect").value);
     select.replaceChildren();
     commands.forEach((command) => {
       const option = document.createElement("option");
       option.value = command.id;
-      option.textContent = t(command.name);
+      const reason = state.unavailableReasons[command.id];
+      option.textContent = t(command.name) + (reason ? ` · 不可用：${reason}` : "");
       select.append(option);
     });
     const persistedID = state.runtime?.running || !state.selectionTouched
@@ -411,6 +416,7 @@
     if (preferred && commands.some((command) => command.id === preferred)) {
       select.value = preferred;
     }
+    variants.updateLabel(byId("runtimeSelect"), selectedCommand());
   }
 
   function renderModelMeta() {
@@ -651,10 +657,12 @@
     const ready = running && Boolean(status.ready);
     const restoreSelection = running || !state.selectionTouched;
     if (restoreSelection && status.runtime) {
-      byId("runtimeSelect").value = status.runtime;
+      variants.restore(byId("runtimeSelect"), status);
     }
     const runtimeName = selectedRuntime();
-    const runtimeLabel = runtimeName === MLX_RUNTIME ? "mlx-server" : "llama-server";
+    const modeCommand = running ? status : selectedCommand();
+    variants.updateLabel(byId("runtimeSelect"), modeCommand);
+    const runtimeLabel = variants.label(running ? variants.optionValue(status) : byId("runtimeSelect").value, modeCommand);
     const loading = running && !ready;
     const failed = !running && Boolean(status.last_error);
     if (loading && !state.calibrating && !byId("calibrationDialog").open) {
@@ -708,6 +716,8 @@
       renderCommandOptions(status.startup_command_id);
       byId("commandSelect").value = status.startup_command_id;
     }
+    // 執行中以實際啟動模式為準，避免參數組後續修改改寫正在運作的名稱。
+    variants.updateLabel(byId("runtimeSelect"), running ? status : selectedCommand());
     if (restoreSelection) {
       if (state.mainModels.some((model) => model.path === status.model)) {
         byId("modelSelect").value = status.model;
@@ -1237,7 +1247,7 @@
   }
 
   async function loadCalibrationModels(current, commands, preferredID) {
-    const runtimes = Array.from(byId("runtimeSelect").options, (option) => option.value);
+    const runtimes = [...new Set(Array.from(byId("runtimeSelect").options, (option) => variants.family(option.value)))];
     const catalogues = await Promise.all(runtimes.map(async (runtimeName) => {
       try {
         const payload = await api(`/api/models?runtime=${encodeURIComponent(runtimeName)}`);
@@ -1762,6 +1772,7 @@
   });
   byId("commandSelect").addEventListener("change", () => {
     state.selectionTouched = true;
+    variants.updateLabel(byId("runtimeSelect"), selectedCommand());
     loadModels(false).catch((error) => showMessage(error.message, "error"));
   });
   byId("runtimeSelect").addEventListener("change", () => {

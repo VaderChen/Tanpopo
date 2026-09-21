@@ -4,7 +4,7 @@
 
 `Tanpopo` 是一個以 Go 實作的本機模型服務管理器；名稱取自日語「蒲公英（たんぽぽ）」，象徵模型把生成的 Token 像種子般向外散發。管理介面提供簡單登入、模型服務管理與暫存式簡易對話；`llama-server` 維持跨平台與 GGUF 高相容性，Apple Silicon 另提供原生 Swift／MLX 的 `mlx-server`，支援文生文與多模態模型。
 
-![Tanpopo 管理介面](images/cap001.jpg)
+![Tanpopo 管理介面](images/tanpopo-demo.gif)
 
 ## 主要功能
 
@@ -16,6 +16,7 @@
 - 模型下載頁提供 JSON 驅動的常用模型快速選單；GGUF 與 MLX 各自依 8B 級、30B 級、70B 以上分群，群內按模型名稱字母排序。選取後會自動填入 Runtime、Repository、Revision 及適用的 GGUF 檔名；清單獨立保存於 `website/assets/popular-models.json`，不寫死在前端程式。
 - 下載中心可搜尋 Hugging Face Repository，依下載數、讚數或字母排序；支援持久化「我的最愛」。GGUF 檔名改由 Repository 掃描結果選取，優先選擇 `Q4_0`，沒有則選排序第一項，並提供重新掃描按鈕。
 - 大型檔案在伺服器支援 Range 時以 64 MiB 區塊、最多 4 個並行工作下載；不支援時自動退回單一串流。管理畫面會顯示佇列、位元組數與進度，完成項目會自動清除；桌面 App 另可直接開啟儲存位置，瀏覽器模式會停用該按鈕。
+- GGUF 刪除只移除選定檔案，保留共用目錄、其他模型與附屬資產；MLX 刪除仍以確認視窗列出的模型目錄為範圍。
 - 自動掃描模型目錄及其子目錄內的 `.gguf` 檔案與完整 MLX 模型目錄；Apple Silicon 的 `mlx-server` 可直接載入支援的 GGUF，不必先轉換成 safetensors。
 - **快速GGUF模式（Fast GGUF）**在 `mlx-server` 選擇 GGUF 時預設開啟，以模型名稱無關的 tensor 能力規則選擇 INT4、INT8、BF16 與 Group，並持久保存為 `.fgguf`，避免重複轉換。系統設定提供 Mode 1（均衡・預設）、Mode 2（較高精度）與 Mode 3（最快）三種策略；這套通用機制對多數可由 mlx-server 解析的 GGUF 都有幫助，但不保證每個架構、量化格式或自訂 checkpoint 都能載入、加速或維持相同精度，正式使用前仍應實測。
 - 執行狀態頁依所選 Runtime 提供按字母排序的模型下拉清單，GGUF、MLX 與 mmproj 統一以「模型名稱（目錄名稱）」顯示，但實際提交值仍為完整安全路徑。非 macOS 平台會在啟動時直接隱藏 Apple Silicon 專用的 mlx-server 選項。
@@ -35,7 +36,7 @@
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
   macOS 的 MEMORY 排除檔案快取與可清除頁面，保留 wired 與壓縮器的實體記憶體用量；啟動前的記憶體保護另外使用可用記憶體讀值，不從顯示百分比反推。計算方式、資料缺漏處理及與記憶體壓力的區別見 [系統記憶體指標](docs/SYSTEM-METRICS.md)。
 - 「系統設定 → 系統資訊」以唯讀方式顯示作業系統、Kernel、架構、主機名稱、CPU、GPU、記憶體、網路介面與目前可供其他裝置使用的管理網址；不顯示 loopback 管理網址。
-- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。Linux 可在「系統設定 → 關於」上傳正式發布 ZIP，驗證後自動更新並重新啟動服務；此功能要求管理登入驗證已開啟。
+- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。Linux 可在「系統設定 → 關於」上傳正式發布 ZIP，核對已安裝程式指定的 GitHub 發布 SHA-256 後更新，並在新版實例通過健康檢查後確認完成；無法取得摘要或摘要不符時拒絕安裝。此功能要求管理登入驗證已開啟。
 - 原生選單與「系統設定 → 關於」會顯示 `1.YY.MMDD build HHmm` 版本、目前可達的管理頁面網址、可複製的模型 API `/v1` URL，以及 GitHub 快速連結；本機 `127.0.0.1` 管理網址不列入公開資訊清單。
 - llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 Tanpopo 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
@@ -43,6 +44,7 @@
 - 設定保存採原子替換；Hugging Face Token 與模型 API 金鑰不會由設定 API 回傳明文。
 - 系統設定頁的開關、下拉選單與配色變更後自動儲存，保留原儲存按鈕；不連帶提交未完成的文字欄位，儲存失敗時會還原選項並顯示錯誤。
 - macOS 圖形工作階段會以原生 AppKit／WKWebView 視窗載入管理介面，不啟動外部瀏覽器；可啟用常駐模式，在系統選單列重新顯示視窗或完整結束服務。Linux、SSH 與 headless 工作階段維持 Shell 模式。
+  常駐模式的選單列蒲公英圖示只在受管模型已載入且就緒時依 GPU 使用率變色：低於 50% 為綠色、50% 至低於 80% 為黃色、80% 以上為紅色。未載入、載入中、啟動失敗或無法取得資料時維持原本的系統單色。原生介面獨立更新，隱藏主視窗後仍有效；滑鼠停留可查看目前 GPU 百分比。
 
 ## 公開測試報告
 
@@ -87,7 +89,7 @@ http://127.0.0.1:10082
 
 新安裝的「管理介面登入」預設關閉（`disable_authentication: true`），不需登入即可進入管理畫面；既有明確保存的登入設定會保留。管理服務預設監聽所有網路介面，因此開放區域網路或啟用反向代理前，應先在「系統設定 → 管理介面登入」開啟驗證並設定新密碼，不可沿用範本初始帳密。之後關閉登入仍需確認；模型 API 的金鑰與 IP 白名單設定獨立管理。
 
-管理帳號密碼保存在本機。可在「系統設定」即時修改；保存後會撤銷所有既有 Session，啟用驗證時須使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用只存在記憶體的瀏覽工作階段 Cookie；勾選後則建立以目前帳密衍生金鑰簽章的持久 Cookie，可跨 Tanpopo 服務重啟驗證，帳號或密碼一旦變更便立即失效。網站儲存空間不會保存帳號或密碼。
+管理帳號密碼保存在本機。可在「系統設定」即時修改；保存後會撤銷所有既有 Session，啟用驗證時須使用新帳密重新登入。登入欄位會優先提示瀏覽器使用英數鍵盤，但不限制帳號密碼字元。「記住我」未勾選時使用只存在記憶體的瀏覽工作階段 Cookie；勾選後則建立以目前帳密衍生金鑰簽章的持久 Cookie，並在設定檔同目錄的 `sessions.json` 保存憑證雜湊白名單（權限 0600），可跨 Tanpopo 服務重啟驗證。登出會同步撤銷伺服器紀錄，帳號或密碼變更也會撤銷登入。升級至此機制後，舊版無狀態 Cookie 需重新登入。網站儲存空間不會保存帳號或密碼。
 
 ## llama-server Runtime
 
@@ -174,6 +176,7 @@ API 提供 OpenAI／llama-server 常用相容端點：
 GET  /health
 GET  /v1/health
 GET  /props
+GET  /v1/props
 GET  /models
 GET  /v1/models
 POST /chat/completions
@@ -182,13 +185,15 @@ POST /v1/completions
 POST /completion
 ```
 
-`/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts，以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 在完成格式、模型與生成名額檢查後便建立 OpenAI 相容 SSE，不等待 Tokenization 或 Prefill；建立時及之後每 10 秒送出保活註解，生成文字則隨 token 逐段輸出。保活與 assistant role chunk 不代表已有思考／回答文字，也不會消除長上下文的首 token 延遲。
+`/v1/chat/completions` 支援 OpenAI 格式的文字 content、`image_url` 多模態 content parts（預設使用 Base64 data URL；遠端 HTTPS 圖片須由管理者以 `--image-allowed-origin` 授權，詳見 [圖片來源規格](docs/MLX-RUNTIME-SPEC.md#api-圖片來源與大小)），以及原生 `tools`、`tool_choice`、`message.tool_calls` 與工具結果訊息。`stream: true` 在完成格式、模型與生成名額檢查後便建立 OpenAI 相容 SSE，不等待 Tokenization 或 Prefill；建立時及之後每 10 秒送出保活註解，生成文字則隨 token 逐段輸出。保活與 assistant role chunk 不代表已有思考／回答文字，也不會消除長上下文的首 token 延遲。
 
 HTTP 層在等待回應期間仍持續偵測斷線。客戶端實際中斷 HTTP 請求／回應串流時，會透過請求專屬取消訊號停止後續 Prefill／生成，不影響其他使用者；已提交 GPU 的當前運算仍需收尾，不保證整體 GPU 使用率立即歸零。同一連線的 Keep-Alive 與 HTTP/1 pipelining 依序回應，並限制等待佇列與緩衝容量。
 
 MLX Runtime 的 SPEC 是支援多人並行，目前階段最多 4 個生成請求，第 5 個回傳 HTTP 429。長輸入在模型 forward 前檢查上下文與記憶體預算，必要時縮小本次 Prefill 分段，不截斷輸入、不改寫設定或校準紀錄；未宣告分段能力的路徑按完整輸入保守估算。非串流的上下文／預估記憶體超限回傳 HTTP 413，執行中記憶體超限回傳 HTTP 503；串流建立後的錯誤改送 SSE error。詳見 [MLX Runtime 規格](docs/MLX-RUNTIME-SPEC.md)及 [API 延遲與取消排查](docs/MLX-RUNTIME-TROUBLESHOOTING.md)。
 
 `/models` 與 `/v1/models` 會回傳相同的目前載入模型，方便不同 Provider 客戶端自動取得正確 Model ID。模型 API 的金鑰與 IP 白名單由 mlx-server 自己在 SwiftNIO 請求入口執行。
+
+MLX 上下文長度探索會在模型項目回報 `context_length`、`max_model_len` 與 `meta.n_ctx`；`/props`、`/v1/props` 另提供 `default_generation_settings.n_ctx`，健康檢查也回報 `context_length` 與 `max_model_len`。所有欄位與請求檢查共用同一個「完整輸入＋最大輸出」上限，依啟動限制與 MLX、GGUF 或 Fast GGUF 的模型 metadata 解析，不寫死 256K；無法確定時省略，不以假值補齊。記憶體保護與四人並行上限保持不變；更新後需停止並重新載入模型，既有程序才會使用新版回應。
 
 單模型 mlx-server 的 Chat Completion 與 Completion 一律使用目前已載入的模型。客戶端省略 `model`、留空或填入未知／過期名稱時，自動 fallback 至目前模型，不再因名稱不符回傳錯誤；一般 JSON 與 SSE 回應均標示實際模型 ID。此行為不會切換或重新載入模型，也不略過格式、安全與資源檢查。
 
@@ -215,7 +220,7 @@ MLX DFlash 是直接整合在 Swift Runtime 與專案內維護的 `mlx-swift-lm 
 - DFlash 1 Profile 的 Block Size 預設為 5，DFlash 2 Profile 預設為 8，且都不會超過 Draft checkpoint 的訓練值。
 - Draft 支援 full attention 與 sliding attention；Qwen3.5 Target 的 Gated Delta Net cache 會先還原驗證前狀態，再只重播已接受的 prefix，attention KV 則移除被拒絕的 suffix。
 - Target 僅使用可精確 trim／rollback 的一般 cache，不支援 rotating 或量化 target KV Cache。
-- DFlash Profile 雖保留全域 256K Context 選項供介面一致性使用，但啟用 Draft 時不會傳入 `--max-kv-size`；實際可用上下文仍受 Target 模型設定與記憶體限制。
+- 所有 MLX Profile 都以 `--context-size` 傳入有效 Context Size，包括記憶體保護降級後的值。DFlash／MTP 不需要 rotating Cache，仍受同一請求上下文上限、Target 模型設定與記憶體限制。
 - 多模態 DFlash target 留待後續階段；未啟用 DFlash 時不影響既有多模態功能。
 
 若單筆 API 請求覆寫為不支援的 Target cache 設定，`mlx-server` 會記錄原因並安全回退到同一 Target 的一般生成，不會用近似演算法冒充 lossless speculative decoding。生成日誌會輸出 proposed、accepted 與 acceptance rate，方便比較 DFlash 是否真的帶來效益。技術流程依據 [DFlash 論文](https://arxiv.org/abs/2602.06036)與[官方 MLX 參考實作](https://github.com/z-lab/dflash/blob/main/dflash/model_mlx.py)。
@@ -435,14 +440,13 @@ website/              登入、管理介面與常用模型 JSON 清單
 
 ## 授權
 
-Tanpopo 中由專案著作權人擁有的原創程式碼採雙軌授權，適用範圍見 [`LICENSE-NOTICE.md`](LICENSE-NOTICE.md)：
-
-- 開放原始碼：GNU General Public License v3.0 or later（GPL-3.0-or-later），完整條款見 [`LICENSE`](LICENSE)。
-- 商業授權：不適合採用 GPL 的使用情境，可另行洽談書面商業授權，詳見 [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)。
+Tanpopo 原創程式碼的完整授權條款與適用範圍見 [`LICENSE.md`](LICENSE.md)；授權洽詢與政策說明見 [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)。
 
 第三方程式碼與相依套件維持各自的授權條款，詳見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。安全性與私密回報方式見 [`SECURITY.md`](SECURITY.md)。
 
 ## 建置
+
+完整執行 `build.command`／`build.sh` 或正式封裝 `pack.command`（維護者環境提供）時，會在初步檢查通過、產生新產物之前，共用 `clean.command --dist` 將專案的 `dist/` 清空一次。舊檔案、隱藏檔、子目錄與已簽章安裝包都會永久移除；需要保留的產物請先另行備份。多平台封裝不會在平台之間重複清空，避免刪到同一次產出的檔案。清理會拒絕符號連結或非目錄的 `dist/`，不影響設定、模型、`bin/` 或 Runtime 快取。`build.command --check`、`build.command --runtime` 與一般啟動流程不執行此清理；不帶參數的 `clean.command` 仍維持完整清理行為。
 
 專案內的 `llama-server/` 是預設且已鎖定版本的原始碼。執行 `build.command` 時，如果目前主機缺少相同版本的 llama-server Runtime，封裝器會自動原生編譯並保存至 `llama-runtime/prebuilt/<platform>`。例如也可以手動執行：
 

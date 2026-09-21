@@ -49,6 +49,7 @@ type ApplyOptions struct {
 	TargetDir  string
 	Workspace  string
 	ParentPID  int
+	LockFD     int
 }
 
 // NewManager 只在正式安裝的 Linux 目錄開啟更新功能。開發模式的 go run
@@ -89,12 +90,16 @@ func (m *Manager) Status() Status {
 	if m.active && (status.State == "failed" || status.State == "completed") {
 		m.active = false
 		m.helperPID = 0
-	} else if m.active && m.helperPID > 0 && !processAlive(m.helperPID) {
-		status.State = "failed"
-		status.Message = "更新程序意外停止，現有版本未變更。"
-		_ = writeStatus(m.statusPath(), status)
-		m.active = false
-		m.helperPID = 0
+	} else if status.State == "preparing" || status.State == "restarting" {
+		// 重啟後沒有原 Manager 的 PID 狀態，以跨程序鎖確認 Helper 是否仍持有工作。
+		if probe, lockErr := acquireUpdateLock(m.targetDir, 0); lockErr == nil {
+			defer probe.Close()
+			status.State = "failed"
+			status.Message = "更新程序已停止，請檢查目前版本與備份。"
+			_ = writeStatus(m.statusPath(), status)
+			m.active = false
+			m.helperPID = 0
+		}
 	}
 	status.Available = true
 	return status
@@ -109,6 +114,11 @@ func (m *Manager) Start(archive io.Reader) (Status, error) {
 	if m.active {
 		return Status{}, errors.New("已有 ZIP 更新正在進行")
 	}
+	updateLock, err := acquireUpdateLock(m.targetDir, 0)
+	if err != nil {
+		return Status{}, err
+	}
+	defer updateLock.Close()
 	m.active = true
 	succeeded := false
 	defer func() {
@@ -153,10 +163,13 @@ func (m *Manager) Start(archive io.Reader) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	if err := verifyOfficialArchive(archivePath, payloadDir); err != nil {
+		return Status{}, err
+	}
 	status := Status{
 		Available: true,
 		State:     "preparing",
-		Message:   "更新套件已驗證，正在準備安裝。",
+		Message:   "套件結構與官方發布 SHA-256 已驗證，正在準備安裝。",
 		Version:   version,
 		UpdatedAt: time.Now(),
 	}
@@ -175,7 +188,9 @@ func (m *Manager) Start(archive io.Reader) (Status, error) {
 		"--update-target", m.targetDir,
 		"--update-workspace", workspace,
 		"--update-parent-pid", strconv.Itoa(os.Getpid()),
+		"--update-lock-fd", "3",
 	)
+	command.ExtraFiles = []*os.File{updateLock}
 	command.Dir = payloadDir
 	command.Stdin = nil
 	command.Stdout = logFile
@@ -186,7 +201,7 @@ func (m *Manager) Start(archive io.Reader) (Status, error) {
 		return Status{}, fmt.Errorf("啟動更新程序失敗: %w", err)
 	}
 	m.helperPID = command.Process.Pid
-	_ = command.Process.Release()
+	go func() { _ = command.Wait() }()
 	_ = logFile.Close()
 	cleanup = false
 	succeeded = true

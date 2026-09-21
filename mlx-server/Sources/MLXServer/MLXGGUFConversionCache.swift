@@ -446,14 +446,7 @@ enum MLXGGUFConversionCache {
         try encoder.encode(upgraded).write(to: plan.manifestURL, options: .atomic)
     }
 
-    /// 來源 GGUF 已不存在時直接讀取 Fast GGUF manifest、執行資產與權重。
-    /// schema 3 可使用同目錄的標準 Hugging Face 資產作為相容 fallback；
-    /// schema 4 則固定讀取 manifest 指向的獨立資產。
-    static func loadStandalone(
-        manifestURL: URL,
-        memoryMapped: Bool,
-        progress: ((Int64, Int64) -> Void)? = nil
-    ) throws -> StandalonePackage {
+    private static func standaloneManifest(at manifestURL: URL) throws -> Manifest {
         let manifest = try JSONDecoder().decode(
             Manifest.self,
             from: Data(contentsOf: manifestURL)
@@ -464,6 +457,26 @@ enum MLXGGUFConversionCache {
               manifest.groupSize == 32 || manifest.groupSize == 64 else {
             throw CacheError.invalidManifest
         }
+        return manifest
+    }
+
+    /// 能力查詢只讀設定，沿用相同的 manifest 驗證與安全路徑解析，不載入權重。
+    static func standaloneConfigurationData(manifestURL: URL) throws -> Data {
+        let manifest = try standaloneManifest(at: manifestURL)
+        let assetURLs = try standaloneAssetURLs(
+            manifest: manifest, rootURL: manifestURL.deletingLastPathComponent())
+        return try Data(contentsOf: assetURLs.configuration)
+    }
+
+    /// 來源 GGUF 已不存在時直接讀取 Fast GGUF manifest、執行資產與權重。
+    /// schema 3 可使用同目錄的標準 Hugging Face 資產作為相容 fallback；
+    /// schema 4 則固定讀取 manifest 指向的獨立資產。
+    static func loadStandalone(
+        manifestURL: URL,
+        memoryMapped: Bool,
+        progress: ((Int64, Int64) -> Void)? = nil
+    ) throws -> StandalonePackage {
+        let manifest = try standaloneManifest(at: manifestURL)
         let rootURL = manifestURL.deletingLastPathComponent()
         let assetURLs = try standaloneAssetURLs(manifest: manifest, rootURL: rootURL)
         let configurationData = try Data(contentsOf: assetURLs.configuration)

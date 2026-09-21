@@ -18,3 +18,5 @@ func processAlive(_ int) bool {
 }
 
 func detachCommand(_ *exec.Cmd) {}
+
+func killProcessGroup(_ int) error { return errors.New("ZIP 更新程序僅能在 Linux 執行") }

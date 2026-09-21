@@ -3,8 +3,9 @@ package domain
 import "time"
 
 const (
-	RuntimeLlamaServer = "llama-server"
-	RuntimeMLXServer   = "mlx-server"
+	RuntimeLlamaServer      = "llama-server"
+	RuntimeMLXServer        = "mlx-server"
+	RuntimeVariantAMDVulkan = "amd-vulkan"
 
 	// Mode 1：K-quant super-block 沿用來源 4-bit block，速度約 +36%，為預設。
 	// Mode 2：低位元來源重新量化為 INT8／group 64，保守路徑。
@@ -29,6 +30,11 @@ const (
 	ModelPreparationLoadingCache  = "loading_cache"
 	ModelPreparationDirectLoading = "direct_loading"
 )
+
+// IsAMDRuntimeVariant 共用版本識別，避免設定、還原與啟動各自維護不同白名單。
+func IsAMDRuntimeVariant(variant string) bool {
+	return variant == RuntimeVariantAMDVulkan
+}
 
 // AgentConfig 是服務啟動階段使用的設定；變更後需重新啟動服務。
 type AgentConfig struct {
@@ -168,6 +174,7 @@ type StartupCommand struct {
 	ID                  string    `json:"id"`
 	Name                string    `json:"name"`
 	Runtime             string    `json:"runtime"`
+	RuntimeVariant      string    `json:"runtime_variant,omitempty"`
 	DraftModel          string    `json:"draft_model,omitempty"`
 	ServerHost          string    `json:"server_host"`
 	ServerPort          int       `json:"server_port"`
@@ -186,6 +193,8 @@ type LlamaStatus struct {
 	Ready                         bool              `json:"ready"`
 	DesiredRunning                bool              `json:"desired_running"`
 	Runtime                       string            `json:"runtime"`
+	RuntimeVariant                string            `json:"runtime_variant,omitempty"`
+	AMDMode                       string            `json:"amd_mode,omitempty"`
 	PID                           int               `json:"pid,omitempty"`
 	Model                         string            `json:"model,omitempty"`
 	MMProj                        string            `json:"mmproj,omitempty"`
