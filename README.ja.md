@@ -31,7 +31,7 @@ DEMO：ノード、モデル、応答は模擬データです。推論性能や�
 - 蒲公英、晴空ブルー、桜ピンク、ダークテーマの深夜パープルという 4 種類の配色を選択可能。
 - 画面下部の状態バーで CPU、GPU、MEMORY、ネットワークを 3 秒ごとに更新し、50%／80% を境に低彩度の緑・黄・赤で表示。
 - 「システム設定 → システム情報」に OS、Kernel、Architecture、Host 名、CPU、GPU、Memory、Network interface、到達可能な管理 URL を読み取り専用で表示。Loopback URL は共有用一覧に表示しません。
-- 起動時と 1 時間ごとに GitHub の最新正式 Release を確認し、同日 Release の build 番号も比較します。Linux では認証済み管理者が正式 ZIP をアップロードし、検証、更新、再起動を自動実行できます。
+- 起動時と毎時、GitHub の最新正式 Release を build 番号まで比較します。**システム設定 → このアプリについて → 更新して再起動**で、対応パッケージの自動ダウンロード・SHA-256 検証・アプリ終了・インストール・再起動を実行します。macOS は署名と Gatekeeper も検証し、macOS/Linux は起動失敗時に旧版への復元を試みます。Windows は MSI を使用し、UAC の承認が必要な場合があります。リモート更新には管理者ログインが必要です。[自動更新ガイド（繁体字中国語）](docs/APP-UPDATE.md)。
 - Linux パッケージは Vulkan 対応 llama.cpp のビルド経路、依存関係と GPU 権限の確認、`build-llama-server.sh`、ROCm がない場合の DRM GPU 使用率取得を含みます。
 - macOS では AppKit／WKWebView のネイティブ UI とメニューバー常駐モードを提供。
 
@@ -71,6 +71,8 @@ TANPOPO_UI=gui ./run.command    # 対応環境でネイティブ UI を強制
 ```
 
 アプリ版は `1.YY.MMDD build HHmm`、GitHub Tag は `v1.YY.MMDD-build-HHmm` です。更新確認は日付版と build 番号の両方を比較するため、同日の後続 Release も検出します。Draft と prerelease は最新版として扱いません。
+
+自動更新は **1.26.1003 build 0108** から利用できます。旧版を使用中の場合は、最初に [GitHub Releases](https://github.com/VaderChen/Tanpopo/releases/latest) から本版をインストールしてください。以後は **システム設定 → このアプリについて → 更新して再起動** を利用できます。バックグラウンドの確認は通知のみで、開発用チェックアウトの自動インストールは無効です。Windows/Linux の実際のインストールは各 OS での検証が必要です。データの保持、復元、インストール条件は [更新ガイド（繁体字中国語）](docs/APP-UPDATE.md) を参照してください。
 
 ## モデル Runtime
 

@@ -12,14 +12,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"LlamaLoader/src/appversion"
+	"LlamaLoader/src/updatecheck"
 )
 
 const readyPathEnv = "TANPOPO_UPDATE_READY_PATH"
 const readyTokenEnv = "TANPOPO_UPDATE_READY_TOKEN"
 
 type readyRecord struct {
-	PID   int    `json:"pid"`
-	Token string `json:"token"`
+	PID     int    `json:"pid"`
+	Token   string `json:"token"`
+	Version string `json:"version,omitempty"`
 }
 
 // ReportReady 由新實例在完成初始化、綁定埠及實際回應 health 後呼叫。
@@ -47,7 +51,7 @@ func ReportReady(managementURL string) error {
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&health); err != nil || health.Status != "ok" {
 		return errors.New("新版健康檢查內容無效")
 	}
-	data, err := json.Marshal(readyRecord{PID: os.Getpid(), Token: token})
+	data, err := json.Marshal(readyRecord{PID: os.Getpid(), Token: token, Version: appversion.Tag()})
 	if err != nil {
 		return err
 	}
@@ -76,6 +80,12 @@ func launchTargetWithTimeout(targetDir string, timeout time.Duration) error {
 		return errors.New("更新後缺少 run.sh")
 	}
 	logDir := filepath.Join(targetDir, "data")
+	command := exec.Command(runScript)
+	command.Dir = targetDir
+	return launchReadyCommand(command, logDir, timeout, "")
+}
+
+func launchReadyCommand(command *exec.Cmd, logDir string, timeout time.Duration, expectedVersion string) error {
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return err
 	}
@@ -91,8 +101,6 @@ func launchTargetWithTimeout(targetDir string, timeout time.Duration) error {
 	token := hex.EncodeToString(nonce)
 	readyPath := filepath.Join(logDir, ".update-ready-"+token+".json")
 	defer os.Remove(readyPath)
-	command := exec.Command(runScript)
-	command.Dir = targetDir
 	command.Env = append(os.Environ(), readyPathEnv+"="+readyPath, readyTokenEnv+"="+token)
 	command.Stdout, command.Stderr = logFile, logFile
 	detachCommand(command)
@@ -110,7 +118,7 @@ func launchTargetWithTimeout(targetDir string, timeout time.Duration) error {
 		_ = terminateProcess(command.Process.Pid)
 		select {
 		case <-exited:
-		case <-time.After(10 * time.Second):
+		case <-time.After(90 * time.Second):
 		}
 		_ = killProcessGroup(command.Process.Pid)
 		return cause
@@ -130,6 +138,12 @@ func launchTargetWithTimeout(targetDir string, timeout time.Duration) error {
 			var ready readyRecord
 			if len(data) > 4096 || json.Unmarshal(data, &ready) != nil || ready.PID != command.Process.Pid || ready.Token != token {
 				continue
+			}
+			if expectedVersion != "" {
+				comparison, err := updatecheck.CompareVersions(ready.Version, expectedVersion)
+				if err != nil || comparison != 0 {
+					return failed(errors.New("重新啟動的版本與下載版本不符，已停止新版"))
+				}
 			}
 			// 保留一小段觀察期，捕捉回報 ready 後立即崩潰的初始化錯誤。
 			select {

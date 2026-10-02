@@ -8,7 +8,8 @@
   <script src="/assets/theme-init.js?v=20260829-1"></script>
   <link rel="stylesheet" href="/assets/app.css?v=20260901-54">
   <script src="/assets/common.js?v=20260902-86" defer></script>
-  <script src="/assets/settings.js?v=20260908-1" defer></script>
+  <script src="/assets/app-update.js?v=20261003-1" defer></script>
+  <script src="/assets/settings.js?v=20261003-1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -744,14 +745,17 @@
                     </div>
                   </dl>
                   <p id="appUpdateSummary" class="about-update-summary" role="status" aria-live="polite">正在檢查更新…</p>
-                  <p id="linuxZIPUpdateStatus" class="about-update-summary" role="status" aria-live="polite" hidden></p>
+                  <p id="appUpdateFlow" class="section-note">自動下載並驗證 → 關閉程式 → 安裝更新 → 重新啟動</p>
+                  <p id="appInstallStatus" class="about-update-summary" role="status" aria-live="polite" hidden></p>
+                  <progress id="appUpdateProgress" max="100" aria-label="更新進度" hidden></progress>
                 </div>
               </div>
               <div class="settings-actions about-actions">
                 <a id="githubReleaseLink" class="button secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>查看新版</a>
                 <input id="linuxZIPUpdateInput" type="file" accept=".zip,application/zip" hidden>
                 <button id="linuxZIPUpdateButton" class="button secondary" type="button" hidden>透過 ZIP 更新</button>
-                <button id="checkUpdateButton" class="button primary" type="button">檢查更新</button>
+                <button id="checkUpdateButton" class="button secondary" type="button">檢查更新</button>
+                <button id="appInstallButton" class="button primary" type="button" disabled>更新並重新啟動</button>
               </div>
             </div>
           </section>

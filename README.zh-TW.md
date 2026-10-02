@@ -40,7 +40,7 @@ DEMO 使用真實介面與模擬節點、模型、回答；不代表推論效能
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
   macOS 的 MEMORY 排除檔案快取與可清除頁面，保留 wired 與壓縮器的實體記憶體用量；啟動前的記憶體保護另外使用可用記憶體讀值，不從顯示百分比反推。計算方式、資料缺漏處理及與記憶體壓力的區別見 [系統記憶體指標](docs/SYSTEM-METRICS.md)。
 - 「系統設定 → 系統資訊」以唯讀方式顯示作業系統、Kernel、架構、主機名稱、CPU、GPU、記憶體、網路介面與目前可供其他裝置使用的管理網址；不顯示 loopback 管理網址。
-- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。Linux 可在「系統設定 → 關於」上傳正式發布 ZIP，核對已安裝程式指定的 GitHub 發布 SHA-256 後更新，並在新版實例通過健康檢查後確認完成；無法取得摘要或摘要不符時拒絕安裝。此功能要求管理登入驗證已開啟。
+- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。在「系統設定 → 關於」按 **更新並重新啟動**，會自動下載對應平台的官方套件、驗證 SHA-256、關閉程式、安裝並重新啟動。macOS 另核對簽章、簽署團隊及 Gatekeeper；macOS／Linux 新版啟動失敗會嘗試還原。Windows 由 MSI 安裝，可能需要系統 UAC 授權。本機免登入模式可更新；遠端操作需登入管理帳號。[自動更新與測試說明](docs/APP-UPDATE.md)。
 - 原生選單與「系統設定 → 關於」會顯示 `1.YY.MMDD build HHmm` 版本、目前可達的管理頁面網址、可複製的模型 API `/v1` URL，以及 GitHub 快速連結；本機 `127.0.0.1` 管理網址不列入公開資訊清單。
 - llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 Tanpopo 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
@@ -76,6 +76,8 @@ TANPOPO_UI=gui ./run.command    # 支援平台強制開啟原生視窗
 ```
 
 Tanpopo 的 APP 版本採用 `1.YY.MMDD build HHmm`。`run.command`、`run.sh`、`build.command` 與 `pack.command` 都會直接以 `Asia/Taipei` 的當日日期產生 `1.YY.MMDD`，並以執行時間產生 `build HHmm`；不讀取、不驗證，也不改寫根目錄 `VERSION`，跨日執行或重封裝不需要手動修改任何日期。只有要刻意重製歷史版本時才應設定 `TANPOPO_VERSION`，需要固定 Build 時則可設定 `TANPOPO_BUILD`；產出的部署包會寫入本次實際版號，GitHub Tag 使用 `v1.YY.MMDD-build-HHmm`。程式啟動後會立即查詢 GitHub 最新正式 Release，之後每小時重新檢查；版本與 build 都會參與比較，因此同一天的後續 Release 仍可被偵測。同一個介面工作階段對同一新版只通知一次，Draft 與 prerelease 不列入最新版。
+
+自動更新自 **1.26.1003 build 0108** 起提供。使用舊版時，請先從 [GitHub Releases](https://github.com/VaderChen/Tanpopo/releases/latest) 安裝本版；後續即可在「系統設定 → 關於」按「更新並重新啟動」。背景版本檢查只會通知，不會自行關閉程式；原始碼工作區停用自動安裝。Windows／Linux 的完整安裝仍待對應平台實機驗證。資料保留、失敗還原與安裝條件見 [自動更新指南](docs/APP-UPDATE.md)。
 
 如需強制重編兩個模型 Runtime，可執行：
 

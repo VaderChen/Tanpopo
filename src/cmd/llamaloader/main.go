@@ -31,18 +31,21 @@ import (
 )
 
 func main() {
-	agentDefault, sampleDefault, err := packagedConfigPaths()
-	if err != nil {
-		log.Fatal(err)
-	}
-	agentPath := flag.String("config", agentDefault, "服務設定檔路徑")
-	samplePath := flag.String("sample-config", sampleDefault, "預設設定範本路徑")
+	agentPath := flag.String("config", "", "服務設定檔路徑")
+	samplePath := flag.String("sample-config", "", "預設設定範本路徑")
 	applyUpdatePayload := flag.String("apply-linux-update", "", "內部使用：套用 Linux ZIP 更新內容")
+	applyAppUpdate := flag.String("apply-app-update", "", "內部使用：下載驗證後的跨平台自動更新計畫")
 	updateTarget := flag.String("update-target", "", "內部使用：目前安裝目錄")
 	updateWorkspace := flag.String("update-workspace", "", "內部使用：更新暫存目錄")
 	updateParentPID := flag.Int("update-parent-pid", 0, "內部使用：等待結束的主服務 PID")
 	updateLockFD := flag.Int("update-lock-fd", 0, "內部使用：繼承的更新鎖描述符")
 	flag.Parse()
+	if *applyAppUpdate != "" {
+		if err := appupdate.RunAutomaticHelper(*applyAppUpdate); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	if strings.TrimSpace(*applyUpdatePayload) != "" {
 		if err := appupdate.Apply(appupdate.ApplyOptions{
@@ -57,6 +60,17 @@ func main() {
 		return
 	}
 
+	// Helper 與 --help 在此之前結束，不能改寫使用者的 App 資源連結或設定。
+	agentDefault, sampleDefault, err := packagedConfigPaths()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if *agentPath == "" {
+		*agentPath = agentDefault
+	}
+	if *samplePath == "" {
+		*samplePath = sampleDefault
+	}
 	if err := run(*agentPath, *samplePath); err != nil {
 		log.Fatal(err)
 	}
@@ -179,6 +193,17 @@ func run(agentPath, samplePath string) error {
 		return fmt.Errorf("載入模型服務狀態失敗: %w", err)
 	}
 	apiServer := api.NewServer(serviceContext, webPath, agentConfigPath, settings, startupCommands, accessControl, sessions, downloads, llama)
+	sampleConfigPath, err := filepath.Abs(samplePath)
+	if err != nil {
+		return err
+	}
+	apiServer.ConfigureAutomaticUpdates(appupdate.AutomaticOptions{
+		Shutdown: stopSignal, ConfigPath: agentConfigPath, SamplePath: sampleConfigPath,
+		PreservePaths: func() []string {
+			value := settings.Get()
+			return []string{agentConfigPath, agentConfig.SettingsPath, agentConfig.StartupCommandsPath, agentConfig.AccessControlPath, agentConfig.RuntimeStatePath, value.ModelDirectory, value.MLXModelDirectory}
+		},
+	})
 	handler := apiServer.Handler()
 	address := net.JoinHostPort(agentConfig.HTTPHost, strconv.Itoa(agentConfig.HTTPPort))
 	httpServer := &http.Server{
@@ -258,6 +283,13 @@ waitForShutdown:
 		}
 	}
 	stopSignal()
+	if uiDone != nil {
+		select {
+		case <-uiDone:
+		case <-time.After(5 * time.Second):
+			log.Printf("原生 UI 關閉逾時，繼續清理受管服務")
+		}
+	}
 
 	return errors.Join(listenError, shutdownServices(httpServer, 15*time.Second, llama.Shutdown, apiServer.Shutdown, downloads.Wait))
 }

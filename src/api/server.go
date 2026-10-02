@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,22 +34,23 @@ import (
 )
 
 type Server struct {
-	ctx             context.Context
-	webPath         string
-	reportPath      string
-	agentConfigPath string
-	settings        *config.Store
-	startupCommands *startupcommand.Store
-	accessControl   *accesscontrol.Store
-	sessions        *session.Store
-	downloads       *download.Manager
-	llama           *llamacpp.Manager
-	updates         *updatecheck.Checker
-	localUpdates    *appupdate.Manager
-	metrics         *systemmetrics.Collector
-	netPass         *netpass.Manager
-	cluster         *cluster.Service
-	credentialsMu   sync.Mutex
+	ctx              context.Context
+	webPath          string
+	reportPath       string
+	agentConfigPath  string
+	settings         *config.Store
+	startupCommands  *startupcommand.Store
+	accessControl    *accesscontrol.Store
+	sessions         *session.Store
+	downloads        *download.Manager
+	llama            *llamacpp.Manager
+	updates          *updatecheck.Checker
+	localUpdates     *appupdate.Manager
+	automaticUpdates *appupdate.Automatic
+	metrics          *systemmetrics.Collector
+	netPass          *netpass.Manager
+	cluster          *cluster.Service
+	credentialsMu    sync.Mutex
 }
 
 func NewServer(
@@ -101,6 +103,10 @@ func NewServer(
 		netPass:         netPass,
 		cluster:         cluster.New(ctx, filepath.Join(filepath.Dir(agentConfigPath), "data", "cluster.json"), loadManagementPort(agentConfigPath), llama),
 	}
+}
+
+func (s *Server) ConfigureAutomaticUpdates(options appupdate.AutomaticOptions) {
+	s.automaticUpdates = appupdate.NewAutomatic(s.ctx, options)
 }
 
 // Shutdown 在主程序結束前等待對外通道停止，不能只依賴背景 goroutine。
@@ -169,6 +175,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/app-version", s.handleAppVersion)
 	mux.HandleFunc("POST /api/app-version/check", s.requireAPI(s.handleAppVersionCheck))
 	mux.HandleFunc("GET /api/app-update/status", s.requireAPI(s.handleAppUpdateStatus))
+	mux.HandleFunc("POST /api/app-update/start", s.requireAPI(s.handleAppUpdateStart))
 	mux.HandleFunc("POST /api/app-update/upload", s.requireAPI(s.handleAppUpdateUpload))
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
@@ -410,7 +417,57 @@ func (s *Server) handleAppVersionCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAppUpdateStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.localUpdates.Status())
+	status := s.localUpdates.Status()
+	status.UploadAvailable = status.Available
+	if s.automaticUpdates != nil {
+		automatic := s.automaticUpdates.Status()
+		legacyActive := status.State == "preparing" || status.State == "restarting"
+		if automatic.AutomaticAvailable && !legacyActive && (automatic.State != "idle" || status.State == "idle" || status.State == "unavailable") {
+			automatic.UploadAvailable = status.UploadAvailable
+			status = automatic
+		} else {
+			status.AutomaticAvailable = automatic.AutomaticAvailable
+		}
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
+	// 自訂標頭與來源檢查阻止跨站表單觸發關閉；免登入僅允許本機管理介面。
+	if r.Header.Get("X-Tanpopo-Update") != "1" {
+		writeError(w, http.StatusForbidden, errors.New("更新請求缺少來源確認"))
+		return
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host != r.Host {
+			writeError(w, http.StatusForbidden, errors.New("不接受跨站更新請求"))
+			return
+		}
+	}
+	if !s.sessions.AuthenticationEnabled() {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		requestHost := r.Host
+		if h, _, e := net.SplitHostPort(requestHost); e == nil {
+			requestHost = h
+		}
+		ip := net.ParseIP(host)
+		targetIP := net.ParseIP(requestHost)
+		if err != nil || ip == nil || !ip.IsLoopback() || (requestHost != "localhost" && (targetIP == nil || !targetIP.IsLoopback())) {
+			writeError(w, http.StatusForbidden, errors.New("遠端自動更新前必須先開啟管理介面登入驗證"))
+			return
+		}
+	}
+	if s.automaticUpdates == nil {
+		writeError(w, http.StatusConflict, errors.New("自動更新尚未初始化"))
+		return
+	}
+	status, err := s.automaticUpdates.Start()
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, status)
 }
 
 func (s *Server) handleAppUpdateUpload(w http.ResponseWriter, r *http.Request) {

@@ -5,18 +5,32 @@ package appupdate
 import (
 	"errors"
 	"os/exec"
+	"strconv"
+	"syscall"
 )
 
-// ZIP 自動更新只會在正式 Linux 安裝中啟用。Windows 實作保留編譯契約，
-// 避免未啟用的 Linux 更新功能阻斷跨平台發行建置。
-func terminateProcess(_ int) error {
-	return errors.New("ZIP 更新程序僅能在 Linux 執行")
+// 正式更新透過主程序 Shutdown 回呼關閉；這裡只用於清理啟動失敗的新實例。
+func terminateProcess(pid int) error {
+	return killProcessGroup(pid)
 }
 
-func processAlive(_ int) bool {
-	return false
+func processAlive(pid int) bool {
+	h, err := syscall.OpenProcess(0x1000|syscall.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return errors.Is(err, syscall.ERROR_ACCESS_DENIED)
+	}
+	defer syscall.CloseHandle(h)
+	var code uint32
+	return syscall.GetExitCodeProcess(h, &code) == nil && code == 259
 }
 
-func detachCommand(_ *exec.Cmd) {}
+func detachCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000200 | 0x00000008, HideWindow: true}
+}
 
-func killProcessGroup(_ int) error { return errors.New("ZIP 更新程序僅能在 Linux 執行") }
+func killProcessGroup(pid int) error {
+	if pid <= 1 {
+		return errors.New("無效的程序群組")
+	}
+	return exec.Command("taskkill.exe", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+}

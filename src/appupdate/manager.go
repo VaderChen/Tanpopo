@@ -26,13 +26,17 @@ const (
 	statusFilename              = "app-update-status.json"
 )
 
-// Status 是可持續跨越服務重啟的 Linux ZIP 更新狀態。
+// Status 是可持續跨越服務重啟的套件更新狀態。
 type Status struct {
-	Available bool      `json:"available"`
-	State     string    `json:"state"`
-	Message   string    `json:"message,omitempty"`
-	Version   string    `json:"version,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Available          bool      `json:"available"`
+	AutomaticAvailable bool      `json:"automatic_available"`
+	UploadAvailable    bool      `json:"upload_available"`
+	DownloadedBytes    int64     `json:"downloaded_bytes,omitempty"`
+	TotalBytes         int64     `json:"total_bytes,omitempty"`
+	State              string    `json:"state"`
+	Message            string    `json:"message,omitempty"`
+	Version            string    `json:"version,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
 }
 
 type Manager struct {

@@ -31,7 +31,7 @@ DEMO: 노드, 모델, 응답은 모의 데이터입니다. 추론 성능이나 �
 - 민들레, 맑은 하늘 파랑, 벚꽃 분홍, 어두운 Midnight Purple의 4가지 테마 제공.
 - 하단 상태 표시줄에서 CPU, GPU, MEMORY, 네트워크 상태를 3초마다 갱신하고 50%/80%를 기준으로 저채도 녹색, 노란색, 빨간색으로 표시.
 - **시스템 설정 → 시스템 정보**에서 OS, Kernel, Architecture, Host 이름, CPU, GPU, Memory, Network interface 및 접근 가능한 관리 URL을 읽기 전용으로 표시. Loopback URL은 공유 URL 목록에서 제외합니다.
-- 시작 시와 매시간 GitHub의 최신 정식 Release를 확인하며 같은 날 Release의 build 번호도 비교합니다. Linux에서는 인증된 관리자가 정식 ZIP을 업로드해 검증, 업데이트, 재시작을 자동 수행할 수 있습니다.
+- 시작 시와 매시간 GitHub의 최신 정식 Release를 build 번호까지 비교합니다. **시스템 설정 → 정보 → 업데이트 후 재시작**을 누르면 플랫폼에 맞는 패키지를 자동 다운로드하고 SHA-256을 검증한 뒤 앱 종료, 설치, 재시작을 수행합니다. macOS는 서명과 Gatekeeper도 확인하며 macOS/Linux는 새 버전 시작 실패 시 이전 버전 복원을 시도합니다. Windows는 MSI를 사용하며 UAC 승인이 필요할 수 있습니다. 원격 업데이트에는 관리자 로그인이 필요합니다. [자동 업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md).
 - Linux 패키지는 Vulkan llama.cpp 빌드 경로, 의존성 및 GPU 권한 검사, `build-llama-server.sh`, ROCm 도구가 없을 때의 DRM GPU 사용률 수집을 포함합니다.
 - macOS에서 AppKit/WKWebView 네이티브 UI와 시스템 메뉴 막대 상주 모드 제공.
 
@@ -71,6 +71,8 @@ TANPOPO_UI=gui ./run.command    # 지원 환경에서 네이티브 UI 강제
 ```
 
 앱 버전은 `1.YY.MMDD build HHmm`, GitHub Tag는 `v1.YY.MMDD-build-HHmm` 형식입니다. 업데이트 확인은 날짜 버전과 build 번호를 모두 비교하므로 같은 날의 후속 Release도 감지합니다. Draft와 prerelease는 최신 버전으로 취급하지 않습니다.
+
+자동 업데이트는 **1.26.1003 build 0108**부터 제공됩니다. 이전 버전을 사용한다면 먼저 [GitHub Releases](https://github.com/VaderChen/Tanpopo/releases/latest)에서 이번 버전을 설치하세요. 이후에는 **시스템 설정 → 정보 → 업데이트 후 다시 시작**을 사용할 수 있습니다. 백그라운드 버전 확인은 알림만 표시하며 개발용 소스 작업 공간에서는 자동 설치가 비활성화됩니다. Windows/Linux의 실제 설치는 해당 OS에서 검증이 필요합니다. 데이터 보존, 복원 동작, 설치 조건은 [업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md)를 참고하세요.
 
 ## 모델 Runtime
 

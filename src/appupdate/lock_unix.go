@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-var errUpdateInProgress = errors.New("已有 ZIP 更新正在進行")
+var errUpdateInProgress = errors.New("已有更新正在進行")
 
 // 鎖檔位於安裝目錄外，切換或還原目錄不會改變鎖的 inode。
 // Helper 繼承相同 open file description；只關閉自己的描述符，不能主動 LOCK_UN。
