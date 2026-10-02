@@ -174,11 +174,11 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		writeRuntimeChatError(w, response)
+		return
+	}
 	if request.Stream {
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			writeRuntimeChatError(w, response)
-			return
-		}
 		proxyRuntimeChatStream(w, response)
 		return
 	}
@@ -195,18 +195,6 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	var completion runtimeChatCompletion
 	if err := json.Unmarshal(responseBody, &completion); err != nil {
 		writeError(w, http.StatusBadGateway, errors.New("模型 Runtime 回傳了無效格式"))
-		return
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message := strings.TrimSpace(completion.Error.Message)
-		if message == "" {
-			message = fmt.Sprintf("模型 Runtime 拒絕請求（HTTP %d）", response.StatusCode)
-		}
-		if isRuntimeLoadingMessage(message) {
-			writeError(w, http.StatusConflict, errors.New("模型服務仍在載入中，請稍候"))
-			return
-		}
-		writeError(w, http.StatusBadGateway, errors.New(message))
 		return
 	}
 	if len(completion.Choices) == 0 {
@@ -283,7 +271,21 @@ func writeRuntimeChatError(w http.ResponseWriter, response *http.Response) {
 		writeError(w, http.StatusConflict, errors.New("模型服務仍在載入中，請稍候"))
 		return
 	}
-	writeError(w, http.StatusBadGateway, errors.New(message))
+	// 保留 Runtime 的用戶端錯誤語意，讓金鑰拒絕、容量限制與名額已滿
+	// 不會被代理改成服務故障。串流與一般 JSON 回應共用此路徑。
+	status := http.StatusBadGateway
+	if response.StatusCode >= 400 && response.StatusCode < 500 {
+		status = response.StatusCode
+	}
+	if status == http.StatusTooManyRequests {
+		if retryAfter := response.Header.Get("Retry-After"); retryAfter != "" {
+			w.Header().Set("Retry-After", retryAfter)
+		}
+	}
+	// 管理登入與模型金鑰是兩個不同驗證層；讓 UI 可區分 Runtime 的 401。
+	writeJSON(w, status, map[string]any{
+		"error": map[string]string{"message": message, "source": "runtime"},
+	})
 }
 
 func proxyRuntimeChatStream(w http.ResponseWriter, response *http.Response) {

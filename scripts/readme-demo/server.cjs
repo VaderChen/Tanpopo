@@ -13,14 +13,27 @@ async function startDemoServer() {
     startedAt: 0, downloadedAt: 0, job: null,
     settings: structuredClone(fixtures.settings),
     models: structuredClone(fixtures.models),
-    requests: [], errors: []
+    cluster: { enabled: false, discovery_port: 10083, interface: "", local: structuredClone(fixtures.cluster.local), peers: [] },
+    discoveryAt: 0,
+    requests: [], errors: [], browserErrors: []
   };
   function runtimeStatus() {
     if (state.startedAt) {
       state.runtime.ready = Date.now() - state.startedAt >= 1500;
-      state.runtime.model_preparation = state.runtime.ready ? "ready" : "loading_cache";
+      state.runtime.model_preparation = state.runtime.ready ? "ready" : state.runtime.fast_gguf ? "loading_cache" : "loading";
+      if (state.cluster.session) state.cluster.session.phase = state.runtime.ready ? "running" : "loading";
     }
     return state.runtime;
+  }
+  function clusterStatus() {
+    runtimeStatus();
+    state.cluster.peers = state.cluster.enabled && Date.now() - state.discoveryAt >= 800 ? structuredClone(fixtures.cluster.peers) : [];
+    return state.cluster;
+  }
+  function stopRuntime() {
+    state.startedAt = 0;
+    state.runtime = { running: false, ready: false, runtime: "mlx-server", startup_command_id: "demo-mlx", url: "" };
+    delete state.cluster.session;
   }
   function downloads() {
     if (!state.job) return [];
@@ -69,6 +82,8 @@ async function startDemoServer() {
     try {
       const url = new URL(req.url, "http://127.0.0.1");
       const route = url.pathname;
+      if (route === "/demo-status" && req.method === "GET") return json(res, { runtime: runtimeStatus(), cluster: clusterStatus(), requests: state.requests, errors: state.errors, browserErrors: state.browserErrors });
+      if (route === "/demo-error" && req.method === "POST") { state.browserErrors.push(await body(req)); return json(res, { ok: true }); }
       if (route.startsWith("/api/")) {
         state.requests.push(`${req.method} ${route}`);
         if (route === "/api/session") return json(res, { authenticated: true, authentication_enabled: false });
@@ -93,7 +108,40 @@ async function startDemoServer() {
         }
         if (route === "/api/startup-commands") return json(res, { commands: fixtures.commands, capabilities: [] });
         if (route === "/api/runtime/status") return json(res, runtimeStatus());
-        if (route === "/api/runtime/logs") return json(res, { logs: state.startedAt ? "[DEMO] Fast GGUF 快取已讀取\n[DEMO] 模型已就緒，提供 OpenAI 相容 API" : "" });
+        if (route === "/api/runtime/logs") return json(res, { logs: state.startedAt ? state.cluster.session ? "[DEMO] TCP Ring 節點已交握\n[DEMO] 模型分片已載入，提供 OpenAI 相容 API" : "[DEMO] 模型已載入，提供 OpenAI 相容 API" : "" });
+        if (route === "/api/runtime/stop" && req.method === "POST") { stopRuntime(); return json(res, state.runtime); }
+        if (route === "/api/cluster/status" && req.method === "GET") return json(res, clusterStatus());
+        if (route === "/api/cluster/config" && req.method === "PUT") {
+          const request = await body(req);
+          if (state.cluster.session) return json(res, { error: "請先停止示範叢集" }, 409);
+          if (request.enabled && !state.cluster.enabled) state.discoveryAt = Date.now();
+          Object.assign(state.cluster, { enabled: Boolean(request.enabled), discovery_port: request.discovery_port, interface: request.interface || "" });
+          return json(res, { status: clusterStatus() });
+        }
+        if (route === "/api/cluster/start" && req.method === "POST") {
+          const request = await body(req);
+          const peers = clusterStatus().peers.filter((peer) => request.peer_ids?.includes(peer.id));
+          const model = state.models.find((model) => model.path === request.model && model.architecture === "qwen3");
+          const command = fixtures.commands.find((command) => command.id === request.startup_command_id && command.runtime === "mlx-server");
+          if (state.runtime.running || state.cluster.session || !peers.length || peers.some((peer) => peer.busy) || peers.length !== request.peer_ids.length || !model || !command) {
+            return json(res, { error: "請選擇可用節點、Qwen3 示範模型與 MLX 啟動參數" }, 400);
+          }
+          state.cluster.session = {
+            id: "demo-ring", rank: 0, role: "coordinator", phase: "preparing", model: model.path,
+            members: [state.cluster.local, ...peers].map(({ id, name, ip, port }) => ({ id, name, ip: ip || "192.168.50.10", port }))
+          };
+          // 刻意保留交握與載入階段，供錄製顯示；並未建立實際叢集。
+          await delay(2500);
+          state.startedAt = Date.now();
+          state.runtime = {
+            running: true, ready: false, runtime: "mlx-server", pid: 24021, model: model.path,
+            startup_command_id: command.id, startup_command_name: command.name, url: "http://127.0.0.1:8080",
+            effective_context_size: command.context_size,
+            kv_cache_quantization: request.kv_cache_quantization_enabled ? command.kv_cache_quantization : ""
+          };
+          return json(res, clusterStatus());
+        }
+        if (route === "/api/cluster/stop" && req.method === "POST") { stopRuntime(); return json(res, clusterStatus()); }
         if (route === "/api/runtime/conversion-preflight" && req.method === "POST") return json(res, { applicable: true, requires_conversion: false, cache_hit: true });
         if (route === "/api/runtime/start" && req.method === "POST") {
           const request = await body(req);
@@ -136,7 +184,16 @@ async function startDemoServer() {
         file = path.resolve(website, "." + decodeURIComponent(route));
         if (!file.startsWith(website + path.sep)) return json(res, { error: "無效路徑" }, 403);
       }
-      const data = await fs.readFile(file);
+      let data = await fs.readFile(file);
+      if (path.extname(file) === ".html") {
+        // 示範用錯誤收集器在產品 script 前安裝；不修改正式 website 檔案。
+        const monitor = `<script>
+          const reportDemoError = detail => fetch('/demo-error', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(detail) }).catch(() => {});
+          window.addEventListener('error', event => reportDemoError({message:event.message,source:event.filename,line:event.lineno}));
+          window.addEventListener('unhandledrejection', event => reportDemoError({message:String(event.reason),source:location.pathname}));
+        </script>`;
+        data = Buffer.from(data.toString("utf8").replace(/<head>/i, "<head>" + monitor));
+      }
       const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".woff2": "font/woff2" }[path.extname(file)] || "application/octet-stream";
       res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-store" });
       res.end(data);

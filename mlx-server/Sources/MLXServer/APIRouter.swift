@@ -94,7 +94,10 @@ actor APIRouter {
         do {
             switch (method, routePath) {
             case ("GET", "/health"), ("GET", "/v1/health"):
-                return .json(object: addingContextLimit(to: ["status": "ok"]))
+                var health: [String: Any] = ["status": "ok"]
+                try await runtime.distributedHealth()
+                if let distributed = runtime.distributedSession { health["distributed"] = distributed.summary }
+                return .json(object: addingContextLimit(to: health))
             case ("GET", "/models"), ("GET", "/v1/models"):
                 return await modelsResponse()
             case ("GET", "/props"), ("GET", "/v1/props"):
@@ -154,6 +157,7 @@ actor APIRouter {
             "chat_template": "mlx-swift-lm",
             "modalities": kind == ModelKind.vision.rawValue ? ["text", "image"] : ["text"]
         ])
+        if let distributed = runtime.distributedSession { props["distributed"] = distributed.summary }
         if let limit = runtime.contextLimit {
             props["default_generation_settings"] = ["n_ctx": limit]
         }

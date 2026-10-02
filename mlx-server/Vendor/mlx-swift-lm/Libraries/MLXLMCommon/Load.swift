@@ -81,6 +81,8 @@ public func loadWeights(
     try model.update(parameters: parameters, verify: [.all])
     ModelWeightLoadingContext.progressHandler?(90, 100)
 
-    eval(model)
+    if try ModelWeightLoadingContext.beforeEvaluate?(model) ?? true {
+        eval(model)
+    }
     ModelWeightLoadingContext.progressHandler?(100, 100)
 }

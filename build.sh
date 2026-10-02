@@ -425,7 +425,7 @@ copy_mlx_source() {
   mkdir -p "${destination}"
   (
     cd "${MLX_SOURCE_DIR}"
-    tar --exclude='./.build' --exclude='./.swiftpm' -cf - .
+    tar --exclude='./.build' --exclude='./.swiftpm' --exclude='*.bak' -cf - .
   ) | (
     cd "${destination}"
     tar -xf -
@@ -525,7 +525,9 @@ cp -R "reports/." "${PACKAGE_DIR}/website/reports/"
 find "${PACKAGE_DIR}/website" -type f -name '*.bak' -delete
 printf '%s\n' "${APP_VERSION}" > "${PACKAGE_DIR}/VERSION"
 cp "agent.sample.properties" "${PACKAGE_DIR}/agent.sample.properties"
-cp README*.md "${PACKAGE_DIR}/"
+cp README*.md LICENSE*.md COMMERCIAL-LICENSE.md THIRD_PARTY_NOTICES.md "${PACKAGE_DIR}/"
+cp -R docs images "${PACKAGE_DIR}/"
+find "${PACKAGE_DIR}/docs" "${PACKAGE_DIR}/images" -type f -name '*.bak' -delete
 cp "run.command" "${PACKAGE_DIR}/run.command"
 
 cat > "${PACKAGE_DIR}/install.sh" <<'EOF'

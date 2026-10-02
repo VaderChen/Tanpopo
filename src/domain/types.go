@@ -189,6 +189,7 @@ type StartupCommand struct {
 }
 
 type LlamaStatus struct {
+	DistributedRole               string            `json:"distributed_role,omitempty"`
 	Running                       bool              `json:"running"`
 	Ready                         bool              `json:"ready"`
 	DesiredRunning                bool              `json:"desired_running"`

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Tanpopo 操作展示</title>
+  <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; background: #f4f2ed; color: #202822; font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif; }
@@ -24,10 +25,37 @@
 </head>
 <body>
   <header>
-    <div class="title"><span id="number">01 / 03</span><span id="chapter">選擇模型，一鍵啟動</span></div>
+    <div class="title"><span id="number">01 / 03</span><span id="chapter">選擇 MLX 模型與啟動參數</span></div>
     <div class="meta"><span class="badge">DEMO · 模擬資料 · 流程已加速</span><div class="steps"><i class="step active"></i><i class="step"></i><i class="step"></i></div></div>
   </header>
   <iframe title="Tanpopo 真實管理介面" src="/main.html"></iframe>
   <div id="pointer"><svg viewBox="0 0 27 33"><path d="M3 2v25l6.3-6.5 5.8 10 5-2.9-5.9-10H24Z" fill="#202d26" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg></div>
+  <script>
+    // 錄製外框依真實介面操作更新章節，手動瀏覽也能使用。
+    const frame = document.querySelector("iframe");
+    const pointer = document.querySelector("#pointer");
+    function chapter(index, title) {
+      document.querySelector("#number").textContent = `0${index} / 03`;
+      document.querySelector("#chapter").textContent = title;
+      document.querySelectorAll(".step").forEach((step, i) => step.classList.toggle("active", i < index));
+    }
+    frame.addEventListener("load", () => {
+      const page = frame.contentDocument;
+      if (frame.contentWindow.location.pathname === "/chat.html") chapter(3, "從主節點對話，即時串流回答");
+      function move(event) {
+        const rect = frame.getBoundingClientRect();
+        pointer.style.left = `${rect.left + event.clientX}px`;
+        pointer.style.top = `${rect.top + event.clientY}px`;
+      }
+      page.addEventListener("pointermove", move);
+      page.addEventListener("click", (event) => {
+        move(event);
+        pointer.classList.remove("click");
+        void pointer.offsetWidth;
+        pointer.classList.add("click");
+        if (event.target.closest("#clusterSearch")) chapter(2, "搜尋區網節點，複選後配對啟用");
+      });
+    });
+  </script>
 </body>
 </html>

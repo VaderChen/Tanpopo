@@ -15,7 +15,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -67,10 +67,16 @@ struct ServerConfiguration: Sendable {
     // Tanpopo 進階設定控制是否啟用，Profile 則提供記憶體保留目標。
     var memoryMappingEnabled = false
     var mmapReserveGB = 0
+    var distributed: DistributedConfiguration?
+    var distributedRank = 0
+    var distributedSmoke = false
+    var distributedParentStdin = false
 
     static func parse(_ arguments: [String]) throws -> Self {
         var result = Self()
         var index = 0
+        var distributedData: Data?
+        var rankSpecified = false
 
         func nextValue(for option: String) throws -> String {
             guard index + 1 < arguments.count else {
@@ -83,6 +89,25 @@ struct ServerConfiguration: Sendable {
         while index < arguments.count {
             let option = arguments[index]
             switch option {
+            case "--distributed-config":
+                guard distributedData == nil else { throw DistributedError.invalid("分散式設定不可重複。") }
+                let path = NSString(string: try nextValue(for: option)).expandingTildeInPath
+                let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+                defer { try? handle.close() }
+                distributedData = try handle.read(upToCount: 65_537) ?? Data()
+            case "--distributed-config-base64":
+                guard distributedData == nil, let data = Data(base64Encoded: try nextValue(for: option)) else {
+                    throw DistributedError.invalid("分散式內部設定無效或重複。")
+                }
+                distributedData = data
+            case "--distributed-rank":
+                guard !rankSpecified else { throw DistributedError.invalid("Rank 不可重複。") }
+                rankSpecified = true
+                result.distributedRank = try parseInteger(nextValue(for: option), option: option, range: 0...7)
+            case "--distributed-smoke":
+                result.distributedSmoke = true
+            case "--distributed-parent-stdin":
+                result.distributedParentStdin = true
             case "--model", "-m":
                 result.modelPath = try nextValue(for: option)
             case "--mmproj":
@@ -241,6 +266,11 @@ struct ServerConfiguration: Sendable {
             index += 1
         }
 
+        if let distributedData { result.distributed = try DistributedConfiguration.decode(distributedData) }
+        if rankSpecified || result.distributedSmoke || result.distributedParentStdin {
+            guard result.distributed != nil else { throw DistributedError.invalid("需要 --distributed-config。") }
+        }
+        if result.distributedSmoke { return result }
         result.modelPath = NSString(string: result.modelPath).expandingTildeInPath
         if let mmprojPath = result.mmprojPath {
             result.mmprojPath = NSString(string: mmprojPath).expandingTildeInPath
@@ -271,6 +301,12 @@ struct ServerConfiguration: Sendable {
         )
         guard isDirectory.boolValue || isGGUF else {
             throw ConfigurationError.invalidModelPath(result.modelPath)
+        }
+        if result.distributed != nil {
+            guard !isGGUF, result.modelKind != .vision, result.mmprojPath == nil,
+                result.dflashDraftPath == nil, !result.mtpEnabled, !result.inspectGGUFCache else {
+                throw DistributedError.invalid("第一版僅支援 safetensors 純文字模型；GGUF、多模態與推測解碼尚未支援。")
+            }
         }
         if let mmprojPath = result.mmprojPath {
             var isMMProjDirectory: ObjCBool = false
@@ -340,6 +376,10 @@ struct ServerConfiguration: Sendable {
     用法：mlx-server --model <MLX 模型目錄或 GGUF 檔案> [選項]
 
       --host <IP>                 監聽位址，預設 0.0.0.0
+      --distributed-config <JSON> 啟用雙節點 JACCL RDMA 或 2–8 節點 TCP Ring
+      --distributed-rank <0..7>   預設 0（API 主節點），其他 Rank 執行遠端張量運算
+      --distributed-smoke         驗證跨節點通訊與一般／量化線性層，不需要模型
+      --distributed-capabilities  顯示本機後端可用性，不啟動通訊
       --port <Port>               監聽連接埠，預設 8080
       --model-type <類型>          auto、text 或 vision，預設 auto
       --mmproj <GGUF 檔案>         GGUF 多模態視覺投影檔

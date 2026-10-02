@@ -1,0 +1,22 @@
+--- a/Source/Cmlx/mlx/mlx/primitives.h
++++ b/Source/Cmlx/mlx/mlx/primitives.h
+@@ -1287,6 +1287,7 @@
+   DEFINE_INPUT_OUTPUT_SHAPE()
+ };
+ 
++#define TANPOPO_MLX_LOAD_ROW_SLICE 1
+ class Load : public UnaryPrimitive {
+  public:
+   explicit Load(
+@@ -1298,6 +1299,11 @@
+         reader_(std::move(reader)),
+         offset_(offset),
+         swap_endianness_(swap_endianness) {}
++
++  // Tanpopo: preserve lazy file reads while selecting only local weight rows.
++  std::shared_ptr<Load> with_byte_offset(size_t offset) {
++    return std::make_shared<Load>(stream(), reader_, offset_ + offset, swap_endianness_);
++  }
+ 
+   void eval_cpu(const std::vector<array>& inputs, array& out) override;
+   void eval_gpu(const std::vector<array>& inputs, array& out) override;

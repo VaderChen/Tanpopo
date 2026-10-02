@@ -19,6 +19,8 @@ public enum ModelWeightLoadingMode: Sendable {
 public enum ModelWeightLoadingContext {
     @TaskLocal public static var mode: ModelWeightLoadingMode = .eager
     @TaskLocal public static var progressHandler: (@Sendable (Int64, Int64) -> Void)? = nil
+    /// 權重套用後、完整模型求值前執行。回傳 false 時由呼叫端負責求值本地分片。
+    @TaskLocal public static var beforeEvaluate: (@Sendable (BaseLanguageModel) throws -> Bool)? = nil
 }
 
 public enum MemoryMappedTensorError: LocalizedError, Sendable {

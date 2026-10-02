@@ -7,9 +7,11 @@
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
   <link rel="stylesheet" href="/assets/app.css?v=20260902-57">
+  <link rel="stylesheet" href="/assets/cluster.css?v=20261002-3">
   <script src="/assets/common.js?v=20260902-84" defer></script>
   <script src="/assets/runtime-variants.js?v=20260909-4" defer></script>
-  <script src="/assets/runtime.js?v=20260909-2" defer></script>
+  <script src="/assets/cluster.js?v=20261002-3" defer></script>
+  <script src="/assets/runtime.js?v=20261002-1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -179,6 +181,63 @@
           </div>
         </article>
       </div>
+
+      <article id="clusterPanel" class="panel cluster-panel" aria-labelledby="clusterTitle">
+        <header class="cluster-heading">
+          <div class="cluster-heading-copy">
+            <span class="cluster-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="8" height="7" rx="1.5"/><rect x="14" y="4" width="8" height="7" rx="1.5"/><path d="M6 11v5h12v-5M12 16v4M9 20h6"/></svg>
+            </span>
+            <div><h3 id="clusterTitle">TCP Ring 叢集</h3><p>連接區網中的 Mac，共同執行一個模型。</p></div>
+          </div>
+          <span id="clusterStatus" class="cluster-status" data-state="idle" role="status" aria-live="polite">尚未啟用</span>
+        </header>
+        <div class="cluster-connect">
+          <div class="cluster-connect-row">
+            <div class="cluster-field cluster-peer-field"><span>連線節點</span>
+              <div class="cluster-peer-overview"><strong id="clusterConnectionTitle">尚未加入叢集</strong><span id="clusterConnectionSubtitle">搜尋區網節點，勾選後即可配對與啟用。</span></div>
+            </div>
+            <div class="cluster-actions">
+              <button id="clusterSearch" class="button primary" type="button" aria-haspopup="dialog" aria-controls="clusterDialog">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>搜尋節點
+              </button>
+              <button id="clusterStop" class="button danger" type="button" hidden disabled>停止叢集</button>
+            </div>
+          </div>
+          <p id="clusterDetail" class="cluster-detail">不需輸入金鑰。各台 Server 開啟探索後，即可在清單中選取。</p>
+        </div>
+        <details id="clusterNetwork" class="cluster-pairing">
+          <summary><span class="cluster-settings-title">網路設定<span>自動探索，通常不需調整</span></span><span class="cluster-chevron" aria-hidden="true"></span></summary>
+          <div class="cluster-settings-body">
+            <div class="cluster-network-fields">
+              <label class="cluster-field"><span>網路介面 <small>選填</small></span><input id="clusterInterface" type="text" spellcheck="false" placeholder="自動選擇 IPv4 介面"></label>
+              <label class="cluster-field"><span>UDP 探索埠</span><input id="clusterPort" type="number" min="1024" max="65535" value="10083"></label>
+            </div>
+            <div class="cluster-network-actions"><p class="cluster-hint">所有節點需使用相同探索埠，並能互相連線。</p><button id="clusterApply" class="button secondary compact" type="button">套用設定</button><button id="clusterDisable" class="button quiet compact" type="button" hidden>關閉探索</button></div>
+          </div>
+        </details>
+        <p class="cluster-footnote">免金鑰配對適用信任的區域網路 · 最多 8 台 Mac · 各台需準備相同 Runtime 與 MLX 文字模型</p>
+      </article>
+
+      <dialog id="clusterDialog" class="cluster-dialog" aria-labelledby="clusterDialogTitle" aria-describedby="clusterDialogDescription">
+        <header class="cluster-dialog-heading">
+          <div><p class="cluster-eyebrow">TCP RING</p><h3 id="clusterDialogTitle">選擇一起運算的節點</h3><p id="clusterDialogDescription">勾選區網中的 Server，再一次完成交握、配對與啟用。</p></div>
+          <button id="clusterDialogClose" class="cluster-close" type="button" aria-label="關閉節點清單">×</button>
+        </header>
+        <div class="cluster-dialog-body">
+          <div class="cluster-discovery-bar"><span id="clusterDiscoveryState" role="status" aria-live="polite">正在搜尋區網節點…</span><button id="clusterRescan" class="button quiet compact" type="button">重新整理</button></div>
+          <div class="cluster-local-node"><span class="cluster-local-mark" aria-hidden="true">●</span><div><strong id="clusterLocalName">這台 Mac</strong><span>本機 · 主節點，自動加入</span></div><span class="cluster-node-tag">已加入</span></div>
+          <div class="cluster-list-toolbar"><span>可探索的節點</span><button id="clusterSelectAll" class="button quiet compact" type="button">全選可用節點</button></div>
+          <div id="clusterPeerList" class="cluster-peer-list" role="group" aria-label="區網節點，可複選"></div>
+          <div id="clusterEmpty" class="cluster-empty"><span class="cluster-search-orbit" aria-hidden="true"></span><strong>正在尋找其他 Server</strong><p>請在其他 Mac 按「搜尋節點」開啟探索，<br>清單會自動更新。</p></div>
+          <div class="cluster-model-summary"><span>此次使用的模型</span><strong id="clusterSelectedModel">尚未選擇模型</strong></div>
+        </div>
+        <p id="clusterDialogError" class="cluster-dialog-error" role="alert" hidden></p>
+        <footer class="cluster-dialog-footer">
+          <div class="cluster-selection-summary"><strong id="clusterSelectionCount" aria-live="polite">已選 0 個節點</strong><span id="clusterSelectionHint">請至少選擇一個可用節點。</span></div>
+          <div class="cluster-dialog-actions"><button id="clusterCancel" class="button secondary" type="button">取消</button><button id="clusterStart" class="button primary" type="button" disabled>配對並啟用</button></div>
+        </footer>
+      </dialog>
 
       <article class="panel log-panel">
         <div class="panel-title-row">

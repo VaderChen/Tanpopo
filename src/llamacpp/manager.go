@@ -51,6 +51,8 @@ type Manager struct {
 	logs                   *logBuffer
 	pendingGGUFRemoval     *pendingGGUFSourceRemoval
 	memorySnapshotProvider func() MemorySnapshot
+	distributedOwner       string
+	parentInput            io.WriteCloser
 }
 
 // SetMemorySnapshotProvider 注入由系統監控器集中採集的記憶體資料。
@@ -105,10 +107,33 @@ func (m *Manager) Start(
 ) (domain.LlamaStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.distributedOwner != "" {
+		return m.status, errors.New("此 Server 已保留給 TCP Ring，請先停止叢集服務")
+	}
+	return m.startLocked(model, mmproj, draftModel, dflashEnabled, mmapEnabled, fastGGUFEnabled,
+		kvCacheQuantizationEnabled, skipGGUFConversionCache, conversionConfirmationKey, startupCommand, false)
+}
+
+func (m *Manager) startLocked(
+	model, mmproj, draftModel string,
+	dflashEnabled, mmapEnabled, fastGGUFEnabled, kvCacheQuantizationEnabled bool,
+	skipGGUFConversionCache bool, conversionConfirmationKey string,
+	startupCommand domain.StartupCommand, managedRing bool,
+) (domain.LlamaStatus, error) {
 	if m.status.Running {
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
 	settings := m.settings()
+	if startupCommand.Runtime == domain.RuntimeMLXServer {
+		if !managedRing && hasAnyArgument(startupCommand.ExtraArgs, "--distributed-rank", "--distributed-config-base64", "--distributed-parent-stdin", "--distributed-smoke") {
+			return m.status, errors.New("受管 Runtime 不接受 worker 或 Smoke 內部參數；請使用 --distributed-config 設定節點")
+		}
+		if hasAnyArgument(startupCommand.ExtraArgs, "--distributed-config", "--distributed-config-base64") &&
+			(dflashEnabled || strings.TrimSpace(mmproj) != "" ||
+				hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size", "--dflash-draft")) {
+			return m.status, errors.New("受管 RDMA 模式僅啟動主節點，不支援多模態或推測解碼；worker 由分散式設定啟動")
+		}
+	}
 	// 本次開關必須先套用，記憶體估算與實際命令共用相同的有效 KV 模式。
 	if kvCacheQuantizationEnabled && startupCommand.KVCacheQuantization == domain.KVCacheQuantizationNone {
 		return m.status, errors.New("請先在啟動參數選擇 KV Cache Q8 或 Q4")
@@ -234,7 +259,8 @@ func (m *Manager) Start(
 	if mmapEnabled {
 		m.status.MMapReserveGB = startupCommand.MMapReserveGB
 	}
-	if err := m.persistStatusLocked(true); err != nil {
+	// 探索取得的位址與租約只對本次有效，重開 Server 必須重新握手。
+	if err := m.persistStatusLocked(!managedRing); err != nil {
 		m.status.DesiredRunning = false
 		m.stopping = true
 		if m.cmd != nil && m.cmd.Process != nil {
@@ -409,6 +435,9 @@ func (m *Manager) startMLXLocked(
 	}
 	modelArgument := selection.modelArgument
 	isGGUF := selection.isGGUF
+	if isGGUF && hasAnyArgument(startupCommand.ExtraArgs, "--distributed-config") {
+		return m.status, errors.New("RDMA 第一版僅支援原生 MLX safetensors 文字模型，尚不支援 GGUF／Fast GGUF")
+	}
 	var pendingSourceRemoval *pendingGGUFSourceRemoval
 	if settings.RemoveOriginalGGUF && isGGUF && !skipGGUFConversionCache &&
 		!isFastGGUFManifestPath(modelArgument) {
@@ -531,6 +560,13 @@ func (m *Manager) startMLXLocked(
 	}
 
 	command := exec.Command(binary, args...)
+	var parentInput io.WriteCloser
+	if hasAnyArgument(args, "--distributed-parent-stdin") {
+		parentInput, err = command.StdinPipe()
+		if err != nil {
+			return m.status, err
+		}
+	}
 	output := newRuntimeOutputWriter(m.logs, func(line string) {
 		m.handleMLXRuntimeOutput(command, line)
 	})
@@ -538,10 +574,14 @@ func (m *Manager) startMLXLocked(
 	command.Stderr = output
 	m.logs.Append("\n$ " + binary + " " + strings.Join(args, " ") + "\n")
 	if err := command.Start(); err != nil {
+		if parentInput != nil {
+			_ = parentInput.Close()
+		}
 		return m.status, fmt.Errorf("啟動 mlx-server 失敗: %w", err)
 	}
 	done := make(chan struct{})
 	m.cmd = command
+	m.parentInput = parentInput
 	m.done = done
 	m.stopping = false
 	m.pendingGGUFRemoval = pendingSourceRemoval
@@ -571,7 +611,11 @@ func (m *Manager) startMLXLocked(
 		StartedAt: time.Now(),
 	}
 	go m.wait(command, done)
-	go m.monitorReady(command, m.status.URL)
+	if !hasAnyArgument(args, "--distributed-rank") {
+		go m.monitorReady(command, m.status.URL)
+	} else {
+		m.status.URL = ""
+	}
 	return m.status, nil
 }
 
@@ -935,6 +979,10 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 	err := command.Wait()
 	m.mu.Lock()
 	if m.cmd == command {
+		if m.parentInput != nil {
+			_ = m.parentInput.Close()
+			m.parentInput = nil
+		}
 		wasStopping := m.stopping
 		m.status.Running = false
 		m.status.Ready = false

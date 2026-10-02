@@ -1,0 +1,2 @@
+# Unified diff 的空白 context 行需保留開頭空格，避免破壞可套用的補丁。
+*.patch whitespace=-blank-at-eol

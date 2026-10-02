@@ -1,0 +1,43 @@
+--- a/Package.swift
++++ b/Package.swift
+@@ -3,6 +3,9 @@
+ // Copyright © 2024 Apple Inc.
+ 
+ import PackageDescription
++
++// Tanpopo：Ring 用於無 RDMA 設備的雙程序驗證；JACCL 由 SDK 建置能力決定。
++let tanpopoJacclEnabled = Context.environment["TANPOPO_MLX_JACCL"] == "1"
+ 
+ let noMetalCmlxExcludes = [
+     // Exclude Metal backend files, but keep no_metal.cpp for stubs
+@@ -221,6 +224,12 @@
+         + (Context.environment["LLAMA_LOADER_PREBUILT_METALLIB"] == "1"
+             ? ["mlx-generated/metal"]
+             : ["PrebuiltMetal"])
++        + (tanpopoJacclEnabled
++            ? ["mlx/mlx/distributed/jaccl/no_jaccl.cpp"]
++            : ["mlx/mlx/distributed/jaccl/jaccl.cpp",
++               "mlx/mlx/distributed/jaccl/mesh.cpp",
++               "mlx/mlx/distributed/jaccl/ring.cpp",
++               "mlx/mlx/distributed/jaccl/utils.cpp"])
+         + [
+         // vendor docs
+         "vendor-README.md",
+@@ -270,15 +279,11 @@
+         "mlx/mlx/backend/metal/kernels",
+         "mlx/mlx/backend/metal/nojit_kernels.cpp",
+ 
+-        // do not build distributed support (yet)
++        // Tanpopo：啟用 Ring，保留 MPI／NCCL stub。
+         "mlx/mlx/distributed/mpi/mpi.cpp",
+-        "mlx/mlx/distributed/ring/ring.cpp",
++        "mlx/mlx/distributed/ring/no_ring.cpp",
+         "mlx/mlx/distributed/nccl/nccl.cpp",
+         "mlx/mlx/distributed/nccl/nccl_stub",
+-        "mlx/mlx/distributed/jaccl/jaccl.cpp",
+-        "mlx/mlx/distributed/jaccl/mesh.cpp",
+-        "mlx/mlx/distributed/jaccl/ring.cpp",
+-        "mlx/mlx/distributed/jaccl/utils.cpp",
+     ],
+     resources: Context.environment["LLAMA_LOADER_PREBUILT_METALLIB"] == "1"
+         ? [.copy("PrebuiltMetal/default.metallib")]

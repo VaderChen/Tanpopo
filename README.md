@@ -4,7 +4,9 @@
 
 Tanpopo is a local model service manager written in Go. Its name is the Japanese word for dandelion (たんぽぽ): generated tokens spread outward like dandelion seeds. It manages a cross-platform `llama-server` for GGUF models and a native Swift/MLX `mlx-server` on Apple Silicon.
 
-![Tanpopo management interface](images/tanpopo-demo.gif)
+![Tanpopo TCP Ring discovery, multi-select pairing and streaming chat demo](images/tanpopo-demo.gif)
+
+DEMO uses simulated nodes, models and responses in the actual UI; it is not a speed benchmark or a physical RDMA test. [Distributed inference guide (繁體中文)](docs/MLX-RDMA.md) · [Recreate the demo](scripts/readme-demo/README.md)
 
 ## Highlights
 
@@ -131,6 +133,14 @@ The HTTP layer continues reading connections while responses are pending so that
 The MLX runtime specification requires multi-user support, with a current limit of four concurrent generation requests; a fifth receives HTTP 429. Context and memory-budget checks run before model forward evaluation. Supported paths can reduce the current request's Prefill chunk size without truncating input or changing saved settings or calibration results; paths without declared chunking support are estimated conservatively using the complete input. Available memory may reject a request before all four slots are occupied.
 
 Non-streaming context or estimated-memory violations return HTTP 413, and memory-pressure violations during inference return HTTP 503. Errors after SSE starts are reported through SSE error events rather than successful completion. See the [MLX runtime specification](docs/MLX-RUNTIME-SPEC.md) and [API latency and cancellation troubleshooting](docs/MLX-RUNTIME-TROUBLESHOOTING.md), both in Traditional Chinese. These request-time checks are separate from the optional pre-launch memory pressure protection described below.
+
+## Experimental MLX distributed inference
+
+On Apple Silicon, **Runtime → TCP Ring cluster → Search nodes** discovers Servers on a trusted LAN without a shared pairing key. Open discovery on every Server, select the same supported MLX model and a standard launch profile on the coordinator, then choose one or more peers in the dialog and select **Pair and start**. The local Mac joins automatically. Busy or incompatible peers cannot be selected; stopping any member stops the group.
+
+TCP Ring supports 2–8 nodes, while the JACCL RDMA path remains limited to two. All nodes must use the same Server release, identical native Runtime (currently suffix `rdma4`), and matching model contents and relative paths. Supported safetensors architectures are Llama/Mistral, Qwen2 and Qwen3; GGUF, multimodal, MoE, DFlash and MTP are not supported in this mode. The coordinator retains four concurrent generation slots.
+
+Discovery protocol v2 is incompatible with the earlier shared-key protocol. Update every node together. Discovery and tensor traffic are unencrypted and do not authenticate peers cryptographically; use a trusted LAN. Restarting restores discovery, but a group must be selected and paired again. Same-machine two- and three-node native inference Smoke tests have passed; physical Mac networking, large-model performance and Thunderbolt RDMA still require hardware validation. See the [setup, API and Smoke guide](docs/MLX-RDMA.md) (Traditional Chinese).
 
 ## Settings and model management
 

@@ -166,6 +166,9 @@ ensure_mlx_server() {
     && source_is_newer_than \
       "${runtime_dir}/bin/mlx-server" \
       "${MLX_BUILD_SCRIPT}" \
+      "${PROJECT_DIR}/scripts/mlx-swift-distributed.patch" \
+      "${PROJECT_DIR}/scripts/mlx-swift-distributed-load.patch" \
+      "${PROJECT_DIR}/scripts/mlx-swift-prebuilt-metallib.patch" \
       "${MLX_SOURCE_DIR}/VERSION" \
       "${MLX_SOURCE_DIR}/Package.swift" \
       "${MLX_SOURCE_DIR}/Package.resolved" \

@@ -19,6 +19,7 @@ import (
 	"LlamaLoader/src/accesscontrol"
 	"LlamaLoader/src/appupdate"
 	"LlamaLoader/src/appversion"
+	"LlamaLoader/src/cluster"
 	"LlamaLoader/src/config"
 	"LlamaLoader/src/directorybrowser"
 	"LlamaLoader/src/domain"
@@ -46,6 +47,7 @@ type Server struct {
 	localUpdates    *appupdate.Manager
 	metrics         *systemmetrics.Collector
 	netPass         *netpass.Manager
+	cluster         *cluster.Service
 	credentialsMu   sync.Mutex
 }
 
@@ -97,12 +99,17 @@ func NewServer(
 		localUpdates:    appupdate.NewManager(),
 		metrics:         metrics,
 		netPass:         netPass,
+		cluster:         cluster.New(ctx, filepath.Join(filepath.Dir(agentConfigPath), "data", "cluster.json"), loadManagementPort(agentConfigPath), llama),
 	}
 }
 
 // Shutdown 在主程序結束前等待對外通道停止，不能只依賴背景 goroutine。
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.netPass.Shutdown(ctx)
+	var clusterErr error
+	if s.cluster != nil {
+		clusterErr = s.cluster.Shutdown(ctx)
+	}
+	return errors.Join(clusterErr, s.netPass.Shutdown(ctx))
 }
 
 // resolveReportPath 同時支援原始碼工作區與封裝後目錄：開發模式的
@@ -148,6 +155,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/system/metrics", s.handleSystemMetrics)
 	mux.HandleFunc("GET /api/system/info", s.requireAPI(s.handleSystemInfo))
 	mux.HandleFunc("GET /api/runtime/capabilities", s.requireAPI(s.handleRuntimeCapabilities))
+	mux.HandleFunc("GET /api/cluster/status", s.requireClusterAdmin(s.handleClusterStatus))
+	mux.HandleFunc("PUT /api/cluster/config", s.requireClusterAdmin(s.handleClusterConfig))
+	mux.HandleFunc("POST /api/cluster/start", s.requireClusterAdmin(s.handleClusterStart))
+	mux.HandleFunc("POST /api/cluster/stop", s.requireClusterAdmin(s.handleClusterStop))
+	if s.cluster != nil {
+		mux.HandleFunc("POST /api/cluster/control", s.cluster.Control)
+	}
 	mux.HandleFunc("GET /api/netpass/status", s.requireAPI(s.handleNetPassStatus))
 	mux.HandleFunc("PUT /api/netpass/config", s.requireAPI(s.handleNetPassConfigUpdate))
 	mux.HandleFunc("POST /api/netpass/start", s.requireAPI(s.handleNetPassStart))
@@ -1146,6 +1160,12 @@ func (s *Server) handleRuntimeConversionPreflight(w http.ResponseWriter, r *http
 func (s *Server) handleLlamaStop(w http.ResponseWriter, _ *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
+	if s.cluster != nil {
+		if err := s.cluster.Stop(ctx); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	if err := s.llama.Stop(ctx); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

@@ -4,6 +4,10 @@
 
 Tanpopo は Go で実装されたローカルモデルサービス管理ツールです。名称は日本語の「蒲公英（たんぽぽ）」に由来し、生成された Token が種のように外へ広がるイメージを表しています。GGUF 向けのクロスプラットフォーム `llama-server` と、Apple Silicon 向けのネイティブ Swift／MLX `mlx-server` を管理できます。
 
+![Tanpopo TCP Ring DEMO](images/tanpopo-demo.gif)
+
+DEMO：ノード、モデル、応答は模擬データです。推論性能や実機 RDMA の検証結果ではありません。[分散推論ガイド（繁體中文）](docs/MLX-RDMA.md)
+
 ## 主な機能
 
 - モデル Runtime の起動、停止、状態復元、ログ確認を 1 つの管理画面で実行。

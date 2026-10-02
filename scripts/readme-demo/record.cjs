@@ -64,13 +64,6 @@ async function main() {
       });
       await locator.click();
     }
-    async function chapter(index, title) {
-      await page.evaluate(({ index, title }) => {
-        document.querySelector("#number").textContent = `0${index} / 03`;
-        document.querySelector("#chapter").textContent = title;
-        document.querySelectorAll(".step").forEach((step, i) => step.classList.toggle("active", i < index));
-      }, { index, title });
-    }
     await ui.locator("#refreshDialog").waitFor({ state: "hidden" });
     await ui.locator("#startButton:enabled").waitFor();
     await checkpoint("01-model", "#modelSelect");
@@ -88,70 +81,56 @@ async function main() {
       }
     })();
 
-    await wait(1100);
+    await wait(1200);
     await move(ui.locator("#modelSelect"));
-    await ui.locator("#modelSelect").selectOption(fixtures.models[0].path);
-    await wait(600);
-    await click(ui.locator("#advancedSettingsButton"));
-    await checkpoint("02-options", "#runtimeAdvancedPopover");
+    const ringModel = fixtures.models.find(model => model.architecture === "qwen3");
+    await ui.locator("#modelSelect").selectOption(ringModel.path);
+    await wait(900);
+    await move(ui.locator("#clusterSearch"));
+    await checkpoint("02-card", "#clusterPanel");
+    await wait(1400);
+    await click(ui.locator("#clusterSearch"));
+    await ui.locator("#clusterPeerList input").first().waitFor();
+    await checkpoint("03-discovery", "#clusterDialog");
     await wait(1300);
-    await click(ui.locator('label[for="kvCacheQuantizationToggle"]'));
-    await wait(650);
-    await click(ui.locator("#closeAdvancedSettingsButton"));
-    await click(ui.locator("#startButton"));
-    await checkpoint("03-loading", "#modelLoadingDialog");
-    await ui.locator("#modelLoadingDialog").waitFor({ state: "hidden" });
-    await ui.locator("#statusLabel").filter({ hasText: "執行中" }).waitFor();
-    await checkpoint("04-ready", "#stopButton:enabled");
-    assert.equal(demo.state.runtime.model, fixtures.models[0].path);
-    assert.equal(demo.state.runtime.kv_cache_quantization, "q8");
-    await wait(1800);
+    for (const peer of fixtures.cluster.peers.filter(peer => !peer.busy)) {
+      await click(ui.locator(`#clusterPeerList input[value="${peer.id}"]`));
+      await wait(650);
+    }
+    assert.equal(await ui.locator("#clusterPeerList input:checked").count(), 2);
+    assert.equal(await ui.locator("#clusterPeerList input:disabled").count(), 1);
+    await checkpoint("04-selected", "#clusterStart:enabled");
+    await wait(1500);
+    await click(ui.locator("#clusterStart"));
+    await ui.locator("#clusterStart").filter({hasText: "交握配對中"}).waitFor();
+    await checkpoint("05-handshake", "#clusterDialog");
+    await ui.locator("#clusterDialog").waitFor({state:"hidden"});
+    await ui.locator("#clusterStatus").filter({hasText:"推論就緒"}).waitFor();
+    await checkpoint("06-ready", "#clusterStop");
+    assert.equal(demo.state.cluster.session.members.length, 3);
+    assert.equal(demo.state.runtime.model, ringModel.path);
+    await wait(2000);
 
-    await chapter(2, "即時串流，讓模型開始對話");
     await click(ui.locator('.nav a[href="/chat.html"]'));
     await ui.locator("#chatInput:enabled").waitFor();
     await move(ui.locator("#chatInput"));
-    await ui.locator("#chatInput").pressSequentially(fixtures.chat.prompt, { delay: 55 });
-    await wait(550);
+    await ui.locator("#chatInput").pressSequentially(fixtures.chat.prompt, {delay:55});
+    await wait(750);
     await click(ui.locator("#sendChatButton"));
     await ui.locator(".chat-reasoning.is-streaming").waitFor();
-    await wait(500);
-    await checkpoint("05-streaming", ".chat-reasoning");
+    await checkpoint("07-streaming", ".chat-reasoning");
     await ui.locator("#clearChatButton:enabled").waitFor();
     assert.ok((await ui.locator("#chatMessages").innerText()).includes("OpenAI 相容 API"));
-    await checkpoint("06-chat", ".chat-message.assistant");
-    await wait(2000);
-
-    await chapter(3, "常用模型，選擇後即可下載");
-    await click(ui.locator('.nav a[href="/download.html"]'));
-    await ui.locator("#downloadButton").waitFor();
-    await wait(600);
-    await click(ui.locator("#quickModelButton"));
-    const entry = ui.locator(".quick-model-select").filter({ hasText: fixtures.download.catalog_name }).first();
-    await entry.waitFor();
-    await entry.scrollIntoViewIfNeeded();
-    await checkpoint("07-catalog", "#quickModelPopover");
-    await wait(1000);
-    await click(entry);
-    await ui.locator("#filename:enabled").waitFor();
-    assert.equal(await ui.locator("#repository").inputValue(), fixtures.download.repository);
-    await wait(700);
-    await click(ui.locator("#downloadButton"));
-    await ui.locator(".job-item.downloading").waitFor();
-    await wait(2900);
-    await checkpoint("08-download", ".job-item.downloading");
-    await ui.locator(".job-item.downloading").waitFor({ state: "hidden" });
-    await click(ui.locator("#downloadedModelsTab"));
-    await ui.locator("#downloadedModelsPane").getByText(fixtures.download.filename, { exact: true }).waitFor();
-    await checkpoint("09-library", "#downloadedModelsPane");
-    await wait(2400);
+    await checkpoint("08-chat", ".chat-message.assistant");
+    await wait(2800);
 
     stopCapture = true;
     await captureTask;
     assert.deepEqual(errors, [], "瀏覽器錯誤");
     assert.deepEqual(blocked, [], "偵測到外部連線");
     assert.deepEqual(demo.state.errors, [], "示範 API 錯誤");
-    assert.ok(demo.state.models.some((m) => m.path.endsWith(fixtures.download.filename)));
+    assert.deepEqual(demo.state.browserErrors, [], "頁面 JavaScript 錯誤");
+    assert.equal(demo.state.cluster.session.phase, "running");
 
     const playlist = frames.map((frame, index) => {
       const duration = index + 1 < frames.length ? (frames[index + 1].started - frame.started) / 1000 : .1;
@@ -177,7 +156,7 @@ async function main() {
   } finally {
     stopCapture = true;
     if (captureTask) await captureTask;
-    await fs.writeFile(path.join(artifacts, "diagnostics.json"), JSON.stringify({ checks, errors, blocked, requests: demo.state.requests, apiErrors: demo.state.errors }, null, 2));
+    await fs.writeFile(path.join(artifacts, "diagnostics.json"), JSON.stringify({ checks, errors, blocked, requests: demo.state.requests, apiErrors: demo.state.errors, browserErrors: demo.state.browserErrors }, null, 2));
     await context?.close();
     await browser?.close();
     await demo.close();

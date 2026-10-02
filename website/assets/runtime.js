@@ -655,6 +655,7 @@
     if (!status) return;
     const running = Boolean(status.running);
     const ready = running && Boolean(status.ready);
+    const worker = running && status.distributed_role === "worker";
     const restoreSelection = running || !state.selectionTouched;
     if (restoreSelection && status.runtime) {
       variants.restore(byId("runtimeSelect"), status);
@@ -663,7 +664,7 @@
     const modeCommand = running ? status : selectedCommand();
     variants.updateLabel(byId("runtimeSelect"), modeCommand);
     const runtimeLabel = variants.label(running ? variants.optionValue(status) : byId("runtimeSelect").value, modeCommand);
-    const loading = running && !ready;
+    const loading = running && !ready && !worker;
     const failed = !running && Boolean(status.last_error);
     if (loading && !state.calibrating && !byId("calibrationDialog").open) {
       showModelLoadingDialog(status);
@@ -671,13 +672,14 @@
       closeModelLoadingDialog();
     }
     const statusDot = byId("statusDot");
-    statusDot.classList.toggle("online", ready);
+    statusDot.classList.toggle("online", ready || worker);
     statusDot.classList.toggle("loading", loading);
     statusDot.classList.toggle("failed", failed);
     const statusLabel = byId("statusLabel");
     statusLabel.classList.toggle("loading", loading);
     const loadingLabel = t("載入模型中…").replace(/\s*(?:…|\.\.\.)$/, "");
-    statusLabel.textContent = ready
+    statusLabel.textContent = worker ? "TCP Ring 工作節點"
+      : ready
       ? `${runtimeLabel} 執行中`
       : loading
         ? `${runtimeLabel} · ${loadingLabel}`
@@ -686,7 +688,7 @@
     if (status.performance_calibration_applied) runtimeAdjustments.push(t("已套用自動效能校準"));
     if (status.memory_pressure_protection_applied) runtimeAdjustments.push(t("記憶體壓力保護已調整啟動參數"));
     const adjustmentSuffix = runtimeAdjustments.length ? ` · ${runtimeAdjustments.join(" · ")}` : "";
-    byId("statusDetail").textContent = running
+    byId("statusDetail").textContent = worker ? "由主節點協調載入與推論，請查看下方雙機狀態；對話請使用主節點。" : running
       ? (ready
         ? `啟動時間 ${formatTime(status.started_at)} · ${status.startup_command_name || "未命名參數"}${adjustmentSuffix}`
         : `${t("模型載入完成後即可測試。")} · ${status.startup_command_name || "未命名參數"}${adjustmentSuffix}`)
@@ -746,6 +748,7 @@
       || !state.mmprojModels.length;
     byId("startButton").disabled = state.calibrating || running || !modelReady || !commandReady;
     byId("stopButton").disabled = state.calibrating || (!running && !status.desired_running);
+    window.TanpopoCluster?.update({ runtime: selectedRuntime(), model: selectedModel(), command: selectedCommand(), status, calibrating: state.calibrating });
     const calibrationButton = byId("calibrateRuntimeButton");
     calibrationButton.hidden = !state.settings?.auto_performance_calibration_enabled;
     calibrationButton.disabled = state.testing || state.calibrating;
@@ -753,10 +756,10 @@
     calibrationButton.title = t("可直接開啟並選擇要校準的模型，不必事先載入。");
     // 測試本身就是 Runtime 的可用性檢查；只要程序仍在執行就應允許
     // 使用者觸發，避免健康端點受 Access Key 保護時永遠無法測試。
-    byId("testRuntimeButton").disabled = !running || state.testing || state.calibrating;
+    byId("testRuntimeButton").disabled = !running || worker || state.testing || state.calibrating;
     byId("testRuntimeButton").textContent = state.testing ? t("測試中…") : t("測試");
-    byId("repeatRuntimeTestButton").disabled = !running || state.testing || state.calibrating;
-    byId("longRuntimeTestButton").disabled = !running || state.testing || state.calibrating;
+    byId("repeatRuntimeTestButton").disabled = !running || worker || state.testing || state.calibrating;
+    byId("longRuntimeTestButton").disabled = !running || worker || state.testing || state.calibrating;
     renderDFlashControl(status);
     renderFastGGUFControl(status);
     renderMMapControl(status);
@@ -1561,7 +1564,7 @@
 
   async function refreshRuntime() {
     try {
-      await Promise.all([loadRuntime(), loadLogs()]);
+      await Promise.all([loadRuntime(), loadLogs(), window.TanpopoCluster?.refresh()]);
     } catch (error) {
       if (!String(error.message).includes("登入狀態")) showMessage(error.message, "error");
     }
@@ -1862,7 +1865,7 @@
       await loadSettings();
       await loadRuntime();
       await loadCommands(false);
-      await Promise.all([loadModels(false), loadLogs()]);
+      await Promise.all([loadModels(false), loadLogs(), window.TanpopoCluster?.refresh()]);
       window.setInterval(refreshRuntime, 2500);
     } catch (error) {
       initializeError = error;

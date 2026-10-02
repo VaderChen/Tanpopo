@@ -17,23 +17,133 @@
     "server_port": 8080
   },
   "models": [
-    {"path": "gguf:Qwen3.5-4B/Qwen3.5-4B-Q4_0.gguf", "format": "gguf", "size": 2899102925, "architecture": "qwen35", "modified_at": "2026-09-21T01:00:00Z", "conversion_cached": true, "conversion_cache_bytes": 2470000000, "conversion_cache_count": 2},
-    {"path": "gguf:Qwen3.5-9B/Qwen3.5-9B-Q4_0.gguf", "format": "gguf", "size": 5900000000, "architecture": "qwen35", "modified_at": "2026-09-21T01:00:00Z"},
-    {"path": "Qwen3.5-4B-4bit", "format": "mlx", "size": 2684354560, "architecture": "qwen3_5", "modified_at": "2026-09-21T01:00:00Z"}
+    {
+      "path": "gguf:Qwen3.5-4B/Qwen3.5-4B-Q4_0.gguf",
+      "format": "gguf",
+      "size": 2899102925,
+      "architecture": "qwen35",
+      "modified_at": "2026-09-21T01:00:00Z",
+      "conversion_cached": true,
+      "conversion_cache_bytes": 2470000000,
+      "conversion_cache_count": 2
+    },
+    {
+      "path": "gguf:Qwen3.5-9B/Qwen3.5-9B-Q4_0.gguf",
+      "format": "gguf",
+      "size": 5900000000,
+      "architecture": "qwen35",
+      "modified_at": "2026-09-21T01:00:00Z"
+    },
+    {
+      "path": "Qwen3.5-4B-4bit",
+      "format": "mlx",
+      "size": 2684354560,
+      "architecture": "qwen3_5",
+      "modified_at": "2026-09-21T01:00:00Z"
+    },
+    {
+      "path": "Qwen3-8B-4bit",
+      "format": "mlx",
+      "size": 4800000000,
+      "architecture": "qwen3",
+      "modified_at": "2026-10-02T01:00:00Z"
+    }
   ],
   "commands": [
-    {"id": "demo-mlx", "name": "MLX Apple Silicon · 32K", "runtime": "mlx-server", "server_host": "127.0.0.1", "server_port": 8080, "context_size": 32768, "gpu_layers": -1, "threads": 8, "kv_cache_quantization": "q8", "extra_args": []},
-    {"id": "demo-llama", "name": "GGUF 一般對話 · 32K", "runtime": "llama-server", "server_host": "127.0.0.1", "server_port": 8080, "context_size": 32768, "gpu_layers": -1, "threads": 8, "kv_cache_quantization": "q8", "extra_args": []}
+    {
+      "id": "demo-mlx",
+      "name": "MLX Apple Silicon · 32K",
+      "runtime": "mlx-server",
+      "server_host": "127.0.0.1",
+      "server_port": 8080,
+      "context_size": 32768,
+      "gpu_layers": -1,
+      "threads": 8,
+      "kv_cache_quantization": "q8",
+      "extra_args": []
+    },
+    {
+      "id": "demo-llama",
+      "name": "GGUF 一般對話 · 32K",
+      "runtime": "llama-server",
+      "server_host": "127.0.0.1",
+      "server_port": 8080,
+      "context_size": 32768,
+      "gpu_layers": -1,
+      "threads": 8,
+      "kv_cache_quantization": "q8",
+      "extra_args": []
+    }
   ],
   "chat": {
-    "prompt": "用三個重點，介紹 Tanpopo 可以幫我做什麼？",
-    "reasoning": "先整理模型管理、互動方式與下載流程，再用三個重點說明。",
-    "answer": "**把本機模型管理，變得更簡單。**\n\n1. **一鍵啟動**：選擇 GGUF 或 MLX 模型，搭配已保存的啟動參數。\n2. **即時對話**：在瀏覽器中查看串流回答，支援 Markdown 與數學公式。\n3. **集中管理**：下載 Hugging Face 模型，隨時查看服務狀態與系統資源。\n\n也能透過 **OpenAI 相容 API**，連接你熟悉的工具。"
+    "prompt": "如何用 Tanpopo 組成 TCP Ring 叢集？",
+    "reasoning": "先確認模型與版本相同，再說明探索、選取與配對流程。",
+    "answer": "**三個步驟，組成 TCP Ring 叢集。**\n\n1. **準備模型**：各台 Mac 安裝相同 Runtime 與支援的 MLX 文字模型。\n2. **搜尋與複選**：各台開啟探索，在主節點勾選要加入的 Server。\n3. **配對並啟用**：完成交握、模型核對及分片載入後，從主節點對話。\n\n也能透過 **OpenAI 相容 API** 使用模型。\n\n*此為模擬回答；畫面不代表實測推論速度。*"
   },
   "download": {
     "catalog_name": "Qwen 3.5 2B MTP · Q4_0",
     "repository": "unsloth/Qwen3.5-2B-MTP-GGUF",
     "filename": "Qwen3.5-2B-Q4_0.gguf",
     "bytes_total": 1395864371
+  },
+  "cluster": {
+    "local": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Mac Studio · 本機",
+      "ip": "192.168.50.10",
+      "port": 10082,
+      "platform": "darwin/arm64",
+      "busy": false,
+      "capabilities": {
+        "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+        "ring_available": true,
+        "managed_parent_stdin": true,
+        "max_ring_nodes": 8
+      }
+    },
+    "peers": [
+      {
+        "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Mac mini · 工作室",
+        "ip": "192.168.50.11",
+        "port": 10082,
+        "platform": "darwin/arm64",
+        "busy": false,
+        "capabilities": {
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "ring_available": true,
+          "managed_parent_stdin": true,
+          "max_ring_nodes": 8
+        }
+      },
+      {
+        "id": "cccccccccccccccccccccccccccccccc",
+        "name": "Mac Studio · 書房",
+        "ip": "192.168.50.12",
+        "port": 10082,
+        "platform": "darwin/arm64",
+        "busy": false,
+        "capabilities": {
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "ring_available": true,
+          "managed_parent_stdin": true,
+          "max_ring_nodes": 8
+        }
+      },
+      {
+        "id": "dddddddddddddddddddddddddddddddd",
+        "name": "MacBook Pro · 使用中",
+        "ip": "192.168.50.13",
+        "port": 10082,
+        "platform": "darwin/arm64",
+        "busy": true,
+        "capabilities": {
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "ring_available": true,
+          "managed_parent_stdin": true,
+          "max_ring_nodes": 8
+        }
+      }
+    ]
   }
 }

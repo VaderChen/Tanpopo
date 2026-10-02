@@ -36,6 +36,15 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "MLXDistributedBridge",
+            dependencies: [.product(name: "MLX", package: "mlx-swift")],
+            publicHeadersPath: "include",
+            cxxSettings: [.unsafeFlags([
+                "-I", mlxCoreRoot + "/mlx",
+                "-I", mlxCoreRoot + "/mlx-c"
+            ])]
+        ),
+        .target(
             name: "MLXCoreGGUFBridge",
             dependencies: [
                 .product(name: "MLX", package: "mlx-swift")
@@ -54,6 +63,7 @@ let package = Package(
         .executableTarget(
             name: "MLXServer",
             dependencies: [
+                "MLXDistributedBridge",
                 "MLXCoreGGUFBridge",
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),

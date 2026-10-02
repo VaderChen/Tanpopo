@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -64,5 +65,43 @@ func TestProxyRuntimeChatStreamPreservesSSEAndFlushes(t *testing.T) {
 	}
 	if recorder.Body.String() != stream {
 		t.Fatalf("SSE 內容遭到改寫：%q", recorder.Body.String())
+	}
+}
+
+func TestRuntimeChatErrorsPreserveClientStatus(t *testing.T) {
+	for _, test := range []struct {
+		upstream int
+		body     string
+		want     int
+	}{
+		{400, `{"error":{"message":"bad request"}}`, 400},
+		{401, `{"error":{"message":"invalid key"}}`, 401},
+		{403, `{"error":{"message":"IP denied"}}`, 403},
+		{413, `{"error":{"message":"context too large"}}`, 413},
+		{429, `{"error":{"message":"busy"}}`, 429},
+		{429, `busy`, 429},
+		{500, `{"error":{"message":"inference failed"}}`, 502},
+		{503, `{"error":{"message":"model is loading"}}`, 409},
+	} {
+		recorder := httptest.NewRecorder()
+		response := &http.Response{StatusCode: test.upstream,
+			Body: io.NopCloser(strings.NewReader(test.body)), Header: http.Header{"Retry-After": {"2"}}}
+		writeRuntimeChatError(recorder, response)
+		if recorder.Code != test.want {
+			t.Fatalf("Runtime HTTP %d，代理回傳 %d，預期 %d", test.upstream, recorder.Code, test.want)
+		}
+		if test.want == 429 && recorder.Header().Get("Retry-After") != "2" {
+			t.Fatal("名額已滿時遺失 Retry-After")
+		}
+		if test.want == 401 {
+			var result struct {
+				Error struct {
+					Source string `json:"source"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || result.Error.Source != "runtime" {
+				t.Fatal("Runtime 金鑰拒絕不能被當成管理 Session 失效")
+			}
+		}
 	}
 }

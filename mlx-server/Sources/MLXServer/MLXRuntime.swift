@@ -13,6 +13,7 @@ actor MLXRuntime {
     let contextLimit: Int?
 
     private let configuration: ServerConfiguration
+    let distributedSession: DistributedTensorSession?
     private let ggufWeightURL: URL?
     private let fastGGUFManifestURL: URL?
     private let ggufMMProjURL: URL?
@@ -27,8 +28,9 @@ actor MLXRuntime {
     private var generationReservations: [UUID: Double] = [:]
     private var generationMemoryBaseline: Double?
 
-    init(configuration: ServerConfiguration) throws {
+    init(configuration: ServerConfiguration, distributedSession: DistributedTensorSession? = nil) throws {
         self.configuration = configuration
+        self.distributedSession = distributedSession
         let modelURL = URL(fileURLWithPath: configuration.modelPath)
         let isFastGGUF = modelURL.lastPathComponent.lowercased().hasSuffix(".fgguf.json")
         let isGGUF = modelURL.pathExtension.lowercased() == "gguf" || isFastGGUF
@@ -60,6 +62,21 @@ actor MLXRuntime {
 
     func prepare() async throws {
         guard container == nil else { return }
+        if let distributedSession {
+            guard kind != .vision else { throw DistributedError.invalid("分散式模式目前僅接受純文字模型。") }
+            memoryMapPlan?.applyBeforeLoading()
+            // MLX Core 的 safetensors Load 是 lazy；C++ bridge 直接調整讀取範圍，
+            // 只實體化本地列，未對齊檔案也不會先複製整份權重。
+            try await ModelWeightLoadingContext.$mode.withValue(.eager) {
+                try await ModelWeightLoadingContext.$beforeEvaluate.withValue({ model in
+                    try distributedSession.prepareModel(model)
+                }) {
+                    try await prepareModels()
+                }
+            }
+            memoryMapPlan?.finishLoading()
+            return
+        }
         if let memoryMapPlan {
             memoryMapPlan.applyBeforeLoading()
             try await ModelWeightLoadingContext.$mode.withValue(.memoryMapped) {
@@ -71,6 +88,16 @@ actor MLXRuntime {
         } else {
             try await prepareModels()
         }
+    }
+
+    func releaseWorkerModel() {
+        // Worker 僅保留 session 內的本地線性層分片；不保留完整模型或 Tokenizer。
+        if distributedSession?.group.rank != 0 { container = nil; Memory.clearCache() }
+    }
+
+    func distributedHealth() async throws {
+        guard let distributedSession else { return }
+        try await Task.detached { try distributedSession.health() }.value
     }
 
     private func prepareModels() async throws {

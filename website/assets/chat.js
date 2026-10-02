@@ -292,7 +292,7 @@
     const text = await response.text();
     let payload = {};
     try { payload = text ? JSON.parse(text) : {}; } catch (_error) { payload = {}; }
-    if (response.status === 401) {
+    if (response.status === 401 && payload?.error?.source !== "runtime") {
       location.replace("/login.html");
       return new Error(t("登入狀態已失效"));
     }

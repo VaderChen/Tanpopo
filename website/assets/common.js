@@ -806,7 +806,7 @@
     if (text) {
       try { payload = JSON.parse(text); } catch (_) { payload = {}; }
     }
-    if (response.status === 401) {
+    if (response.status === 401 && payload?.error?.source !== "runtime") {
       location.replace("/login.html");
       throw new Error(t("登入狀態已失效"));
     }

@@ -133,6 +133,39 @@ write_cache_metadata() {
 cache_existing_metallib
 enable_prebuilt_metallib_manifest
 
+# 分散式後端的修改必須來自版本化補丁，讓乾淨 checkout 可重現。
+if ! grep -Fq 'tanpopoJacclEnabled' "${MLX_SWIFT_MANIFEST}"; then
+  cp "${MLX_SWIFT_MANIFEST}" "${MLX_SWIFT_MANIFEST}.rdma.bak"
+  chmod u+w "${MLX_SWIFT_MANIFEST}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-distributed.patch"; then
+    mv "${MLX_SWIFT_MANIFEST}.rdma.bak" "${MLX_SWIFT_MANIFEST}"
+    echo "無法套用 MLX 分散式建置補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_SWIFT_MANIFEST}.rdma.bak"
+  chmod a-w "${MLX_SWIFT_MANIFEST}"
+fi
+SDK_ROOT="$(xcrun --sdk macosx --show-sdk-path)"
+MLX_PRIMITIVES="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/primitives.h"
+if ! grep -Fq 'TANPOPO_MLX_LOAD_ROW_SLICE' "${MLX_PRIMITIVES}"; then
+  cp "${MLX_PRIMITIVES}" "${MLX_PRIMITIVES}.rdma.bak"
+  chmod u+w "${MLX_PRIMITIVES}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-distributed-load.patch"; then
+    mv "${MLX_PRIMITIVES}.rdma.bak" "${MLX_PRIMITIVES}"
+    echo "無法套用 MLX 分片讀取補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_PRIMITIVES}.rdma.bak"
+  chmod a-w "${MLX_PRIMITIVES}"
+fi
+if [[ -f "${SDK_ROOT}/usr/include/infiniband/verbs.h" ]]; then
+  export TANPOPO_MLX_JACCL=1
+  echo "啟用 JACCL／Thunderbolt RDMA 原生後端。"
+else
+  export TANPOPO_MLX_JACCL=0
+  echo "SDK 缺少 RDMA headers；本次僅建置 TCP Ring，JACCL 會明確回報不可用。"
+fi
+
 USE_PREBUILT_METALLIB="0"
 if [[ -f "${CACHED_METAL_LIBRARY}" && "${MLX_METALLIB_REBUILD:-0}" != "1" ]]; then
   cp "${CACHED_METAL_LIBRARY}" "${PREBUILT_METAL_DIR}/default.metallib"
@@ -161,8 +194,13 @@ fi
 write_cache_metadata
 
 mkdir -p "${OUTPUT_ROOT}/bin"
-cp "${PRODUCT_DIR}/mlx-server" "${OUTPUT_ROOT}/bin/mlx-server"
-chmod +x "${OUTPUT_ROOT}/bin/mlx-server"
+# 以新 inode 原子替換執行檔，避免 macOS 沿用舊 vnode 的程式碼簽章快取而 SIGKILL。
+RUNTIME_STAGE="$(mktemp "${OUTPUT_ROOT}/bin/.mlx-server.XXXXXX")"
+trap 'rm -f "${RUNTIME_STAGE}"' EXIT
+cp "${PRODUCT_DIR}/mlx-server" "${RUNTIME_STAGE}"
+chmod +x "${RUNTIME_STAGE}"
+mv -f "${RUNTIME_STAGE}" "${OUTPUT_ROOT}/bin/mlx-server"
+trap - EXIT
 printf '%s\n' "${VERSION}" > "${OUTPUT_ROOT}/VERSION"
 printf '%s\n' "${METAL_FINGERPRINT}" > "${OUTPUT_ROOT}/METALLIB_FINGERPRINT"
 

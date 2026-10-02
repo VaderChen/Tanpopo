@@ -43,6 +43,13 @@ func (m *Manager) applyMemoryPressureProtectionLocked(
 		)
 	}
 	budgetBytes := snapshot.AvailableBytes - reserveBytes
+	if command.Runtime == domain.RuntimeMLXServer && hasAnyArgument(command.ExtraArgs, "--distributed-config", "--distributed-config-base64") {
+		// 分片大小只有模型載入器能依 tensor 契約精確決定，不能用完整模型檔案
+		// 大小擋下原本就需要雙機容量的模型。Runtime 在複製分片前逐節點檢查，
+		// 主節點仍沿用每個請求的 KV／Prefill 預算及四人名額。
+		result.Actions = []string{"分散式模式由 Runtime 驗證每個節點的權重分片與請求記憶體預算"}
+		return command, draftModel, dflashEnabled, result, nil
+	}
 	targetBytes, companionBytes, draftBytes, err := runtimeModelFootprintBytes(
 		settings, command.Runtime, model, mmproj, draftModel,
 	)
