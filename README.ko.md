@@ -72,7 +72,7 @@ TANPOPO_UI=gui ./run.command    # 지원 환경에서 네이티브 UI 강제
 
 앱 버전은 `1.YY.MMDD build HHmm`, GitHub Tag는 `v1.YY.MMDD-build-HHmm` 형식입니다. 업데이트 확인은 날짜 버전과 build 번호를 모두 비교하므로 같은 날의 후속 Release도 감지합니다. Draft와 prerelease는 최신 버전으로 취급하지 않습니다.
 
-자동 업데이트는 **1.26.1003 build 0108**부터 제공됩니다. 이전 버전을 사용한다면 먼저 [GitHub Releases](https://github.com/VaderChen/Tanpopo/releases/latest)에서 이번 버전을 설치하세요. 이후에는 **시스템 설정 → 정보 → 업데이트 후 다시 시작**을 사용할 수 있습니다. 백그라운드 버전 확인은 알림만 표시하며 개발용 소스 작업 공간에서는 자동 설치가 비활성화됩니다. Windows/Linux의 실제 설치는 해당 OS에서 검증이 필요합니다. 데이터 보존, 복원 동작, 설치 조건은 [업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md)를 참고하세요.
+자동 업데이트는 **1.26.1003 build 0108**부터 제공됩니다. 이전 버전을 사용한다면 먼저 [GitHub Releases](https://github.com/VaderChen/Tanpopo/releases/latest)에서 이번 버전을 설치하세요. 이후에는 **시스템 설정 → 정보 → 업데이트 후 재시작**을 사용할 수 있습니다. 백그라운드 버전 확인은 알림만 표시하며 개발용 소스 작업 공간에서는 자동 설치가 비활성화됩니다. Windows/Linux의 실제 설치는 해당 OS에서 검증이 필요합니다. 데이터 보존, 복원 동작, 설치 조건은 [업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md)를 참고하세요.
 
 ## 모델 Runtime
 
