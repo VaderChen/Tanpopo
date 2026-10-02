@@ -39,7 +39,16 @@ func TestMacOfficialDMGPreparationSmoke(t *testing.T) {
 	}
 	tag := value("CFBundleShortVersionString") + "-build-" + value("CFBundleVersion")
 	workspace := filepath.Join(root, "update")
-	os.Mkdir(workspace, 0700)
+	if parent := os.Getenv("TANPOPO_UPDATE_SMOKE_WORKSPACE"); parent != "" {
+		var err error
+		workspace, err = os.MkdirTemp(parent, "tanpopo-update-smoke-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(workspace) })
+	} else if err := os.Mkdir(workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
 	payload, err := prepareMacBundle(automaticPlan{Target: current, Workspace: workspace, Tag: tag}, archive)
 	if err != nil {
 		t.Fatal(err)

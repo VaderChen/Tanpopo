@@ -46,10 +46,13 @@ func prepareAutomaticPayload(p automaticPlan, archive string) (string, error) {
 }
 
 func prepareMacBundle(p automaticPlan, archive string) (string, error) {
-	mount := filepath.Join(p.Workspace, "mounted")
-	if err := os.Mkdir(mount, 0700); err != nil {
+	// 磁碟映像服務可能拒絕在外接磁碟掛載。掛載點使用系統暫存目錄，
+	// 驗證後的 App 仍複製到安裝目錄旁，以保留同檔案系統的原子切換。
+	mount, err := os.MkdirTemp("", "tanpopo-update-mount-")
+	if err != nil {
 		return "", err
 	}
+	defer os.Remove(mount)
 	if output, err := exec.Command("/usr/bin/hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount, archive).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("掛載更新 DMG 失敗: %w %s", err, output)
 	}

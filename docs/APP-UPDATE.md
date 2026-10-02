@@ -57,4 +57,6 @@ TANPOPO_UPDATE_SMOKE_DMG="/絕對路徑/Tanpopo-版本-build-編號-arm64.dmg" \
   go test ./src/appupdate -run 'TestMac.*Smoke' -v -count=1
 ```
 
+若要驗證外接磁碟的安裝暫存，可另設 `TANPOPO_UPDATE_SMOKE_WORKSPACE="/外接磁碟上的測試資料夾"`。測試只建立並移除自己產生的子目錄。DMG 使用系統暫存目錄掛載，App 仍複製至指定磁碟，避免磁碟映像服務拒絕外接磁碟上的掛載點。
+
 跨平台建置使用 `-buildvcs=false`，以相容同時有 Git／SVN 中繼資料的工作區。Windows MSI／UAC 與 Linux 發行 ZIP 的完整安裝仍需在對應作業系統驗收；交叉編譯與 macOS 隔離 Smoke 不等同這兩個平台的實機安裝測試。
