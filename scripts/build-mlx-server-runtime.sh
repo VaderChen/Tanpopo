@@ -169,6 +169,17 @@ if ! grep -Fq 'TANPOPO_MLX_TCP_QUEUE_LOCK' "${MLX_RING_SOURCE}"; then
   rm "${MLX_RING_SOURCE}.rdma.bak"
   chmod a-w "${MLX_RING_SOURCE}"
 fi
+if ! grep -Fq 'TANPOPO_MLX_TCP_QUEUE_POLL' "${MLX_RING_SOURCE}"; then
+  cp "${MLX_RING_SOURCE}" "${MLX_RING_SOURCE}.rdma.bak"
+  chmod u+w "${MLX_RING_SOURCE}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-ring-poll.patch"; then
+    mv "${MLX_RING_SOURCE}.rdma.bak" "${MLX_RING_SOURCE}"
+    echo "無法套用 MLX TCP 事件等待補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_RING_SOURCE}.rdma.bak"
+  chmod a-w "${MLX_RING_SOURCE}"
+fi
 SDK_ROOT="$(xcrun --sdk macosx --show-sdk-path)"
 MLX_PRIMITIVES="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/primitives.h"
 if ! grep -Fq 'TANPOPO_MLX_LOAD_ROW_SLICE' "${MLX_PRIMITIVES}"; then

@@ -13,8 +13,8 @@ trap 'rm -rf "${SMOKE_DIR}"' EXIT
   "${MLX_SOURCE}/mlx/distributed/utils.cpp" -o "${SMOKE_DIR}/smoke"
 "${SMOKE_DIR}/smoke"
 MLX_RING="${MLX_SOURCE}/mlx/distributed/ring/ring.cpp"
-if ! grep -Fq 'TANPOPO_MLX_TCP_QUEUE_LOCK' "${MLX_RING}"; then
-  echo "請先重新建置 Runtime，套用 TCP 佇列補丁。" >&2
+if ! grep -Fq 'TANPOPO_MLX_TCP_QUEUE_POLL' "${MLX_RING}"; then
+  echo "請先重新建置 Runtime，套用 TCP 事件等待補丁。" >&2
   exit 1
 fi
 # 直接編譯目前依賴中的真實 SocketThread，避免另寫一份實作來測自己。
@@ -23,6 +23,7 @@ awk '/^class SocketThread \{/ {copying=1} /^class CommunicationThreads \{/ {copy
 "${CXX:-c++}" -std=c++17 -pthread -O1 -g -fsanitize=thread -I "${SMOKE_DIR}" \
   "${PROJECT_DIR}/tests/native/ring_queues.cpp" -o "${SMOKE_DIR}/queues"
 TSAN_OPTIONS=halt_on_error=1 "${SMOKE_DIR}/queues"
+TSAN_OPTIONS=halt_on_error=1 "${SMOKE_DIR}/queues" --waiting
 for direction in recv send; do
   result=0
   TSAN_OPTIONS=halt_on_error=1 "${SMOKE_DIR}/queues" "--peer-${direction}" > "${SMOKE_DIR}/peer-${direction}.log" 2>&1 || result=$?

@@ -1,0 +1,73 @@
+--- a/Source/Cmlx/mlx/mlx/distributed/ring/ring.cpp
++++ b/Source/Cmlx/mlx/mlx/distributed/ring/ring.cpp
+@@ -1,7 +1,8 @@
+ // Copyright © 2024 Apple Inc.
+ 
+ #include <fcntl.h>
++#include <poll.h>
+ #include <netinet/tcp.h>
+ #include <sys/socket.h>
+ #include <unistd.h>
+ 
+@@ -248,23 +249,31 @@
+           return;
+         }
+       }
+ 
+-      if (!recvs_.empty()) {
+-        auto& task = recvs_.front();
++      // TANPOPO_MLX_TCP_QUEUE_POLL: only the worker removes queued tasks.
++      // std::list keeps their addresses stable while producers append.
++      auto* receive = recvs_.empty() ? nullptr : &recvs_.front();
++      auto* send = sends_.empty() ? nullptr : &sends_.front();
++      lock.unlock();
++      bool progressed = false;
++
++      if (receive) {
++        auto& task = *receive;
+         ssize_t r = ::recv(fd_, task.buffer, task.size, 0);
+         if (r > 0) {
+           task.buffer = static_cast<char*>(task.buffer) + r;
+           task.size -= r;
+           delete_recv = task.size == 0;
++          progressed = true;
+         } else if (r == 0) {
+           fail_connection("receiving", ECONNRESET);
+         } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+           fail_connection("receiving", errno);
+         }
+       }
+-      if (!sends_.empty()) {
+-        auto& task = sends_.front();
++      if (send) {
++        auto& task = *send;
+ #ifdef MSG_NOSIGNAL
+         ssize_t r = ::send(fd_, task.buffer, task.size, MSG_NOSIGNAL);
+ #else
+         ssize_t r = ::send(fd_, task.buffer, task.size, 0);
+@@ -272,14 +281,25 @@
+         if (r > 0) {
+           task.buffer = static_cast<char*>(task.buffer) + r;
+           task.size -= r;
+           delete_send = task.size == 0;
++          progressed = true;
+         } else if (r == 0) {
+           fail_connection("sending", EPIPE);
+         } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+           fail_connection("sending", errno);
+         }
+       }
++      if (!progressed) {
++        // A short bounded wait also lets a newly queued opposite-direction
++        // task run without a separate wakeup descriptor. Never poll under the
++        // queue mutex, and do not spin recv(EAGAIN) on a shared kernel socket.
++        pollfd pending{fd_, static_cast<short>((receive ? POLLIN : 0) |
++                                             (send ? POLLOUT : 0)), 0};
++        if (::poll(&pending, 1, 1) < 0 && errno != EINTR) {
++          fail_connection("polling", errno);
++        }
++      }
+     }
+   }
+ 
+   int fd_;

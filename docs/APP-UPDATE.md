@@ -26,6 +26,12 @@
 
 macOS／Linux 的舊版目錄保留在安裝目錄旁的 `.Tanpopo-backups/`；更新暫存位於 `.tanpopo-update-*`。Windows 助手使用本機資料目錄中的暫存資料夾，安裝完成後保留供查核。更新狀態寫入設定檔旁 `data/automatic-update-status.json`；啟動及安裝訊息可查 `data/app-update.log`，Windows MSI 詳細日誌為 `data/app-update-msi.log`。
 
+## macOS 更新後的區網連線觀察
+
+2026-10-03 的 build 1227 實體測試中，自動更新後管理 HTTP 與 UDP 探索正常，但原生 MLX TCP 連線回報 `No route to host`（error 65）。完整結束 Tanpopo，再從「應用程式」開啟後恢復 TCP 連線。若遇到相同狀況，請先採此步驟再重新配對，不需再次下載更新或重設系統隱私權。
+
+目前更新助手直接執行新版 App 內的主程式，與一般 App 開啟路徑不同；觀察結果尚未確認 macOS 內部原因。既有更新 Smoke 驗證的是套件與程序就緒，未涵蓋更新後原生子程序的區網權限。
+
 ## 管理 API
 
 | 方法與路徑 | 用途 |
