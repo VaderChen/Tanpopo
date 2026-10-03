@@ -1,0 +1,144 @@
+--- a/Source/Cmlx/mlx/mlx/distributed/ring/ring.cpp
++++ b/Source/Cmlx/mlx/mlx/distributed/ring/ring.cpp
+@@ -6,6 +6,8 @@
+ #include <unistd.h>
+ 
+ #include <chrono>
++#include <cstdlib>
++#include <cstring>
+ #include <fstream>
+ #include <future>
+ #include <iostream>
+@@ -128,12 +130,23 @@
+ class SocketThread {
+  public:
+   SocketThread(int fd) : fd_(fd), stop_(false) {
+-    worker_ = std::thread(&SocketThread::worker, this);
+     int flags = fcntl(fd, F_GETFL, 0);
+-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
++    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
++      fail_connection("configuring", errno);
++    }
++#ifdef SO_NOSIGPIPE
++    int one = 1;
++    if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) < 0) {
++      fail_connection("configuring", errno);
++    }
++#endif
++    worker_ = std::thread(&SocketThread::worker, this);
+   }
+   ~SocketThread() {
+-    stop_ = true;
++    {
++      std::unique_lock lock(queue_mutex_);
++      stop_ = true;
++    }
+     condition_.notify_all();
+     worker_.join();
+     int flags = fcntl(fd_, F_GETFL, 0);
+@@ -199,35 +212,41 @@
+     return !(sends_.empty() && recvs_.empty());
+   }
+ 
++  [[noreturn]] void fail_connection(const char* operation, int error) {
++    // A partial collective cannot safely resume after losing a member.
++    std::cerr << "mlx-server error: [ring] " << operation << " socket " << fd_
++              << " failed (error: " << error << ", " << std::strerror(error)
++              << ")" << std::endl;
++    std::_Exit(70);
++  }
++
+   void worker() {
+-    int error_count = 0;
+     bool delete_recv = false;
+     bool delete_send = false;
+     while (true) {
+-      {
+-        std::unique_lock lock(queue_mutex_);
++      // TANPOPO_MLX_TCP_QUEUE_LOCK: all queue and stop-state access is locked.
++      std::unique_lock lock(queue_mutex_);
+ 
+-        if (delete_recv) {
+-          recvs_.front().promise.set_value();
+-          recvs_.pop_front();
+-          delete_recv = false;
+-        }
+-        if (delete_send) {
+-          sends_.front().promise.set_value();
+-          sends_.pop_front();
+-          delete_send = false;
+-        }
++      if (delete_recv) {
++        recvs_.front().promise.set_value();
++        recvs_.pop_front();
++        delete_recv = false;
++      }
++      if (delete_send) {
++        sends_.front().promise.set_value();
++        sends_.pop_front();
++        delete_send = false;
++      }
+ 
++      if (stop_) {
++        return;
++      }
++
++      if (!have_tasks()) {
++        condition_.wait(lock, [this] { return stop_ || have_tasks(); });
+         if (stop_) {
+           return;
+         }
+-
+-        if (!have_tasks()) {
+-          condition_.wait(lock, [this] { return stop_ || have_tasks(); });
+-          if (stop_) {
+-            return;
+-          }
+-        }
+       }
+ 
+       if (!recvs_.empty()) {
+@@ -237,31 +256,29 @@
+           task.buffer = static_cast<char*>(task.buffer) + r;
+           task.size -= r;
+           delete_recv = task.size == 0;
+-          error_count = 0;
+-        } else if (errno != EAGAIN) {
+-          error_count++;
+-          log_info(
+-              true, "Receiving from socket", fd_, "failed with errno", errno);
++        } else if (r == 0) {
++          fail_connection("receiving", ECONNRESET);
++        } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
++          fail_connection("receiving", errno);
+         }
+       }
+       if (!sends_.empty()) {
+         auto& task = sends_.front();
++#ifdef MSG_NOSIGNAL
++        ssize_t r = ::send(fd_, task.buffer, task.size, MSG_NOSIGNAL);
++#else
+         ssize_t r = ::send(fd_, task.buffer, task.size, 0);
++#endif
+         if (r > 0) {
+           task.buffer = static_cast<char*>(task.buffer) + r;
+           task.size -= r;
+           delete_send = task.size == 0;
+-          error_count = 0;
+-        } else if (errno != EAGAIN) {
+-          error_count++;
+-          log_info(true, "Sending to socket", fd_, "failed with errno", errno);
++        } else if (r == 0) {
++          fail_connection("sending", EPIPE);
++        } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
++          fail_connection("sending", errno);
+         }
+       }
+-
+-      if (error_count >= 10) {
+-        log_info(true, "Too many send/recv errors. Aborting...");
+-        return;
+-      }
+     }
+   }
+ 

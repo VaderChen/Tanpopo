@@ -145,6 +145,30 @@ if ! grep -Fq 'tanpopoJacclEnabled' "${MLX_SWIFT_MANIFEST}"; then
   rm "${MLX_SWIFT_MANIFEST}.rdma.bak"
   chmod a-w "${MLX_SWIFT_MANIFEST}"
 fi
+MLX_TCP_UTILS="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/distributed/utils.cpp"
+if ! grep -Fq 'TANPOPO_MLX_TCP_CONNECT_ERRORS' "${MLX_TCP_UTILS}"; then
+  cp "${MLX_TCP_UTILS}" "${MLX_TCP_UTILS}.rdma.bak"
+  chmod u+w "${MLX_TCP_UTILS}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-distributed-sockets.patch"; then
+    mv "${MLX_TCP_UTILS}.rdma.bak" "${MLX_TCP_UTILS}"
+    echo "無法套用 MLX TCP 連線錯誤補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_TCP_UTILS}.rdma.bak"
+  chmod a-w "${MLX_TCP_UTILS}"
+fi
+MLX_RING_SOURCE="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/distributed/ring/ring.cpp"
+if ! grep -Fq 'TANPOPO_MLX_TCP_QUEUE_LOCK' "${MLX_RING_SOURCE}"; then
+  cp "${MLX_RING_SOURCE}" "${MLX_RING_SOURCE}.rdma.bak"
+  chmod u+w "${MLX_RING_SOURCE}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-ring-queues.patch"; then
+    mv "${MLX_RING_SOURCE}.rdma.bak" "${MLX_RING_SOURCE}"
+    echo "無法套用 MLX TCP 佇列同步補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_RING_SOURCE}.rdma.bak"
+  chmod a-w "${MLX_RING_SOURCE}"
+fi
 SDK_ROOT="$(xcrun --sdk macosx --show-sdk-path)"
 MLX_PRIMITIVES="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/primitives.h"
 if ! grep -Fq 'TANPOPO_MLX_LOAD_ROW_SLICE' "${MLX_PRIMITIVES}"; then

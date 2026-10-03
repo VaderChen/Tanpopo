@@ -1,6 +1,6 @@
 # MLX 分散推論與 RDMA 使用指南
 
-狀態：實驗功能；2026-10-03。Runtime 版本尾碼為 `rdma5`。
+狀態：實驗功能；2026-10-03。Runtime 版本尾碼為 `rdma6`。
 
 本功能讓多台 Mac 共同執行同一個模型。正式程式仍是 Go、Swift 與 C++，不需要 Python、pip 或 `mlx_lm.server`。
 
@@ -28,7 +28,7 @@
 ./mlx-runtime/prebuilt/darwin-arm64/bin/mlx-server --distributed-capabilities
 ```
 
-建置器沿用固定的 `mlx-swift 0.31.6` 與專案 Vendor fork，依序套用版本化的 Metal、分散式後端及分片讀取補丁，不需升級整個 Swift MLX 依賴組合。
+建置器沿用固定的 `mlx-swift 0.31.6` 與專案 Vendor fork，依序套用版本化的 Metal、分散式後端、TCP 連線診斷、收送佇列同步及分片讀取補丁，不需升級整個 Swift MLX 依賴組合。
 
 macOS SDK 包含 `infiniband/verbs.h` 時，自動編入 JACCL；較舊 SDK 只編入 Ring。建置 JACCL 需要 macOS 26.2 或以上的 SDK。未編入 JACCL 的成品不能用來驗證 RDMA，應更換工具鏈後重新建置。
 
@@ -38,11 +38,13 @@ macOS SDK 包含 `infiniband/verbs.h` 時，自動編入 JACCL；較舊 SDK 只�
 
 正式建置以建置腳本為入口。自行執行 `swift test` 前，先執行一次建置腳本，以確保 SwiftPM checkout 已套用補丁。
 
+TCP 連線診斷可用 `./scripts/smoke-mlx-distributed-sockets.sh` 驗證。此 Smoke 編譯實際套用補丁的 C++ socket 程式，檢查拒絕連線的原始錯誤碼、重試次數、回呼覆寫 `errno` 或拋出例外時的 socket 回收，以及正常連線。另以 ThreadSanitizer 驗證並行收送佇列，確認雙向斷線明確結束程序；不使用 Python。
+
 ## 在 Tanpopo Server 一鍵啟動 TCP Ring
 
-此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma5` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types` 及足夠的 `max_ring_nodes`。
+此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma6` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types` 及足夠的 `max_ring_nodes`。
 
-版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma4` 和 `rdma5` 不可混用。
+版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma6` 不可與 `rdma4`／`rdma5` 混用。
 
 1. 各台在「系統設定」指定 MLX 模型目錄，下載相同版本、相同量化格式的支援模型。根目錄可以不同，模型相對路徑必須一致，例如各台都是 `Qwen3-8B-4bit`。
 2. 各台到「執行狀態 → TCP Ring 叢集」，按卡片右側的「搜尋節點」。這會開啟區網探索及節點清單對話框；工作節點可關閉對話框，探索仍保持開啟。
@@ -67,6 +69,7 @@ macOS SDK 包含 `infiniband/verbs.h` 時，自動編入 JACCL；較舊 SDK 只�
 - 此模式不使用共享金鑰或 HMAC，HTTP 握手及原生張量通道亦未加密；來源 IP 與 nonce 並非密碼學身分驗證。**僅適用信任的區域網路**；開啟探索即允許該區網已探索的 Server 邀請本機執行支援模型，關閉探索後不再接受邀請。
 - 系統時間需相差不超過 30 秒。管理登入未啟用時，探索設定與啟動只接受本機操作；啟用管理登入後才能遠端管理。管理 API 仍有登入與跨來源檢查；節點控制 API 拒絕瀏覽器 Origin 與非 JSON 請求。
 - 所有節點共用各自 Manager 的 GPU 保留，防止覆蓋單機推論或另一群組。任一成員啟動失敗會整組回滾；每兩秒更新租約，任一端失聯超過 20 秒開始清理，正常停止預留最多八秒再強制結束。Server 意外退出時，原生程序會透過 stdin EOF 結束。此模式不會啟用 Thunderbolt RDMA。
+- `rdma6` 修正 MLX socket 收送佇列的執行緒競爭；斷線或不可恢復的 I/O 錯誤會立即結束 Rank，交由 Server 回收整組。連線失敗保留原始系統錯誤碼並釋放 socket；張量逾時會標示 Rank、層、形狀、資料型別與通訊階段。Server 會將失敗節點與原因傳給其餘成員。若只看到叢集結束，請檢查兩端 Server 是否皆已更新，並參考 [TCP Ring 連線排查](MLX-RUNTIME-TROUBLESHOOTING.md#tcp-ring-配對後隨即結束)。
 
 ### API 與同機三 Server Smoke
 
@@ -86,9 +89,12 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
 
 - 兩台實體 Mac 使用同一份已發布的 `rdma4` Runtime，透過 Tanpopo Server 探索及交握，執行 `mlx-community/Qwen3-0.6B-4bit`（revision `73e3e38d981303bc594367cd910ea6eb48349da8`）。單機與雙機均回覆 `TCP Ring ready`，輸入 19、輸出 3 Token；健康資訊確認 `world_size: 2`。此項證明既有區網路徑可用。
 - `rdma5` 以同機兩個獨立 Tanpopo Server 載入 `Qwen3.5-4B-MLX-4bit` 真實權重，經 UDP 探索及管理 API 啟動。切分 248 個線性層，每個 Rank 的線性權重為 1,003,806,720 bytes（原始總計 2,007,613,440 bytes）。兩組中英文回答及輸入／輸出 Token 數與單機一致，SSE、整組停止與租約清理通過。
-- 原生三 Rank Smoke 驗證 FP32／FP16／BF16、Q4、直接讀取完整權重、自訂線性子類別及 lazy 權重轉換保留。三 Server Smoke 驗證探索、端點準備、交握回滾、故障及重啟回收。
+- `rdma5` 實體雙 Mac 在遠端 App 完整結束再重啟後，恢復原生 TCP 連線。兩端使用 `lmstudio-community/Qwen3.5-4B-MLX-4bit` 固定 revision `c43ee1d65576a5d98de1e8405cac93c371a655c1` 的獨立副本後，通過 Runtime、模型內容與切分計畫校驗，248 個線性層載入就緒；第一筆推論仍發生張量運算 120 秒逾時，尚未通過雙機推論驗收。
+- 同一實體區網的 `rdma5` Qwen3-0.6B 測試，第一組英文回覆及 Token 數與單機一致，但生成僅約 0.03 Token/s；第二組中文請求超過測試的 240 秒期限，未完成後續串流測試，已停止兩端測試程序。這項部分結果不等於整輪驗收通過。
+- `rdma6` 原生三 Rank Smoke 驗證 FP32／FP16／BF16、Q4、直接讀取完整權重、自訂線性子類別及 lazy 權重轉換保留。三 Server Smoke 驗證探索、端點準備、交握回滾、故障及重啟回收。ThreadSanitizer 在修正前檢出 socket 佇列競爭，套用同步補丁後同項並行測試通過，連線錯誤與雙向斷線 Smoke 亦通過。
+- `rdma6` 再以同機兩個獨立 Server 執行上述 Qwen3.5-4B 真實模型；中英文內容及 Token 數與單機相同，248 層分片、SSE、停止與叢集狀態回收均通過。這是同機流程驗證，不代表實體雙機已驗收。
 
-以上不是效能基準：每層通訊仍有明顯成本。Qwen3.5 的新版實體雙機測試需兩端一起更新 `rdma5`；Thunderbolt JACCL RDMA 尚未實測。
+以上不是效能基準：每層通訊仍有明顯成本。`rdma6` 的實體雙機結果需兩端更新同一份成品後重新驗證；已檢出的佇列競爭尚不能直接視為本次雙機逾時的確定原因。Thunderbolt JACCL RDMA 尚未實測。
 
 ## JACCL 設備前置作業
 

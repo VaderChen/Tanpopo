@@ -5,18 +5,28 @@ import MLXDistributedBridge
 
 /// 只跨不可恢復的通訊操作設定期限；空閒 worker 不套用推論逾時。
 final class DistributedDeadline: @unchecked Sendable {
+    private final class Context: @unchecked Sendable {
+        let lock = NSLock()
+        var operation: String
+        init(_ operation: String) { self.operation = operation }
+        func describe() -> String { lock.withLock { operation } }
+    }
     private let timer: DispatchSourceTimer
+    private let context: Context
     init(seconds: Int, operation: String) {
+        let context = Context(operation)
+        self.context = context
         timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + .seconds(seconds))
         timer.setEventHandler {
-            fputs("分散式 \(operation) 逾時；終止此 Rank，避免保留損壞的通訊群組。\n", stderr)
+            fputs("mlx-server error: 分散式 \(context.describe()) 逾時；終止此 Rank，避免保留損壞的通訊群組。\n", stderr)
             _exit(70)
         }
         timer.resume()
     }
     deinit { timer.cancel() }
     func cancel() { timer.cancel() }
+    func update(_ operation: String) { context.lock.withLock { context.operation = operation } }
 }
 
 final class DistributedGroup: @unchecked Sendable {

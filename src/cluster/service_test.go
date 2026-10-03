@@ -215,6 +215,35 @@ func TestKeylessDiscoveryAndMultiNodeRing(t *testing.T) {
 		if node.backend.Status().Running || node.Status().Session != nil {
 			t.Fatal("整組停止未完成")
 		}
+		if node.Status().LastError != "" {
+			t.Fatal("正常停止不應顯示失敗原因")
+		}
+	}
+}
+
+func TestWorkerFailureReasonReachesAllMembers(t *testing.T) {
+	port := discoveryPort(t)
+	a, _ := testNode(t, port)
+	b, backend := testNode(t, port)
+	c, _ := testNode(t, port)
+	awaitPeers(t, a, b, c)
+	profile := domain.StartupCommand{Runtime: domain.RuntimeMLXServer, ContextSize: 512}
+	if _, err := a.Start(context.Background(), []string{b.Status().Local.ID, c.Status().Local.ID}, "fixture", profile); err != nil {
+		t.Fatal(err)
+	}
+	backend.mu.Lock()
+	backend.status.Running = false
+	backend.status.LastError = "TCP 連線失敗：Connection refused"
+	backend.mu.Unlock()
+	b.maintain()
+	for _, node := range []*Service{a, b, c} {
+		status := node.Status()
+		if status.Session != nil || node.backend.Status().Running {
+			t.Fatal("工作節點失敗後未停止整組")
+		}
+		if !strings.Contains(status.LastError, b.name) || !strings.Contains(status.LastError, "Connection refused") {
+			t.Fatalf("未保留失敗節點與原因：%q", status.LastError)
+		}
 	}
 }
 

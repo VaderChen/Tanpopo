@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type controlRequest struct {
 	ContextSize int                `json:"context_size"`
 	Addresses   []string           `json:"addresses,omitempty"`
 	Ready       bool               `json:"ready"`
+	StopReason  string             `json:"stop_reason,omitempty"`
 }
 
 type controlResponse struct {
@@ -402,8 +404,11 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		}
 		s.mu.Unlock()
 	case "stop":
+		if len(request.StopReason) > 1024 {
+			return controlResponse{}, errors.New("TCP Ring 停止原因過長")
+		}
 		// 工作節點離開時通知其餘成員，不回呼正在等待此回覆的發起者。
-		return controlResponse{}, s.stopLocked(ctx, "", active.Role == "coordinator", p.From)
+		return controlResponse{}, s.stopLocked(ctx, request.StopReason, active.Role == "coordinator", p.From)
 	default:
 		return controlResponse{}, errors.New("未知的 TCP Ring 控制命令")
 	}
@@ -417,6 +422,9 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 func (s *Service) stopLocked(ctx context.Context, reason string, notify bool, except ...string) error {
+	if len(reason) > 1024 {
+		reason = strings.ToValidUTF8(reason[:1024], "")
+	}
 	s.mu.Lock()
 	active := s.active
 	s.mu.Unlock()
@@ -436,7 +444,7 @@ func (s *Service) stopLocked(ctx context.Context, reason string, notify bool, ex
 			}
 		}
 		notifyCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, notifyErr := s.callPeers(notifyCtx, peers, "stop", controlRequest{SessionID: active.ID})
+		_, notifyErr := s.callPeers(notifyCtx, peers, "stop", controlRequest{SessionID: active.ID, StopReason: reason})
 		cancel()
 		if notifyErr != nil && reason == "" {
 			reason = "本機已停止；未回應節點將由租約回收：" + notifyErr.Error()
@@ -460,7 +468,7 @@ func (s *Service) maintain() {
 	status := s.backend.Status()
 	reason := ""
 	if active.Phase != "prepared" && active.Phase != "armed" && active.Phase != "preparing" && active.Phase != "starting" && !status.Running {
-		reason = "TCP Ring 程序已結束：" + status.LastError
+		reason = fmt.Sprintf("節點 %s 的 TCP Ring 程序已結束：%s", s.name, status.LastError)
 	} else if active.Role == "worker" && time.Since(active.lastLease) > leaseLifetime {
 		reason = "主節點租約逾時，已停止工作節點"
 	} else if active.Role == "coordinator" {

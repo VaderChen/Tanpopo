@@ -1,0 +1,68 @@
+--- a/Source/Cmlx/mlx/mlx/distributed/utils.cpp
++++ b/Source/Cmlx/mlx/mlx/distributed/utils.cpp
+@@ -166,41 +166,41 @@
+     int num_retries,
+     int wait,
+     std::function<void(int, int)> cb) {
+-  int sock, success;
+-
+-  // Attempt to connect `num_retries` times with exponential backoff.
++  // TANPOPO_MLX_TCP_CONNECT_ERRORS: retain errno before callbacks or sleep.
++  if (num_retries < 1) {
++    throw std::invalid_argument("TCP connection attempts must be positive");
++  }
++  int connect_error = 0;
+   for (int attempt = 0; attempt < num_retries; attempt++) {
+-    // Create the socket
+-    sock = socket(AF_INET, SOCK_STREAM, 0);
++    const int sock = socket(AF_INET, SOCK_STREAM, 0);
+     if (sock < 0) {
++      const int socket_error = errno;
+       std::ostringstream msg;
+-      msg << tag << " Couldn't create socket to connect (error: " << errno
+-          << ")";
++      msg << tag << " Couldn't create socket to connect (error: "
++          << socket_error << ", " << std::strerror(socket_error) << ")";
+       throw std::runtime_error(msg.str());
+     }
+-
+-    success = ::connect(sock, addr.get(), addr.len);
+-    if (success == 0) {
+-      break;
++    if (::connect(sock, addr.get(), addr.len) == 0) {
++      return TCPSocket(sock);
+     }
+-
++    connect_error = errno;
++    // A failed attempt owns a descriptor too, including when cb throws.
++    close(sock);
+     if (cb != nullptr) {
++      errno = connect_error;
+       cb(attempt, wait);
+     }
+-    if (wait > 0) {
+-      std::this_thread::sleep_for(std::chrono::milliseconds(wait));
++    if (attempt + 1 < num_retries) {
++      if (wait > 0) {
++        std::this_thread::sleep_for(std::chrono::milliseconds(wait));
++      }
++      wait <<= 1;
+     }
+-
+-    wait <<= 1;
+   }
+-
+-  if (success < 0) {
+-    std::ostringstream msg;
+-    msg << tag << " Couldn't connect (error: " << errno << ")";
+-    throw std::runtime_error(msg.str());
+-  }
+-
+-  return TCPSocket(sock);
++  std::ostringstream msg;
++  msg << tag << " Couldn't connect (error: " << connect_error << ", "
++      << std::strerror(connect_error) << ")";
++  throw std::runtime_error(msg.str());
+ }
+ 
+ } // namespace mlx::core::distributed::detail

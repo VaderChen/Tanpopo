@@ -15,7 +15,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma5"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma6"
 
     var modelPath = ""
     var mmprojPath: String?

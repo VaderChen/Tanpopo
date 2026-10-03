@@ -160,7 +160,8 @@ final class DistributedTensorSession: @unchecked Sendable {
         }
         return lock.withLock {
             do {
-                let deadline = DistributedDeadline(seconds: configuration.operationTimeout, operation: "張量運算")
+                let detail = "Rank \(group.rank) layer=\(layer) shape=\(input.shape) dtype=\(input.dtype)"
+                let deadline = DistributedDeadline(seconds: configuration.operationTimeout, operation: "\(detail) 運算交握")
                 defer { withExtendedLifetime(deadline) {} }
                 var header = [Int32](repeating: 0, count: headerSize)
                 header[0] = 1
@@ -169,7 +170,9 @@ final class DistributedTensorSession: @unchecked Sendable {
                 header[3] = Int32(dtype)
                 for (index, dimension) in input.shape.enumerated() { header[4 + index] = Int32(dimension) }
                 _ = try group.sum(MLXArray(header))
+                deadline.update("\(detail) 輸入交換")
                 let shared = try group.sum(input)
+                deadline.update("\(detail) 線性運算／輸出匯集")
                 return try gatherOutput(layers[layer](shared), layer: layer)
             } catch {
                 // 已進入 collective 後不能安全地讓任一 Rank 單獨跳過運算。
@@ -227,7 +230,10 @@ final class DistributedTensorSession: @unchecked Sendable {
                     }
                     elements *= dimension
                 }
+                let detail = "Rank \(group.rank) layer=\(identifier) shape=\(shape) dtype=\(Self.dtypes[dtype])"
+                deadline.update("\(detail) 輸入交換")
                 let input = try group.sum(MLXArray.zeros(shape, dtype: Self.dtypes[dtype]))
+                deadline.update("\(detail) 線性運算／輸出匯集")
                 let output = try gatherOutput(layers[identifier](input), layer: identifier)
                 eval(output)
             default: throw DistributedError.invalid("Worker 收到未知指令。")

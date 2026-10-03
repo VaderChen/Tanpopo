@@ -994,7 +994,7 @@ func (m *Manager) wait(command *exec.Cmd, done chan struct{}) {
 		m.status.PID = 0
 		m.status.StoppedAt = time.Now()
 		if err != nil && !wasStopping {
-			m.status.LastError = err.Error()
+			m.status.LastError = runtimeFailure(err, m.logs.String())
 		} else {
 			m.status.LastError = ""
 		}
