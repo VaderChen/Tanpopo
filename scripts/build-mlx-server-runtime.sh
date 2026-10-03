@@ -193,6 +193,18 @@ if ! grep -Fq 'TANPOPO_MLX_LOAD_ROW_SLICE' "${MLX_PRIMITIVES}"; then
   rm "${MLX_PRIMITIVES}.rdma.bak"
   chmod a-w "${MLX_PRIMITIVES}"
 fi
+MLX_MATMUL="${MLX_SWIFT_CHECKOUT}/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp"
+if ! grep -Fq 'TANPOPO_MATMUL_OUTPUT_SIZE' "${MLX_MATMUL}"; then
+  cp "${MLX_MATMUL}" "${MLX_MATMUL}.rdma.bak"
+  chmod u+w "${MLX_MATMUL}"
+  if ! patch -s -d "${MLX_SWIFT_CHECKOUT}" -p1 < "${PROJECT_DIR}/scripts/mlx-swift-distributed-matmul.patch"; then
+    mv "${MLX_MATMUL}.rdma.bak" "${MLX_MATMUL}"
+    echo "無法套用 MLX 分片矩陣加總補丁。" >&2
+    exit 1
+  fi
+  rm "${MLX_MATMUL}.rdma.bak"
+  chmod a-w "${MLX_MATMUL}"
+fi
 if [[ -f "${SDK_ROOT}/usr/include/infiniband/verbs.h" ]]; then
   export TANPOPO_MLX_JACCL=1
   echo "啟用 JACCL／Thunderbolt RDMA 原生後端。"

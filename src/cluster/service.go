@@ -31,11 +31,11 @@ const (
 
 type Backend interface {
 	RingCapabilities(context.Context) (llamacpp.RingCapabilities, error)
-	InspectRingModel(string) (llamacpp.RingModel, error)
-	RingModelDirectory() string
+	InspectRingModel(string, ...llamacpp.RingOptions) (llamacpp.RingModel, error)
+	RingModelDirectory(string) string
 	ReserveRing(string) error
 	ReleaseRing(string)
-	StartRing(string, string, int, []string, domain.StartupCommand) (domain.LlamaStatus, error)
+	StartRing(string, string, int, []string, domain.StartupCommand, ...llamacpp.RingOptions) (domain.LlamaStatus, error)
 	Status() domain.LlamaStatus
 	Stop(context.Context) error
 }
@@ -112,6 +112,7 @@ type activeSession struct {
 	listener     net.Listener
 	lastLease    time.Time
 	profile      domain.StartupCommand
+	options      llamacpp.RingOptions
 	ctx          context.Context
 	cancel       context.CancelFunc
 	snapshot     *modelbundle.Snapshot
@@ -188,7 +189,7 @@ func validID(value string) bool {
 
 func (s *Service) nodeLocked() Node {
 	return Node{ID: s.config.NodeID, Name: s.name, Platform: runtime.GOOS + "/" + runtime.GOARCH,
-		Port: s.port, Capabilities: s.capability, Busy: s.active != nil, Clustered: s.active != nil, ModelSyncVersion: 1}
+		Port: s.port, Capabilities: s.capability, Busy: s.active != nil, Clustered: s.active != nil, ModelSyncVersion: 2}
 }
 
 func (s *Service) Status() Status {

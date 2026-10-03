@@ -1,0 +1,1910 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "timezone": "Asia/Taipei",
+  "scope": "同一台 M4 Pro／64 GiB 的兩個獨立 Tanpopo Server，使用 loopback TCP Ring 並共用 GPU。效能樣本不與其他測試或編譯並行；不代表實體雙機或 Wi-Fi／RDMA 效能。",
+  "platform": "darwin/arm64",
+  "os_version": "27.0",
+  "physical_memory_bytes": 68719476736,
+  "source_base_commit": "1cbfe1ec838eb292512eed46a0608a0446ff6bc9",
+  "source_worktree_clean": false,
+  "source_note": "基底 commit 加上尚未提交的格式支援與函式最佳化。基準原生版為 rdma9 加入同一份選用 profiler；最佳化版為 rdma10。成品雜湊才代表本次實際測試版本。",
+  "baseline": {
+    "started_at": "2026-10-03T08:10:42.087Z",
+    "completed_at": "2026-10-03T08:12:49.162Z",
+    "native_sha256": "468dd941eb660f09a33eede4203999ae684242716f39915fa1249cb7f6a23b81",
+    "go_server_sha256": "f27fe1d54a4a89d6d4f5660595376ed24faf43b2b01b4c8f54039f4e240421c6",
+    "test_script_sha256": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a",
+    "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma9",
+    "metal_library_sha256": "69544a97ef8eff65c7fe42b9034193fd8f1e313d9c26284e1734d78e6609e6ab"
+  },
+  "optimized": {
+    "started_at": "2026-10-03T08:20:22.542Z",
+    "completed_at": "2026-10-03T08:21:51.984Z",
+    "native_sha256": "f7be2de7cda35c5acca2e824ec192feabb705516c7d2b69c372b24763bd64f13",
+    "go_server_sha256": "45a2b19236af8b7db6f0c543a2157fdc9ee948699da9599a74d9f378e3ecce62",
+    "test_script_sha256": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a",
+    "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma10",
+    "metal_library_sha256": "69544a97ef8eff65c7fe42b9034193fd8f1e313d9c26284e1734d78e6609e6ab"
+  },
+  "settings": {
+    "temperature": 0,
+    "context_size": 4096,
+    "prefill_step_size": 128,
+    "kv_quantization": false,
+    "benchmark_iterations": 5,
+    "warmups_per_mode": 1,
+    "max_tokens": 48,
+    "profiling": true,
+    "mmap": false,
+    "automatic_performance_calibration": false,
+    "server_memory_pressure_protection": false
+  },
+  "prompt": "請用繁體中文連續描述一隻紅色小鳥在森林尋找食物的過程，至少一百字，不要標題。",
+  "comparison": "逐筆比對回答及推理（去除前後空白）、輸入／輸出／總 Token 數和 finish_reason；同時比較兩版與單機／叢集。",
+  "models": [
+    {
+      "name": "Qwen3-0.6B Q4",
+      "model": "mlx-community-qwen3-0-6b-4bit-73e3e38d981303bc594367cd910ea6eb48349da8-b67ec7b2",
+      "architecture": "qwen3",
+      "config_sha256": "15d3ac26c043ae477273ed5802ee0f0b33bb14f18c9d3dd70910c02d906e3f1f",
+      "weight_bytes": 335450584,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4
+      },
+      "sharding": {
+        "kv_cache_location": "rank0",
+        "specialized_operations": "rank0",
+        "rank": 0,
+        "coordinator_replicated_bytes": 87646208,
+        "sharded_layers": 196,
+        "weight_loading": "direct-row-read",
+        "local_linear_bytes": 123863040,
+        "original_linear_bytes": 247726080,
+        "backend": "ring",
+        "hardware_validation": "experimental",
+        "function_profile": {
+          "gather": {
+            "input_eval_ms": 0.011625,
+            "calls": 2,
+            "collective_ms": 0.874249,
+            "input_bytes": 64
+          },
+          "control": {
+            "input_eval_ms": 0.011333,
+            "input_bytes": 204,
+            "calls": 6,
+            "collective_ms": 7.691958
+          }
+        },
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "strategy": "linear-output-sharding",
+        "world_size": 2
+      },
+      "results": {
+        "baseline_single": {
+          "warmup_ms": 144,
+          "samples_ms": [
+            144,
+            146,
+            143,
+            143,
+            144
+          ],
+          "median_ms": 144,
+          "response": {
+            "content": "紅色小鳥在林間飛舞，腳尖輕盈地掠過枝葉，眼神中帶著尋求的熱情。它飛過樹梢，尋找隱藏的草叢，時而停在",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 41,
+              "completion_tokens": 48,
+              "total_tokens": 89
+            }
+          },
+          "all_sample_responses_matched": true
+        },
+        "baseline_cluster": {
+          "warmup_ms": 6130,
+          "samples_ms": [
+            5875,
+            5960,
+            5912,
+            6066,
+            5977
+          ],
+          "median_ms": 5960,
+          "response": {
+            "content": "紅色小鳥在林間飛舞，腳尖輕盈地掠過枝葉，眼神中帶著尋求的熱情。它飛過樹梢，尋找隱藏的草叢，時而停在",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 41,
+              "completion_tokens": 48,
+              "total_tokens": 89
+            }
+          },
+          "all_sample_responses_matched": true,
+          "function_profile_before": {
+            "input": {
+              "calls": 13916,
+              "input_bytes": 506347520,
+              "collective_ms": 2051.580791,
+              "input_eval_ms": 1500.616851
+            },
+            "control": {
+              "input_eval_ms": 5.286261,
+              "collective_ms": 2874.870485,
+              "calls": 13926,
+              "input_bytes": 890964
+            },
+            "gather": {
+              "input_eval_ms": 1998.668694,
+              "input_bytes": 303808576,
+              "collective_ms": 1022.435404,
+              "calls": 13918
+            }
+          },
+          "function_profile_after": {
+            "input": {
+              "input_eval_ms": 5275.994991,
+              "input_bytes": 761528320,
+              "collective_ms": 8473.862436,
+              "calls": 61936
+            },
+            "control": {
+              "input_eval_ms": 22.908331,
+              "collective_ms": 12232.705022,
+              "calls": 61952,
+              "input_bytes": 3964448
+            },
+            "gather": {
+              "input_eval_ms": 7970.648319,
+              "collective_ms": 4112.659058,
+              "calls": 61938,
+              "input_bytes": 456917056
+            }
+          },
+          "function_profile_delta": {
+            "input": {
+              "input_eval_ms": 3775.378,
+              "input_bytes": 255180800,
+              "collective_ms": 6422.282,
+              "calls": 48020
+            },
+            "control": {
+              "input_eval_ms": 17.622,
+              "collective_ms": 9357.835,
+              "calls": 48026,
+              "input_bytes": 3073484
+            },
+            "gather": {
+              "input_eval_ms": 5971.98,
+              "collective_ms": 3090.224,
+              "calls": 48020,
+              "input_bytes": 153108480
+            }
+          }
+        },
+        "optimized_single": {
+          "warmup_ms": 153,
+          "samples_ms": [
+            144,
+            143,
+            148,
+            142,
+            142
+          ],
+          "median_ms": 143,
+          "response": {
+            "content": "紅色小鳥在林間飛舞，腳尖輕盈地掠過枝葉，眼神中帶著尋求的熱情。它飛過樹梢，尋找隱藏的草叢，時而停在",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 41,
+              "completion_tokens": 48,
+              "total_tokens": 89
+            }
+          },
+          "all_sample_responses_matched": true
+        },
+        "optimized_cluster": {
+          "warmup_ms": 4222,
+          "samples_ms": [
+            4265,
+            4247,
+            4179,
+            4270,
+            4301
+          ],
+          "median_ms": 4265,
+          "response": {
+            "content": "紅色小鳥在林間飛舞，腳尖輕盈地掠過枝葉，眼神中帶著尋求的熱情。它飛過樹梢，尋找隱藏的草叢，時而停在",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 41,
+              "completion_tokens": 48,
+              "total_tokens": 89
+            }
+          },
+          "all_sample_responses_matched": true,
+          "function_profile_before": {
+            "gather": {
+              "input_eval_ms": 1931.75657,
+              "calls": 13918,
+              "collective_ms": 1013.551602,
+              "input_bytes": 303808576
+            },
+            "control": {
+              "input_eval_ms": 6.198802,
+              "input_bytes": 890896,
+              "calls": 13924,
+              "collective_ms": 1276.365025
+            },
+            "input": {
+              "input_bytes": 506347520,
+              "input_eval_ms": 1101.962497,
+              "calls": 13916,
+              "collective_ms": 1265.010449
+            }
+          },
+          "function_profile_after": {
+            "gather": {
+              "input_eval_ms": 7931.913777,
+              "calls": 61938,
+              "collective_ms": 3868.754199,
+              "input_bytes": 456917056
+            },
+            "control": {
+              "input_eval_ms": 27.291805,
+              "input_bytes": 3964380,
+              "calls": 61950,
+              "collective_ms": 5559.37334
+            },
+            "input": {
+              "input_bytes": 761528320,
+              "input_eval_ms": 4713.207299,
+              "calls": 61936,
+              "collective_ms": 4887.27519
+            }
+          },
+          "function_profile_delta": {
+            "gather": {
+              "input_eval_ms": 6000.157,
+              "calls": 48020,
+              "collective_ms": 2855.203,
+              "input_bytes": 153108480
+            },
+            "control": {
+              "input_eval_ms": 21.093,
+              "input_bytes": 3073484,
+              "calls": 48026,
+              "collective_ms": 4283.008
+            },
+            "input": {
+              "input_bytes": 255180800,
+              "input_eval_ms": 3611.245,
+              "calls": 48020,
+              "collective_ms": 3622.265
+            }
+          }
+        }
+      },
+      "cluster_elapsed_reduction_percent": 28.44,
+      "regular_smoke_comparisons": 3,
+      "baseline_optimized_responses_matched": true,
+      "stopped": true
+    },
+    {
+      "name": "Qwen3.5-4B Q4",
+      "model": "Qwen3.5-4B-MLX-4bit-aligned",
+      "architecture": "qwen3_5",
+      "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+      "weight_bytes": 3034311168,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "sharding": {
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "rank": 0,
+        "original_linear_bytes": 2007613440,
+        "function_profile": {
+          "gather": {
+            "input_eval_ms": 0.013376,
+            "input_bytes": 64,
+            "collective_ms": 0.868749,
+            "calls": 2
+          },
+          "control": {
+            "input_bytes": 204,
+            "collective_ms": 17.344292,
+            "input_eval_ms": 0.014833,
+            "calls": 6
+          }
+        },
+        "coordinator_replicated_bytes": 359505408,
+        "hardware_validation": "experimental",
+        "world_size": 2,
+        "weight_loading": "direct-row-read",
+        "local_linear_bytes": 1003806720,
+        "specialized_operations": "rank0",
+        "kv_cache_location": "rank0",
+        "sharded_layers": 248,
+        "backend": "ring",
+        "strategy": "linear-output-sharding"
+      },
+      "results": {
+        "baseline_single": {
+          "warmup_ms": 709,
+          "samples_ms": [
+            711,
+            710,
+            713,
+            717,
+            711
+          ],
+          "median_ms": 711,
+          "response": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "all_sample_responses_matched": true
+        },
+        "baseline_cluster": {
+          "warmup_ms": 7856,
+          "samples_ms": [
+            7827,
+            7949,
+            7934,
+            8036,
+            8142
+          ],
+          "median_ms": 7949,
+          "response": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "all_sample_responses_matched": true,
+          "function_profile_before": {
+            "input": {
+              "calls": 17360,
+              "collective_ms": 3006.19242,
+              "input_bytes": 1731256320,
+              "input_eval_ms": 2311.553121
+            },
+            "control": {
+              "input_bytes": 1111380,
+              "collective_ms": 3303.373417,
+              "input_eval_ms": 5.475072,
+              "calls": 17370
+            },
+            "gather": {
+              "collective_ms": 1870.193034,
+              "input_bytes": 1092410944,
+              "input_eval_ms": 4031.4783,
+              "calls": 17362
+            }
+          },
+          "function_profile_after": {
+            "input": {
+              "collective_ms": 11411.836435,
+              "input_bytes": 2475786240,
+              "input_eval_ms": 7345.391767,
+              "calls": 78120
+            },
+            "control": {
+              "input_bytes": 5000360,
+              "collective_ms": 14852.597446,
+              "calls": 78140,
+              "input_eval_ms": 24.858038
+            },
+            "gather": {
+              "input_bytes": 1562204224,
+              "collective_ms": 5845.10544,
+              "input_eval_ms": 13289.085443,
+              "calls": 78122
+            }
+          },
+          "function_profile_delta": {
+            "input": {
+              "collective_ms": 8405.644,
+              "input_bytes": 744529920,
+              "input_eval_ms": 5033.839,
+              "calls": 60760
+            },
+            "control": {
+              "input_bytes": 3888980,
+              "collective_ms": 11549.224,
+              "calls": 60770,
+              "input_eval_ms": 19.383
+            },
+            "gather": {
+              "input_bytes": 469793280,
+              "collective_ms": 3974.912,
+              "input_eval_ms": 9257.607,
+              "calls": 60760
+            }
+          }
+        },
+        "optimized_single": {
+          "warmup_ms": 710,
+          "samples_ms": [
+            709,
+            714,
+            710,
+            710,
+            710
+          ],
+          "median_ms": 710,
+          "response": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "all_sample_responses_matched": true
+        },
+        "optimized_cluster": {
+          "warmup_ms": 5913,
+          "samples_ms": [
+            6020,
+            5996,
+            5829,
+            5909,
+            5870
+          ],
+          "median_ms": 5909,
+          "response": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "all_sample_responses_matched": true,
+          "function_profile_before": {
+            "input": {
+              "input_eval_ms": 1587.978038,
+              "input_bytes": 1731256320,
+              "collective_ms": 1952.291132,
+              "calls": 17360
+            },
+            "gather": {
+              "input_bytes": 1092410944,
+              "collective_ms": 1682.975812,
+              "input_eval_ms": 4195.650438,
+              "calls": 17362
+            },
+            "control": {
+              "input_bytes": 1111380,
+              "input_eval_ms": 7.47141,
+              "calls": 17370,
+              "collective_ms": 1611.490365
+            }
+          },
+          "function_profile_after": {
+            "input": {
+              "input_eval_ms": 6515.989466,
+              "input_bytes": 2475786240,
+              "collective_ms": 6736.338282,
+              "calls": 78120
+            },
+            "gather": {
+              "input_bytes": 1562204224,
+              "collective_ms": 5449.482569,
+              "input_eval_ms": 13607.931646,
+              "calls": 78122
+            },
+            "control": {
+              "input_bytes": 5000292,
+              "input_eval_ms": 34.34775,
+              "calls": 78138,
+              "collective_ms": 7003.088348
+            }
+          },
+          "function_profile_delta": {
+            "input": {
+              "input_eval_ms": 4928.011,
+              "input_bytes": 744529920,
+              "collective_ms": 4784.047,
+              "calls": 60760
+            },
+            "gather": {
+              "input_bytes": 469793280,
+              "collective_ms": 3766.507,
+              "input_eval_ms": 9412.281,
+              "calls": 60760
+            },
+            "control": {
+              "input_bytes": 3888912,
+              "input_eval_ms": 26.876,
+              "calls": 60768,
+              "collective_ms": 5391.598
+            }
+          }
+        }
+      },
+      "cluster_elapsed_reduction_percent": 25.664,
+      "regular_smoke_comparisons": 3,
+      "baseline_optimized_responses_matched": true,
+      "stopped": true
+    }
+  ],
+  "go_functions": [
+    {
+      "name": "CreateModelManifest",
+      "baseline_samples": [
+        {
+          "name": "CreateModelManifest",
+          "iterations": 400,
+          "ns_per_op": 1520334,
+          "bytes_per_op": 16822276,
+          "allocs_per_op": 481
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 397,
+          "ns_per_op": 1508790,
+          "bytes_per_op": 16822271,
+          "allocs_per_op": 481
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 403,
+          "ns_per_op": 1450078,
+          "bytes_per_op": 16822197,
+          "allocs_per_op": 481
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 387,
+          "ns_per_op": 1626100,
+          "bytes_per_op": 16822272,
+          "allocs_per_op": 481
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 375,
+          "ns_per_op": 1509207,
+          "bytes_per_op": 16822255,
+          "allocs_per_op": 481
+        }
+      ],
+      "optimized_samples": [
+        {
+          "name": "CreateModelManifest",
+          "iterations": 886,
+          "ns_per_op": 620466,
+          "bytes_per_op": 1084957,
+          "allocs_per_op": 437
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 972,
+          "ns_per_op": 626588,
+          "bytes_per_op": 1085027,
+          "allocs_per_op": 437
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 936,
+          "ns_per_op": 627260,
+          "bytes_per_op": 1085031,
+          "allocs_per_op": 437
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 960,
+          "ns_per_op": 628131,
+          "bytes_per_op": 1085048,
+          "allocs_per_op": 437
+        },
+        {
+          "name": "CreateModelManifest",
+          "iterations": 952,
+          "ns_per_op": 631420,
+          "bytes_per_op": 1085043,
+          "allocs_per_op": 437
+        }
+      ],
+      "baseline_median": {
+        "ns_per_op": 1509207,
+        "bytes_per_op": 16822271,
+        "allocs_per_op": 481
+      },
+      "optimized_median": {
+        "ns_per_op": 627260,
+        "bytes_per_op": 1085031,
+        "allocs_per_op": 437
+      },
+      "elapsed_reduction_percent": 58.438,
+      "allocated_bytes_reduction_percent": 93.55
+    },
+    {
+      "name": "MatchModelManifest",
+      "baseline_samples": [
+        {
+          "name": "MatchModelManifest",
+          "iterations": 412,
+          "ns_per_op": 1491132,
+          "bytes_per_op": 16802906,
+          "allocs_per_op": 407
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 417,
+          "ns_per_op": 1490396,
+          "bytes_per_op": 16802922,
+          "allocs_per_op": 407
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 406,
+          "ns_per_op": 1482028,
+          "bytes_per_op": 16802926,
+          "allocs_per_op": 407
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 397,
+          "ns_per_op": 1492348,
+          "bytes_per_op": 16802920,
+          "allocs_per_op": 407
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 416,
+          "ns_per_op": 1481437,
+          "bytes_per_op": 16802913,
+          "allocs_per_op": 407
+        }
+      ],
+      "optimized_samples": [
+        {
+          "name": "MatchModelManifest",
+          "iterations": 976,
+          "ns_per_op": 612313,
+          "bytes_per_op": 1070866,
+          "allocs_per_op": 362
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 991,
+          "ns_per_op": 609375,
+          "bytes_per_op": 1070867,
+          "allocs_per_op": 362
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 973,
+          "ns_per_op": 614809,
+          "bytes_per_op": 1070866,
+          "allocs_per_op": 362
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 970,
+          "ns_per_op": 614946,
+          "bytes_per_op": 1070866,
+          "allocs_per_op": 362
+        },
+        {
+          "name": "MatchModelManifest",
+          "iterations": 993,
+          "ns_per_op": 608405,
+          "bytes_per_op": 1070873,
+          "allocs_per_op": 362
+        }
+      ],
+      "baseline_median": {
+        "ns_per_op": 1490396,
+        "bytes_per_op": 16802920,
+        "allocs_per_op": 407
+      },
+      "optimized_median": {
+        "ns_per_op": 612313,
+        "bytes_per_op": 1070866,
+        "allocs_per_op": 362
+      },
+      "elapsed_reduction_percent": 58.916,
+      "allocated_bytes_reduction_percent": 93.627
+    },
+    {
+      "name": "EnsureExistingModel",
+      "baseline_samples": [
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 97,
+          "ns_per_op": 5436442,
+          "bytes_per_op": 17386599,
+          "allocs_per_op": 5972
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 100,
+          "ns_per_op": 5408502,
+          "bytes_per_op": 17386618,
+          "allocs_per_op": 5972
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 100,
+          "ns_per_op": 5364999,
+          "bytes_per_op": 17386593,
+          "allocs_per_op": 5972
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 100,
+          "ns_per_op": 5348861,
+          "bytes_per_op": 17386612,
+          "allocs_per_op": 5972
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 100,
+          "ns_per_op": 5340988,
+          "bytes_per_op": 17386581,
+          "allocs_per_op": 5972
+        }
+      ],
+      "optimized_samples": [
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 934,
+          "ns_per_op": 631320,
+          "bytes_per_op": 1077607,
+          "allocs_per_op": 409
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 949,
+          "ns_per_op": 633852,
+          "bytes_per_op": 1077528,
+          "allocs_per_op": 409
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 930,
+          "ns_per_op": 631739,
+          "bytes_per_op": 1077648,
+          "allocs_per_op": 409
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 940,
+          "ns_per_op": 634882,
+          "bytes_per_op": 1077672,
+          "allocs_per_op": 409
+        },
+        {
+          "name": "EnsureExistingModel",
+          "iterations": 937,
+          "ns_per_op": 636346,
+          "bytes_per_op": 1077528,
+          "allocs_per_op": 409
+        }
+      ],
+      "baseline_median": {
+        "ns_per_op": 5364999,
+        "bytes_per_op": 17386599,
+        "allocs_per_op": 5972
+      },
+      "optimized_median": {
+        "ns_per_op": 633852,
+        "bytes_per_op": 1077607,
+        "allocs_per_op": 409
+      },
+      "elapsed_reduction_percent": 88.185,
+      "allocated_bytes_reduction_percent": 93.802
+    }
+  ],
+  "regression": {
+    "build": {
+      "started_at": "2026-10-03T08:22:04.366Z",
+      "completed_at": "2026-10-03T08:29:14.563Z",
+      "native_sha256": "f7be2de7cda35c5acca2e824ec192feabb705516c7d2b69c372b24763bd64f13",
+      "go_server_sha256": "45a2b19236af8b7db6f0c543a2157fdc9ee948699da9599a74d9f378e3ecce62",
+      "test_script_sha256": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a",
+      "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma10"
+    },
+    "cases": [
+      {
+        "name": "Qwen3.5-4B DFlash",
+        "model": "Qwen3.5-4B-MLX-4bit-aligned",
+        "architecture": "qwen3_5",
+        "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+        "weight_bytes": 3034311168,
+        "image_tested": false,
+        "launch": {
+          "dflash_enabled": true,
+          "draft_model": "Qwen3.5-4B-DFlash"
+        },
+        "sharding": {
+          "original_linear_bytes": 2007613440,
+          "backend": "ring",
+          "local_linear_bytes": 1003806720,
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "rank": 0,
+          "sharded_layers": 248,
+          "weight_loading": "direct-row-read",
+          "world_size": 2,
+          "hardware_validation": "experimental",
+          "coordinator_replicated_bytes": 359505408,
+          "kv_cache_location": "rank0",
+          "strategy": "linear-output-sharding",
+          "specialized_operations": "rank0"
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            }
+          },
+          {
+            "name": "推測多區塊驗證",
+            "matched": true,
+            "single": {
+              "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            },
+            "cluster": {
+              "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true,
+        "speculative": {
+          "mode": "dflash",
+          "single": [
+            {
+              "proposed": 4,
+              "accepted": 3,
+              "acceptance": 0.75
+            },
+            {
+              "proposed": 4,
+              "accepted": 3,
+              "acceptance": 0.75
+            },
+            {
+              "proposed": 4,
+              "accepted": 2,
+              "acceptance": 0.5
+            },
+            {
+              "proposed": 144,
+              "accepted": 9,
+              "acceptance": 0.062
+            }
+          ],
+          "cluster": [
+            {
+              "proposed": 4,
+              "accepted": 3,
+              "acceptance": 0.75
+            },
+            {
+              "proposed": 4,
+              "accepted": 3,
+              "acceptance": 0.75
+            },
+            {
+              "proposed": 4,
+              "accepted": 2,
+              "acceptance": 0.5
+            },
+            {
+              "proposed": 144,
+              "accepted": 9,
+              "acceptance": 0.062
+            },
+            {
+              "proposed": 4,
+              "accepted": 3,
+              "acceptance": 0.75
+            }
+          ],
+          "standard_matched": true,
+          "standard_response": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "fallback_to_standard": false,
+          "worker_loaded_draft": false
+        }
+      },
+      {
+        "name": "Fast GGUF Gemma4-E2B",
+        "model": "gguf:unsloth--gemma-4-E2B-it-GGUF--main--gemma-4-E2B-it-Q4_K_M-eaef8a0d/gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4.fgguf.json",
+        "architecture": "gemma4",
+        "config_sha256": "1b28f3d2c3100f6c594754b81107428bd7b822a7f48272ca681dae9d2ec38330",
+        "weight_bytes": 2740458738,
+        "image_tested": false,
+        "launch": {
+          "fast_gguf_enabled": true
+        },
+        "sharding": {
+          "world_size": 2,
+          "specialized_operations": "rank0",
+          "rank": 0,
+          "kv_cache_location": "rank0",
+          "backend": "ring",
+          "coordinator_replicated_bytes": 1720236614,
+          "sharded_layers": 276,
+          "local_linear_bytes": 614891520,
+          "original_linear_bytes": 1229783040,
+          "strategy": "linear-output-sharding",
+          "weight_loading": "direct-row-read",
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "hardware_validation": "experimental"
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 19,
+                "completion_tokens": 2,
+                "total_tokens": 21
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 19,
+                "completion_tokens": 2,
+                "total_tokens": 21
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 47,
+                "completion_tokens": 4,
+                "total_tokens": 51
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 47,
+                "completion_tokens": 4,
+                "total_tokens": 51
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 782,
+                "completion_tokens": 1,
+                "total_tokens": 783
+              }
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 782,
+                "completion_tokens": 1,
+                "total_tokens": 783
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 19,
+              "completion_tokens": 2,
+              "total_tokens": 21
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true
+      },
+      {
+        "name": "Qwen3.5-4B GGUF",
+        "model": "gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.gguf",
+        "architecture": "qwen3_5",
+        "config_sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670",
+        "weight_bytes": 2583221408,
+        "image_tested": true,
+        "launch": {
+          "fast_gguf_enabled": false,
+          "conversion_confirmation_key": "63c54a6b13d5f2cb61669d8f86315d414fc26b301480cd780dc309b76de44c60"
+        },
+        "sharding": {
+          "rank": 0,
+          "specialized_operations": "rank0",
+          "hardware_validation": "experimental",
+          "coordinator_replicated_bytes": 685422080,
+          "sharded_layers": 346,
+          "local_linear_bytes": 2225560064,
+          "weight_loading": "direct-row-read",
+          "kv_cache_location": "rank0",
+          "original_linear_bytes": 4451120128,
+          "backend": "ring",
+          "world_size": 2,
+          "strategy": "linear-output-sharding",
+          "direct_weight_access": "lazy-full-weight-on-rank0"
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            }
+          },
+          {
+            "name": "圖片",
+            "matched": true,
+            "single": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 28,
+                "completion_tokens": 16,
+                "total_tokens": 44
+              }
+            },
+            "cluster": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 28,
+                "completion_tokens": 16,
+                "total_tokens": 44
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true
+      },
+      {
+        "name": "Qwen3.5-9B GGUF MTP",
+        "model": "gguf:unsloth--Qwen3.5-9B-MTP-GGUF--main--Qwen3.5-9B-Q4_K_M-abfa5479/Qwen3.5-9B-Q4_K_M.gguf",
+        "architecture": "qwen3_5",
+        "config_sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+        "weight_bytes": 5868826976,
+        "image_tested": false,
+        "launch": {
+          "fast_gguf_enabled": true,
+          "conversion_confirmation_key": "6cf4f4e2eefc91f0ac10f536072c8fe2208823ae529dd3046a17d52bbb552c9e"
+        },
+        "sharding": {
+          "strategy": "linear-output-sharding",
+          "hardware_validation": "experimental",
+          "sharded_layers": 359,
+          "kv_cache_location": "rank0",
+          "rank": 0,
+          "local_linear_bytes": 3514152816,
+          "specialized_operations": "rank0",
+          "backend": "ring",
+          "coordinator_replicated_bytes": 646926592,
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "world_size": 2,
+          "original_linear_bytes": 7028305632,
+          "weight_loading": "direct-row-read"
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "Blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            },
+            "cluster": {
+              "content": "Blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            }
+          },
+          {
+            "name": "推測多區塊驗證",
+            "matched": true,
+            "single": {
+              "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            },
+            "cluster": {
+              "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true,
+        "speculative": {
+          "mode": "mtp",
+          "single": [
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 26,
+              "accepted": 21,
+              "acceptance": 0.808
+            }
+          ],
+          "cluster": [
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 26,
+              "accepted": 21,
+              "acceptance": 0.808
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            }
+          ],
+          "standard_matched": true,
+          "standard_response": {
+            "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "fallback_to_standard": false,
+          "worker_loaded_draft": false
+        }
+      },
+      {
+        "name": "Fast GGUF Qwen3.5-4B（影像）",
+        "model": "gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.fgguf.json",
+        "architecture": "qwen3_5",
+        "config_sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670",
+        "weight_bytes": 4782281243,
+        "image_tested": true,
+        "launch": {
+          "fast_gguf_enabled": false
+        },
+        "sharding": {
+          "strategy": "linear-output-sharding",
+          "original_linear_bytes": 4451120128,
+          "specialized_operations": "rank0",
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "world_size": 2,
+          "sharded_layers": 346,
+          "local_linear_bytes": 2225560064,
+          "weight_loading": "direct-row-read",
+          "kv_cache_location": "rank0",
+          "coordinator_replicated_bytes": 685422080,
+          "hardware_validation": "experimental",
+          "backend": "ring",
+          "rank": 0
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 45,
+                "completion_tokens": 2,
+                "total_tokens": 47
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            }
+          },
+          {
+            "name": "圖片",
+            "matched": true,
+            "single": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 28,
+                "completion_tokens": 16,
+                "total_tokens": 44
+              }
+            },
+            "cluster": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 28,
+                "completion_tokens": 16,
+                "total_tokens": 44
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true
+      },
+      {
+        "name": "Qwen3.8-27B DFlash2",
+        "model": "Qwen3.8-27B-MLX-4bit",
+        "architecture": "qwen3_5",
+        "config_sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85",
+        "weight_bytes": 16054541599,
+        "image_tested": false,
+        "launch": {
+          "dflash_enabled": true,
+          "draft_model": "Qwen3.8-27B-DFlash2"
+        },
+        "sharding": {
+          "specialized_operations": "rank0",
+          "coordinator_replicated_bytes": 720452608,
+          "strategy": "linear-output-sharding",
+          "kv_cache_location": "rank0",
+          "weight_loading": "direct-row-read",
+          "world_size": 2,
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "rank": 0,
+          "original_linear_bytes": 14412349440,
+          "backend": "ring",
+          "local_linear_bytes": 7206174720,
+          "hardware_validation": "experimental",
+          "sharded_layers": 497
+        },
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 21,
+                "completion_tokens": 2,
+                "total_tokens": 23
+              }
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 49,
+                "completion_tokens": 2,
+                "total_tokens": 51
+              }
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 49,
+                "completion_tokens": 2,
+                "total_tokens": 51
+              }
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "finish_reason": "stop",
+              "usage": {
+                "prompt_tokens": 784,
+                "completion_tokens": 1,
+                "total_tokens": 785
+              }
+            }
+          },
+          {
+            "name": "推測多區塊驗證",
+            "matched": true,
+            "single": {
+              "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            },
+            "cluster": {
+              "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+              "reasoning": "",
+              "finish_reason": "length",
+              "usage": {
+                "prompt_tokens": 35,
+                "completion_tokens": 48,
+                "total_tokens": 83
+              }
+            }
+          }
+        ],
+        "sse": {
+          "response": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        "passed": true,
+        "stopped": true,
+        "speculative": {
+          "mode": "dflash",
+          "single": [
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 35,
+              "accepted": 11,
+              "acceptance": 0.314
+            }
+          ],
+          "cluster": [
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            },
+            {
+              "proposed": 35,
+              "accepted": 11,
+              "acceptance": 0.314
+            },
+            {
+              "proposed": 1,
+              "accepted": 1,
+              "acceptance": 1
+            }
+          ],
+          "standard_matched": true,
+          "standard_response": {
+            "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "fallback_to_standard": false,
+          "worker_loaded_draft": false
+        }
+      }
+    ],
+    "generation_requests": 55
+  },
+  "go_fixture": {
+    "json_files": 12,
+    "json_bytes_each": 22,
+    "weight_files": 4,
+    "weight_bytes_each": 262144,
+    "total_bytes": 1048840,
+    "extra_directories_for_ensure": 256,
+    "full_sha256_checks": true,
+    "benchmark_count": 5,
+    "benchtime": "500ms",
+    "gomaxprocs": 12,
+    "cache_state": "暖機後的本機檔案，非冷磁碟基準",
+    "note": "實際落盤的模擬資料，只核對檔案與 SHA-256，不執行模型載入"
+  },
+  "performance_matrix_generation_requests": 76,
+  "other_validation": {
+    "swift_tests": 13,
+    "swift_failures": 0,
+    "architecture_fixtures": 12,
+    "three_rank_and_three_server_smoke": true,
+    "concurrent_cancellation_failure_cleanup_smoke": true,
+    "go_all": "通過",
+    "go_race": [
+      "modelbundle",
+      "cluster"
+    ]
+  },
+  "validation_log_sha256": {
+    "go-all": "9bc012f3af2f4c92101d973bb5df318e5a1a1aa93cce15f91283f70f5bc77f3e",
+    "go-race": "c9cf57dfb1f205d2fe8d52f1e94384c649f8bce77a5e48dfe6724d57319f12a2",
+    "swift-tests": "ca27f875446c28225569d9d9f62f9c7384564e8bc5ab4ad0ca2928fee4a0c8a7",
+    "native-smoke": "38c47564900d96420bfda76a8c632a9cbe2906ab43fa9a155b36247f3eb68903",
+    "go-baseline": "3fe3be9dd789eb953382aac24b66ba3676c56da7c4c102c6665aacb87090abed",
+    "go-optimized": "b24276a24d8cbe2acb3071b6bbf426c658750f46acdccf700f03211d0b547d39"
+  },
+  "source_file_sha256": {
+    "mlx-server/Sources/MLXServer/DistributedGroup.swift": "2508078bc5b1f76d0aa21febe6bc67da5af75537cfc005daa6cb00ff839ea918",
+    "mlx-server/Sources/MLXServer/DistributedTensorSession.swift": "c82fb74f63d059afe9244ed98f6aee24b951b538fc48902b82fcc4e1cceea3d5",
+    "mlx-server/Sources/MLXServer/DistributedZeroBuffers.swift": "08df55cbabd05d17e4830b082d2e21f88ea36ae230d7d93b385c5da7d42d457f",
+    "mlx-server/Tests/MLXServerTests/DistributedZeroBuffersTests.swift": "ebd36670e81242acef78e1f55397a8b7f42ad23e82b8d31dc4b1d91935660e5b",
+    "src/modelbundle/bundle.go": "8f5d35e6b04df22b5978a709cdccd8eb1e36aad65fb58cb515db4eed2c057e19",
+    "src/modelbundle/bundle_benchmark_test.go": "5035033c7a9e41225b233db4b49694f6f27948e9ab736af5127be835e84075ad",
+    "scripts/smoke-mlx-model-matrix.mjs": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a"
+  },
+  "profile_semantics": {
+    "input_eval_ms": "collective 前的 lazy 求值；gather 包含本地矩陣運算",
+    "collective_ms": "CPU stream、實際通訊及其他 Rank 的等待，不是純網路耗時",
+    "input_bytes": "本 Rank 的輸入張量大小，不是網路流量",
+    "delta_window": "五次測量之間的 session 累計差值，可能包含心跳"
+  },
+  "retention_limits": {
+    "worker_zero_bytes": 16777216,
+    "worker_zero_entries": 32,
+    "coordinator_headers_per_layer": 1,
+    "note": "限制保留的張量參考，不是程序 RSS 或整個 Metal allocator 的上限"
+  },
+  "limitations": [
+    "僅量測本機兩個 Rank 共用 GPU；沒有重新驗證實體 Wi-Fi 或 JACCL RDMA。",
+    "同機叢集仍慢於單機；本次改善不能視為增加節點必然加速。",
+    "Go 微型基準只代表固定 16 份檔案及 256 個其他目錄，不能外推大型模型總載入時間。",
+    "函式量測預設關閉；本報告兩版效能樣本均明確啟用，以同條件比較。",
+    "既有 GGUF／Fast GGUF、推測解碼及特殊層支援限制仍適用。"
+  ]
+}

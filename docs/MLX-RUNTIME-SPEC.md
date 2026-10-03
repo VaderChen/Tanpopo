@@ -108,4 +108,10 @@ Runtime 啟動時解析並固定一份有效上下文上限，對外能力資訊
 
 TCP Ring 支援 2–8 個 Rank；JACCL RDMA 為雙節點。Rank 0 提供 HTTP API、排程、Attention 與 KV Cache；worker 不提供模型 API，依主節點要求執行線性層分片。四個生成名額由 Rank 0 計算，不隨節點數相乘。各 Rank 必須核對 Runtime 執行檔、完整模型與切分計畫，失敗時不退回單機。
 
-Server 管理模式使用探索協定 v2 與 `rdma6` Runtime 能力，支援複選與整組準備／提交／回滾。文字模型能力由原生註冊表動態回報，包含 Qwen3.5；只切分標準一般／量化線性層，保留量化型別與完整 lazy 權重供融合路徑使用。自訂層、專家層、卷積與循環狀態由主節點執行，直接讀取權重時可能載入該層完整權重。這是部分運算分散，不保證任意模型皆可平均分攤記憶體。探索預設關閉；使用者在各台開啟探索後才能互相找到與接受邀請。探索不需金鑰，限可信任區網。操作、網路條件、架構限制及完整 Smoke 指令見 [MLX 分散推論與 RDMA 使用指南](MLX-RDMA.md)。
+Server 管理模式使用探索協定 v2、`model_sync_version: 2` 與 `rdma11` Runtime 能力，支援複選與整組準備／提交／回滾。發起端核對完整模型內容，遠端缺少時下載獨立副本，驗證後才載入，保留原有模型。所有節點必須使用同版 Server 與同一份完整 Runtime。
+
+文字與影像模型能力由原生註冊表動態回報，包含 Qwen3.5；safetensors、GGUF／Fast GGUF 共用一般／量化線性層分片。主節點可使用既有單機相容的 DFlash／MTP 配對產生草稿，Target 驗證走分片；不因此放寬 Target／Draft 相容條件。DFlash 仍需 safetensors Target；Fast GGUF fallback 尚未保存內嵌 MTP，使用此功能須保留原 GGUF。
+
+分片保留量化型別與完整 lazy 權重供融合路徑使用。自訂層、專家層、卷積與循環狀態由主節點執行，直接讀取權重時可能載入該層完整權重。Draft、KV 與首次 GGUF 轉換仍需要主節點／各台的本機資源，不能將多機記憶體視為完整加總。控制張量及零值緩衝區採有限容量重用；函式計時預設關閉。
+
+探索預設關閉；使用者在各台開啟探索後才能互相找到與接受邀請。探索不需金鑰，限可信任區網。操作、網路條件、架構限制及完整 Smoke 指令見 [MLX 分散推論與 RDMA 使用指南](MLX-RDMA.md)。各輪的原生版本與驗證條件分別記錄於[格式驗證](MLX-CLUSTER-FORMATS-VALIDATION.md)、[叢集最佳化](MLX-FUNCTION-OPTIMIZATION.md)及[全專案函式最佳化](PROJECT-FUNCTION-OPTIMIZATION.md)報告。

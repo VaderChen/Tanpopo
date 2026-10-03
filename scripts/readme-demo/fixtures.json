@@ -77,8 +77,8 @@
   ],
   "chat": {
     "prompt": "如何用 Tanpopo 組成 TCP Ring 叢集？",
-    "reasoning": "先確認模型與版本相同，再說明探索、選取與配對流程。",
-    "answer": "**三個步驟，組成 TCP Ring 叢集。**\n\n1. **準備模型**：各台 Mac 安裝相同 Runtime 與支援的 MLX 文字模型。\n2. **搜尋與複選**：各台開啟探索，在主節點勾選要加入的 Server。\n3. **配對並啟用**：完成交握、模型核對及分片載入後，從主節點對話。\n\n也能透過 **OpenAI 相容 API** 使用模型。\n\n*此為模擬回答；畫面不代表實測推論速度。*"
+    "reasoning": "先確認各台版本相同，再說明探索、模型同步與配對流程。",
+    "answer": "**三個步驟，組成 TCP Ring 叢集。**\n\n1. **選擇模型**：各台 Mac 更新相同 Runtime，由發起端選擇支援的模型。\n2. **搜尋與複選**：各台開啟探索，在主節點勾選要加入的 Server。\n3. **配對並啟用**：自動核對模型，缺少時下載獨立副本，載入完成後從主節點對話。\n\n也能透過 **OpenAI 相容 API** 使用模型。\n\n*此為模擬回答；畫面不代表實測推論速度。*"
   },
   "download": {
     "catalog_name": "Qwen 3.5 2B MTP · Q4_0",
@@ -95,7 +95,7 @@
       "platform": "darwin/arm64",
       "busy": false,
       "capabilities": {
-        "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8",
+        "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
         "ring_available": true,
         "managed_parent_stdin": true,
         "max_ring_nodes": 8,
@@ -107,9 +107,11 @@
           "qwen3",
           "qwen3_5",
           "qwen3_5_text"
-        ]
+        ],
+        "gguf_sharding": true,
+        "speculative_coordinator": true
       },
-      "model_sync_version": 1,
+      "model_sync_version": 2,
       "clustered": false
     },
     "peers": [
@@ -121,7 +123,7 @@
         "platform": "darwin/arm64",
         "busy": false,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
           "ring_available": true,
           "managed_parent_stdin": true,
           "max_ring_nodes": 8,
@@ -133,9 +135,11 @@
             "qwen3",
             "qwen3_5",
             "qwen3_5_text"
-          ]
+          ],
+          "gguf_sharding": true,
+          "speculative_coordinator": true
         },
-        "model_sync_version": 1,
+        "model_sync_version": 2,
         "clustered": false
       },
       {
@@ -146,7 +150,7 @@
         "platform": "darwin/arm64",
         "busy": false,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
           "ring_available": true,
           "managed_parent_stdin": true,
           "max_ring_nodes": 8,
@@ -158,9 +162,11 @@
             "qwen3",
             "qwen3_5",
             "qwen3_5_text"
-          ]
+          ],
+          "gguf_sharding": true,
+          "speculative_coordinator": true
         },
-        "model_sync_version": 1,
+        "model_sync_version": 2,
         "clustered": false
       },
       {
@@ -171,7 +177,7 @@
         "platform": "darwin/arm64",
         "busy": true,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
           "ring_available": true,
           "managed_parent_stdin": true,
           "max_ring_nodes": 8,
@@ -183,9 +189,11 @@
             "qwen3",
             "qwen3_5",
             "qwen3_5_text"
-          ]
+          ],
+          "gguf_sharding": true,
+          "speculative_coordinator": true
         },
-        "model_sync_version": 1,
+        "model_sync_version": 2,
         "clustered": false
       }
     ]

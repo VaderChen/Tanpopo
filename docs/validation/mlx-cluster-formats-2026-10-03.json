@@ -1,0 +1,1524 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "timezone": "Asia/Taipei",
+  "scope": "同一台 M4 Pro 的兩個獨立 Tanpopo Server，經 loopback UDP 探索、模型同步及 TCP Ring；非雙實體機效能驗收。",
+  "platform": "darwin/arm64",
+  "os_version": "27.0",
+  "physical_memory_bytes": 68719476736,
+  "source_base_commit": "1cbfe1ec838eb292512eed46a0608a0446ff6bc9",
+  "source_worktree_clean": false,
+  "source_note": "使用基底 commit 加上本次尚未提交的 rdma9 修改；各案例保留實際原生執行檔及測試工具雜湊。六組矩陣使用的原生成品差異為舊版 Fast GGUF 資產清單的補齊，分片計算核心相同。之後補上的自動 worker 資產路徑對應另以最新建置執行參數測試及真實 GGUF Smoke，保留獨立紀錄。",
+  "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma9",
+  "model_sync_version": 2,
+  "settings": {
+    "temperature": 0,
+    "context_size": 4096,
+    "prefill_step_size": 128,
+    "kv_quantization": false,
+    "mmap": false,
+    "automatic_performance_calibration": false,
+    "server_memory_pressure_protection": false
+  },
+  "comparison": "回答及推理內容忽略前後空白後相同；prompt/completion/total Token 數及 finish_reason 相同。SSE 須有 DONE 與使用量，重組後符合單機。",
+  "cases": [
+    {
+      "name": "Qwen3.5-4B GGUF",
+      "target": "gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.gguf",
+      "architecture": "qwen3_5",
+      "format": "gguf",
+      "native_sha256": "fe2710d5aedf50fb3d37c24b13e69a66a743231b398ce29b551512e765202e23",
+      "test_script_sha256": "8f8a7e5794f81cc793523e4fbd4ea8f670b1ca2d9cc81f7833592ffff3955777",
+      "started_at": "2026-10-03T07:41:32.470Z",
+      "completed_at": "2026-10-03T07:42:41.548Z",
+      "target_manifest": {
+        "entry": "Qwen3.5-4B-Q4_0.gguf",
+        "files": [
+          {
+            "path": "Qwen3.5-4B-Q4_0.gguf",
+            "size": 2583221408,
+            "sha256": "298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb"
+          },
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3161,
+            "sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670"
+          },
+          {
+            "path": "mangakitchen-model.json",
+            "size": 421,
+            "sha256": "c9e6d6c4d40f1fc378342f8b640edb7cbd3d3eb1f7a70c3f0ce3bcdaeaf8c28e"
+          },
+          {
+            "path": "merges.txt",
+            "size": 3353259,
+            "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+          },
+          {
+            "path": "mmproj-F16.gguf",
+            "size": 672423616,
+            "sha256": "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 12807982,
+            "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 16710,
+            "sha256": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "de8ecc7a462de73692805165539fc897b35706cff01c7465f69696e0396922ee",
+        "bytes": 3278557847
+      },
+      "weight_file_bytes": 2583221408,
+      "adjacent_config_sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670",
+      "image_tested": true,
+      "target_load_description": "GGUF strategy profile=auto requested_group=auto resolved_group=64 storage=[INT8:249,BF16:475]",
+      "sharding": {
+        "weight_loading": "direct-row-read",
+        "backend": "ring",
+        "kv_cache_location": "rank0",
+        "hardware_validation": "experimental",
+        "original_linear_bytes": 4451120128,
+        "coordinator_replicated_bytes": 685422080,
+        "world_size": 2,
+        "specialized_operations": "rank0",
+        "rank": 0,
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "sharded_layers": 346,
+        "local_linear_bytes": 2225560064,
+        "strategy": "linear-output-sharding"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          }
+        },
+        {
+          "name": "圖片",
+          "matched": true,
+          "single": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "圖片",
+        "response": {
+          "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 28,
+            "completion_tokens": 16,
+            "total_tokens": 44
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true,
+      "linear_diagnostic": {
+        "enabled": true,
+        "differing_layers_reported": 0,
+        "note": "診斷開關在主節點另計算完整線性層以比較輸出；預設關閉。"
+      }
+    },
+    {
+      "name": "Fast GGUF Gemma4-E2B",
+      "target": "gguf:unsloth--gemma-4-E2B-it-GGUF--main--gemma-4-E2B-it-Q4_K_M-eaef8a0d/gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4.fgguf.json",
+      "architecture": "gemma4",
+      "format": "fastgguf",
+      "native_sha256": "e5f8aa253be94592f662d1de4b5de624d76882d04338c5b47b535334596716bf",
+      "test_script_sha256": "cbd9733b59ff253a6cdfe7bf5ba6dcfbf18d84c26b4d8dc494af574d12324b93",
+      "started_at": "2026-10-03T07:51:02.542Z",
+      "completed_at": "2026-10-03T07:51:35.227Z",
+      "target_manifest": {
+        "entry": "gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4.fgguf.json",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 18569,
+            "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5"
+          },
+          {
+            "path": "config.json",
+            "size": 4954,
+            "sha256": "1b28f3d2c3100f6c594754b81107428bd7b822a7f48272ca681dae9d2ec38330"
+          },
+          {
+            "path": "gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4-00001-of-00002.fgguf",
+            "size": 1996820930,
+            "sha256": "f188f9149b9af9bb6cd409e20bb6ed4e36c8baa7a277fc0e5b155cd3e665dd27"
+          },
+          {
+            "path": "gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4-00002-of-00002.fgguf",
+            "size": 743637808,
+            "sha256": "5a8f071bece45ce21c6ad149c7e247d1bb5c7d94d5a706d44d0ab559e4407342"
+          },
+          {
+            "path": "gemma-4-E2B-it-Q4_K_M.tanpopo-9e8e1d15694b9c45f97288d4.fgguf.json",
+            "size": 799,
+            "sha256": "fd8de9e263adf50ed28ccd0f18dc969bda08e6458ff06e7a679df1d365f2c6d4"
+          },
+          {
+            "path": "generation_config.json",
+            "size": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 3082,
+            "sha256": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633"
+          }
+        ],
+        "digest": "72a9e2c9395445849db6c0416c86d9578695e24ac86da8b9912da1007dacc4f8",
+        "bytes": 2772655976
+      },
+      "weight_file_bytes": 2740458738,
+      "adjacent_config_sha256": "1b28f3d2c3100f6c594754b81107428bd7b822a7f48272ca681dae9d2ec38330",
+      "image_tested": false,
+      "target_load_description": "Fast GGUF loaded model=gemma-4-E2B-it-Q4_K_M.gguf profile=mode3 group=32",
+      "sharding": {
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "strategy": "linear-output-sharding",
+        "coordinator_replicated_bytes": 1720236614,
+        "world_size": 2,
+        "specialized_operations": "rank0",
+        "original_linear_bytes": 1229783040,
+        "weight_loading": "direct-row-read",
+        "local_linear_bytes": 614891520,
+        "backend": "ring",
+        "kv_cache_location": "rank0",
+        "hardware_validation": "experimental",
+        "rank": 0,
+        "sharded_layers": 276
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 19,
+              "completion_tokens": 2,
+              "total_tokens": 21
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 19,
+              "completion_tokens": 2,
+              "total_tokens": 21
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 47,
+              "completion_tokens": 4,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 47,
+              "completion_tokens": 4,
+              "total_tokens": 51
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 782,
+              "completion_tokens": 1,
+              "total_tokens": 783
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 782,
+              "completion_tokens": 1,
+              "total_tokens": 783
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "英文短句",
+        "response": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 19,
+            "completion_tokens": 2,
+            "total_tokens": 21
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Fast GGUF Qwen3.5-4B（空節點同步＋影像）",
+      "target": "gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.fgguf.json",
+      "architecture": "qwen3_5",
+      "format": "fastgguf",
+      "native_sha256": "e5f8aa253be94592f662d1de4b5de624d76882d04338c5b47b535334596716bf",
+      "test_script_sha256": "cbd9733b59ff253a6cdfe7bf5ba6dcfbf18d84c26b4d8dc494af574d12324b93",
+      "started_at": "2026-10-03T07:44:57.325Z",
+      "completed_at": "2026-10-03T07:46:08.807Z",
+      "target_manifest": {
+        "entry": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.fgguf.json",
+        "files": [
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00001-of-00003.fgguf",
+            "size": 2031987332,
+            "sha256": "ad359c1a6ab5e081078edbe01e76d0b7e05dd3c67f38374bb495242fa70abfc0"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00002-of-00003.fgguf",
+            "size": 2037692072,
+            "sha256": "a83f9ca90f70e2f904d6451d9f78e4cb70fc3345d77d8f9257fe7cb25f907d01"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00003-of-00003.fgguf",
+            "size": 712601839,
+            "sha256": "e0d082921b82cd9d05dc5a8cbf32841592fe825f07716212c3fe737cabe582bc"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.config.json",
+            "size": 2084,
+            "sha256": "d7501ed582f7e358ebe6a2792f04dab672c02d543ab26fde2324ad17a977da30"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.fgguf.json",
+            "size": 1372,
+            "sha256": "c10ef9ad9ef03c9e06f8db39af2170b2a709258221a93007bdeb02c2561bb973"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.tokenizer.json",
+            "size": 9093508,
+            "sha256": "a94ceb64c1d648164ff9eca4e3b949ff7aa5b962250637dd705946f735743171"
+          },
+          {
+            "path": "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.tokenizer_config.json",
+            "size": 12999,
+            "sha256": "162f77b96c09b715ac019dafda10a9f9e061fd3001d63bc06fd7df2d508e781b"
+          }
+        ],
+        "digest": "aef63bb9d5841e1dfc2bb05ba02a754676b32267a7d788e00e49e59a3f448b00",
+        "bytes": 4791391596
+      },
+      "weight_file_bytes": 4782281243,
+      "adjacent_config_sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670",
+      "image_tested": true,
+      "target_load_description": "Fast GGUF loaded model=Qwen3.5-4B-Q4_0.gguf profile=auto group=64",
+      "sharding": {
+        "kv_cache_location": "rank0",
+        "sharded_layers": 346,
+        "original_linear_bytes": 4451120128,
+        "coordinator_replicated_bytes": 685422080,
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "hardware_validation": "experimental",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "rank": 0,
+        "strategy": "linear-output-sharding",
+        "local_linear_bytes": 2225560064,
+        "world_size": 2,
+        "weight_loading": "direct-row-read"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          }
+        },
+        {
+          "name": "圖片",
+          "matched": true,
+          "single": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 16,
+              "total_tokens": 44
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "圖片",
+        "response": {
+          "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 28,
+            "completion_tokens": 16,
+            "total_tokens": 44
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true,
+      "model_sync": {
+        "initial_worker_model_directory": "空目錄",
+        "downloaded_bytes": 4791391596,
+        "digest": "aef63bb9d5841e1dfc2bb05ba02a754676b32267a7d788e00e49e59a3f448b00",
+        "transferred_files": [
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00001-of-00003.fgguf",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00002-of-00003.fgguf",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5-00003-of-00003.fgguf",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.config.json",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.fgguf.json",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.preprocessor_config.json",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.tokenizer.json",
+          "Qwen3.5-4B-Q4_0.tanpopo-c9556185a2863176e6759fb5.tokenizer_config.json"
+        ],
+        "original_gguf_present_on_worker": false,
+        "external_mmproj_present_on_worker": false,
+        "generated_image_from_embedded_assets": true
+      }
+    },
+    {
+      "name": "Qwen3.5-4B DFlash",
+      "target": "Qwen3.5-4B-MLX-4bit-aligned",
+      "architecture": "qwen3_5",
+      "format": "safetensors",
+      "native_sha256": "fe2710d5aedf50fb3d37c24b13e69a66a743231b398ce29b551512e765202e23",
+      "test_script_sha256": "8f8a7e5794f81cc793523e4fbd4ea8f670b1ca2d9cc81f7833592ffff3955777",
+      "started_at": "2026-10-03T07:42:34.510Z",
+      "completed_at": "2026-10-03T07:44:40.023Z",
+      "target_manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3366,
+            "sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 3034311168,
+            "sha256": "66de7605cac7bd74304804a87d9e6adbff0336cecbd092ce6d871bea8ba4cd93"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 101944,
+            "sha256": "52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989343,
+            "sha256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 1139,
+            "sha256": "e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "f848df76034eca6b7e8226a232a828120608b792fb209f3ed26d6719e067c8b8",
+        "bytes": 3061137475
+      },
+      "weight_file_bytes": 3034311168,
+      "adjacent_config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+      "image_tested": false,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "sharding": {
+        "hardware_validation": "experimental",
+        "sharded_layers": 248,
+        "world_size": 2,
+        "kv_cache_location": "rank0",
+        "coordinator_replicated_bytes": 359505408,
+        "weight_loading": "direct-row-read",
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "local_linear_bytes": 1003806720,
+        "original_linear_bytes": 2007613440,
+        "rank": 0,
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "strategy": "linear-output-sharding"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          }
+        },
+        {
+          "name": "推測多區塊驗證",
+          "matched": true,
+          "single": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "cluster": {
+            "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "英文短句",
+        "response": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 21,
+            "completion_tokens": 2,
+            "total_tokens": 23
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true,
+      "speculative": {
+        "mode": "dflash",
+        "variant": "dflash1",
+        "requested_block_size": 5,
+        "draft": "Qwen3.5-4B-DFlash",
+        "draft_manifest": {
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1220,
+              "sha256": "6fa9ca0d10d2c3f5c93043bdd492e35283e284e4eb6a9e0479ba663609117203"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1268859081,
+              "sha256": "1eb221d36abb13a5f1b972f8d031a9723fad8cbb7d275abe548b60e77577eb42"
+            }
+          ],
+          "digest": "698a46317c77d0c04c9ac02360d958e0d614688f54f6097638fd9e2d29f0b38a",
+          "bytes": 1268860301
+        },
+        "single": [
+          {
+            "proposed": 4,
+            "accepted": 3,
+            "acceptance": 0.75
+          },
+          {
+            "proposed": 4,
+            "accepted": 3,
+            "acceptance": 0.75
+          },
+          {
+            "proposed": 4,
+            "accepted": 2,
+            "acceptance": 0.5
+          },
+          {
+            "proposed": 144,
+            "accepted": 9,
+            "acceptance": 0.062
+          }
+        ],
+        "coordinator": [
+          {
+            "proposed": 4,
+            "accepted": 3,
+            "acceptance": 0.75
+          },
+          {
+            "proposed": 4,
+            "accepted": 3,
+            "acceptance": 0.75
+          },
+          {
+            "proposed": 4,
+            "accepted": 2,
+            "acceptance": 0.5
+          },
+          {
+            "proposed": 144,
+            "accepted": 9,
+            "acceptance": 0.062
+          },
+          {
+            "proposed": 4,
+            "accepted": 3,
+            "acceptance": 0.75
+          }
+        ],
+        "standard_matched": true,
+        "standard_reference": "推測多區塊驗證",
+        "standard_response": {
+          "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 35,
+            "completion_tokens": 48,
+            "total_tokens": 83
+          }
+        },
+        "fallback_to_standard": false,
+        "worker_loaded_draft": false
+      }
+    },
+    {
+      "name": "Qwen3.5-9B GGUF MTP",
+      "target": "gguf:unsloth--Qwen3.5-9B-MTP-GGUF--main--Qwen3.5-9B-Q4_K_M-abfa5479/Qwen3.5-9B-Q4_K_M.gguf",
+      "architecture": "qwen3_5",
+      "format": "gguf",
+      "native_sha256": "fe2710d5aedf50fb3d37c24b13e69a66a743231b398ce29b551512e765202e23",
+      "test_script_sha256": "8f8a7e5794f81cc793523e4fbd4ea8f670b1ca2d9cc81f7833592ffff3955777",
+      "started_at": "2026-10-03T07:42:34.510Z",
+      "completed_at": "2026-10-03T07:44:40.023Z",
+      "target_manifest": {
+        "entry": "Qwen3.5-9B-Q4_K_M.gguf",
+        "files": [
+          {
+            "path": "Qwen3.5-9B-Q4_K_M.gguf",
+            "size": 5868826976,
+            "sha256": "e8dd94817e95d6c0939102049d068418269978377b13616c4726235e232841fe"
+          },
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3126,
+            "sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05"
+          },
+          {
+            "path": "mmproj-BF16.gguf",
+            "size": 921704928,
+            "sha256": "73c90471c349fec797f3969b59249259318ee3fa855a684da7ef35a46f063a9e"
+          }
+        ],
+        "digest": "0f31d3971c01341f561d3bdc122806f00ffa49f920d316c91f44f34e24b325bf",
+        "bytes": 6790542786
+      },
+      "weight_file_bytes": 5868826976,
+      "adjacent_config_sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05",
+      "image_tested": false,
+      "target_load_description": "GGUF strategy profile=mode1 requested_group=auto resolved_group=64 storage=[INT4:150,INT8:60,BF16:566]",
+      "sharding": {
+        "hardware_validation": "experimental",
+        "sharded_layers": 359,
+        "rank": 0,
+        "original_linear_bytes": 7028305632,
+        "strategy": "linear-output-sharding",
+        "local_linear_bytes": 3514152816,
+        "weight_loading": "direct-row-read",
+        "coordinator_replicated_bytes": 646926592,
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "world_size": 2,
+        "kv_cache_location": "rank0",
+        "backend": "ring",
+        "specialized_operations": "rank0"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          }
+        },
+        {
+          "name": "推測多區塊驗證",
+          "matched": true,
+          "single": {
+            "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "cluster": {
+            "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "英文短句",
+        "response": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 21,
+            "completion_tokens": 2,
+            "total_tokens": 23
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true,
+      "speculative": {
+        "mode": "mtp",
+        "variant": "embedded-mtp",
+        "requested_block_size": 2,
+        "draft": "內嵌於原始 GGUF",
+        "single": [
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 26,
+            "accepted": 21,
+            "acceptance": 0.808
+          }
+        ],
+        "coordinator": [
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 26,
+            "accepted": 21,
+            "acceptance": 0.808
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          }
+        ],
+        "standard_matched": true,
+        "standard_reference": "推測多區塊驗證",
+        "standard_response": {
+          "content": "一隻鮮豔的紅色小鳥展開輕盈的翅膀，飛越層層翠綠的樹冠，穿梭在陽光斑駁的森林小徑上。它靈巧地落在粗壯的樹幹上，",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 35,
+            "completion_tokens": 48,
+            "total_tokens": 83
+          }
+        },
+        "fallback_to_standard": false,
+        "worker_loaded_draft": false
+      }
+    },
+    {
+      "name": "Qwen3.8-27B DFlash2",
+      "target": "Qwen3.8-27B-MLX-4bit",
+      "architecture": "qwen3_5",
+      "format": "safetensors",
+      "native_sha256": "e5f8aa253be94592f662d1de4b5de624d76882d04338c5b47b535334596716bf",
+      "test_script_sha256": "cbd9733b59ff253a6cdfe7bf5ba6dcfbf18d84c26b4d8dc494af574d12324b93",
+      "started_at": "2026-10-03T07:45:42.217Z",
+      "completed_at": "2026-10-03T07:48:25.078Z",
+      "target_manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 8952,
+            "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+          },
+          {
+            "path": "config.json",
+            "size": 4932,
+            "sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85"
+          },
+          {
+            "path": "generation_config.json",
+            "size": 202,
+            "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+          },
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "size": 5343268752,
+            "sha256": "471a9a81b54dddbfef43e8a71960ca24ad3c727891c6b0750a9db9a214aab504"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "size": 5354185100,
+            "sha256": "e7474b8f968f4078dfd4889925961c5b0da9939219b614dba08eb63c46590de7"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "size": 5357087747,
+            "sha256": "1038989bed1346ecdb541a45c078df2aae99a9509f35bfd51e7a04802a5d8402"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 218281,
+            "sha256": "13b840162b4cb35c66fef7df072f7dbb4717908204364f5e5d9f9655a2758fa8"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 991,
+            "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 10404,
+            "sha256": "47a7a8371379b07650b22f3c8a78c32fed85c4e35ea88e3da0c4b7a7611e8082"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "8ce612c71239209de74f6b875478c35e68d92a83a278c5d5c4818250660a5a6f",
+        "bytes": 16081498220
+      },
+      "weight_file_bytes": 16054541599,
+      "adjacent_config_sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85",
+      "image_tested": false,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "sharding": {
+        "backend": "ring",
+        "original_linear_bytes": 14412349440,
+        "coordinator_replicated_bytes": 720452608,
+        "hardware_validation": "experimental",
+        "strategy": "linear-output-sharding",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "weight_loading": "direct-row-read",
+        "sharded_layers": 497,
+        "rank": 0,
+        "specialized_operations": "rank0",
+        "local_linear_bytes": 7206174720,
+        "world_size": 2,
+        "kv_cache_location": "rank0"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "matched": true,
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          }
+        },
+        {
+          "name": "中文多輪",
+          "matched": true,
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          }
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "matched": true,
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          }
+        },
+        {
+          "name": "推測多區塊驗證",
+          "matched": true,
+          "single": {
+            "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          },
+          "cluster": {
+            "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+            "reasoning": "",
+            "finish_reason": "length",
+            "usage": {
+              "prompt_tokens": 35,
+              "completion_tokens": 48,
+              "total_tokens": 83
+            }
+          }
+        }
+      ],
+      "sse": {
+        "matched": true,
+        "reference": "英文短句",
+        "response": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 21,
+            "completion_tokens": 2,
+            "total_tokens": 23
+          }
+        }
+      },
+      "passed": true,
+      "stopped": true,
+      "speculative": {
+        "mode": "dflash",
+        "variant": "dflash2",
+        "requested_block_size": 5,
+        "draft": "Qwen3.8-27B-DFlash2",
+        "draft_manifest": {
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1239,
+              "sha256": "873e3556509b0da06e29654ba00d4944888d4b5e8a33afde25f7eb27d321e980"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 3848817896,
+              "sha256": "67fc76d68dc5a9415511a4f394ef744d67510cd20e93b37cc2cc7d28e4bab65c"
+            }
+          ],
+          "digest": "6b65b268772eff81277daa2c083c2b500111cb0e6012fc3235c8db6ed6b9acc2",
+          "bytes": 3848819135
+        },
+        "single": [
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 35,
+            "accepted": 11,
+            "acceptance": 0.314
+          }
+        ],
+        "coordinator": [
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          },
+          {
+            "proposed": 35,
+            "accepted": 11,
+            "acceptance": 0.314
+          },
+          {
+            "proposed": 1,
+            "accepted": 1,
+            "acceptance": 1
+          }
+        ],
+        "standard_matched": true,
+        "standard_reference": "推測多區塊驗證",
+        "standard_response": {
+          "content": "那隻羽毛鮮紅似火的小鳥，輕盈地掠過層疊的翠綠樹冠，清脆的啼鳴聲在寂靜的森林中迴盪。它靈敏地轉動著黑亮的小",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 35,
+            "completion_tokens": 48,
+            "total_tokens": 83
+          }
+        },
+        "fallback_to_standard": false,
+        "worker_loaded_draft": false
+      }
+    }
+  ],
+  "totals": {
+    "passed_cases": 6,
+    "single_cluster_comparisons": 23,
+    "sse_requests": 6,
+    "standard_decoding_comparisons": 3,
+    "generation_requests": 55
+  },
+  "other_validation": {
+    "go_all": "通過；最後 Go 修改另重跑 modelbundle／llamacpp／cluster／api 全部通過",
+    "go_race": [
+      "modelbundle",
+      "cluster"
+    ],
+    "swift_tests": {
+      "count": 11,
+      "failures": 0,
+      "includes": [
+        "分散式設定",
+        "跨節點模型資產路徑",
+        "BF16 分片與完整矩陣逐元素一致",
+        "raw／LZFSE 權重暫存清理後仍可按列讀取",
+        "Fast GGUF 張量邊界"
+      ]
+    },
+    "native_architecture_fixtures": {
+      "count": 12,
+      "passed": true,
+      "includes": [
+        "Llama F32／Q4／Q8",
+        "Mistral",
+        "Phi3",
+        "Gemma2",
+        "Starcoder2",
+        "Qwen2",
+        "Qwen3",
+        "Qwen3 MoE",
+        "Qwen3.5／text"
+      ],
+      "lifecycle": [
+        "四人並行及第五人 429",
+        "取消隔離",
+        "worker／主節點故障",
+        "父端 EOF",
+        "重啟",
+        "停止回收",
+        "啟動失敗狀態"
+      ]
+    },
+    "javascript_and_shell_syntax": "通過",
+    "ui_state_smoke": "Node DOM 代替物：GGUF 轉換確認、DFlash 參數、內嵌 MTP、KV 互斥與舊同步協定拒絕；非瀏覽器視覺驗收"
+  },
+  "limitations": [
+    "同機共用 GPU，不能據此推算多機效能或宣稱 Wi-Fi／JACCL 已驗收。",
+    "GGUF 首次冷轉換仍需要各節點足夠本機記憶體及磁碟；本表最終 GGUF 生成驗收使用已建立的快取。",
+    "線性權重統計不等同 RSS，不含 KV、Draft、Embedding、activation、Metal 暫存及特殊完整權重操作。",
+    "推測解碼只涵蓋原本單機相容的 Target／Draft 契約；本輪不支援 GGUF 搭配 DFlash，也未將 Fast GGUF 加入內嵌 MTP 預測層。",
+    "本輪 MTP 驗證為 GGUF 內嵌預測層，沒有另測外部 MTP 草稿。",
+    "短提示與 48 Token 推測測試不能代替長時間負載、隨機抽樣、多張高解析圖或多於兩節點的真實模型驗收。"
+  ],
+  "additional_auto_worker_smoke": {
+    "schema": 1,
+    "scope": "同機自動 worker、不同 GGUF 模型目錄與 mmproj 路徑",
+    "native_sha256": "df4e7947d13d127e1697a50431f6896022ba2c99bd31e7ed4315a5be86972bd1",
+    "started_at": "2026-10-03T08:02:12.990Z",
+    "health": {
+      "status": "ok",
+      "distributed": {
+        "local_linear_bytes": 2225560064,
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "hardware_validation": "experimental",
+        "strategy": "linear-output-sharding",
+        "sharded_layers": 346,
+        "world_size": 2,
+        "coordinator_replicated_bytes": 685422080,
+        "kv_cache_location": "rank0",
+        "rank": 0,
+        "original_linear_bytes": 4451120128,
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "weight_loading": "direct-row-read"
+      },
+      "max_model_len": 4096,
+      "context_length": 4096
+    },
+    "response": {
+      "content": "Ring ready",
+      "reasoning": "",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 2,
+        "total_tokens": 23
+      }
+    },
+    "passed": true,
+    "stopped": true,
+    "completed_at": "2026-10-03T08:03:03.327Z",
+    "note": "主節點與自動啟動的 local worker 使用不同 GGUF 模型目錄；只指定主節點 mmproj，驗證 worker 自動對應其目錄內同名資產並完成文字請求。此 1 次生成另計，未加進上方六組矩陣的 55 次。"
+  }
+}

@@ -468,6 +468,11 @@ enum MLXGGUFConversionCache {
         return try Data(contentsOf: assetURLs.configuration)
     }
 
+    static func standaloneHasProcessor(manifestURL: URL) throws -> Bool {
+        let manifest = try standaloneManifest(at: manifestURL)
+        return try standaloneAssetURLs(manifest: manifest, rootURL: manifestURL.deletingLastPathComponent()).processor != nil
+    }
+
     /// 來源 GGUF 已不存在時直接讀取 Fast GGUF manifest、執行資產與權重。
     /// schema 3 可使用同目錄的標準 Hugging Face 資產作為相容 fallback；
     /// schema 4 則固定讀取 manifest 指向的獨立資產。

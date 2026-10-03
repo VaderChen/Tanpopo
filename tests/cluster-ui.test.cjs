@@ -24,9 +24,9 @@ function page() {
     generic_linear_sharding: true, text_model_types: ["llama", "qwen3", "qwen3_5"] };
   const calls = [], messages = [];
   let failure = "";
-  let status = { enabled: false, discovery_port: 10083, interface: "", local: { name: "本機", capabilities: capability, model_sync_version: 1 }, peers: [
-    { id: "peer-a", name: "<script>不能執行</script>", ip: "192.168.1.2", port: 10082, capabilities: capability, model_sync_version: 1 },
-    { id: "peer-b", name: "Mac B", ip: "192.168.1.3", port: 10082, capabilities: capability, model_sync_version: 1 }
+  let status = { enabled: false, discovery_port: 10083, interface: "", local: { name: "本機", capabilities: capability, model_sync_version: 2 }, peers: [
+    { id: "peer-a", name: "<script>不能執行</script>", ip: "192.168.1.2", port: 10082, capabilities: capability, model_sync_version: 2 },
+    { id: "peer-b", name: "Mac B", ip: "192.168.1.3", port: 10082, capabilities: capability, model_sync_version: 2 }
   ] };
   const api = async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
@@ -66,7 +66,7 @@ test("搜尋免金鑰開啟對話框，複選後一次配對並啟用全部節�
   ui.byId("kvCacheQuantizationToggle").checked = true;
   await ui.byId("clusterStart").click();
   assert.deepEqual(ui.calls.find((call) => call.url.endsWith("/start")).body, {
-    peer_ids: ["peer-a", "peer-b"], model: "Qwen3/model", startup_command_id: "profile", kv_cache_quantization_enabled: true
+    peer_ids: ["peer-a", "peer-b"], model: "Qwen3/model", startup_command_id: "profile", kv_cache_quantization_enabled: true, draft_model: ""
   });
   assert.equal(ui.byId("clusterDialog").open, false);
   assert.equal(ui.byId("clusterSearch").disabled, true);
@@ -186,8 +186,10 @@ test("模型下載顯示各節點進度且仍可停止，舊版 Server 不可被
 	assert.equal(ui.byId("clusterStop").disabled, false);
 	await ui.byId("clusterStop").click();
 	assert.equal(ui.byId("clusterPreparation").hidden, true);
-	ui.setStatus({ ...ui.getStatus(), peers: ui.getStatus().peers.map(peer => ({ ...peer, model_sync_version: 0 })) });
-	await ui.feature.refresh();
-	assert.equal(ui.checkbox(0).disabled, true);
-	assert.equal(ui.byId("clusterPeerList").children[0].children[3].textContent, "需更新 Tanpopo");
+	for (const version of [0, 1]) {
+		ui.setStatus({ ...ui.getStatus(), peers: ui.getStatus().peers.map(peer => ({ ...peer, model_sync_version: version })) });
+		await ui.feature.refresh();
+		assert.equal(ui.checkbox(0).disabled, true);
+		assert.equal(ui.byId("clusterPeerList").children[0].children[3].textContent, "需更新 Tanpopo");
+	}
 });

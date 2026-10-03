@@ -27,6 +27,7 @@ type File struct {
 }
 
 type Manifest struct {
+	Entry  string `json:"entry,omitempty"`
 	Files  []File `json:"files"`
 	Digest string `json:"digest"`
 	Bytes  int64  `json:"bytes"`
@@ -49,7 +50,7 @@ type Snapshot struct {
 
 func relevant(name string) bool {
 	switch path.Ext(name) {
-	case ".safetensors", ".json", ".model", ".jinja", ".txt", ".tiktoken":
+	case ".safetensors", ".json", ".model", ".jinja", ".txt", ".tiktoken", ".gguf", ".fgguf":
 		return true
 	}
 	return false
@@ -73,6 +74,18 @@ func digest(files []File) string {
 	return hex.EncodeToString(h[:])
 }
 
+func (m Manifest) contentDigest() string {
+	if m.Entry == "" {
+		return digest(m.Files)
+	}
+	data, _ := json.Marshal(struct {
+		Entry string
+		Files []File
+	}{m.Entry, m.Files})
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
 func (m Manifest) Validate() error {
 	if len(m.Files) == 0 || len(m.Files) > maxFiles {
 		return errors.New("模型檔案數量無效")
@@ -89,7 +102,18 @@ func (m Manifest) Validate() error {
 		config = config || file.Path == "config.json"
 		weights = weights || path.Ext(file.Path) == ".safetensors"
 	}
-	if !config || !weights || total != m.Bytes || digest(m.Files) != m.Digest {
+	if m.Entry != "" {
+		if !validPath(m.Entry) || path.Base(m.Entry) != m.Entry || (!strings.HasSuffix(m.Entry, ".gguf") && !strings.HasSuffix(m.Entry, ".fgguf.json")) {
+			return errors.New("模型入口格式無效")
+		}
+		config, weights = false, false
+		for _, file := range m.Files {
+			if file.Path == m.Entry {
+				config, weights = true, true
+			}
+		}
+	}
+	if !config || !weights || total != m.Bytes || m.contentDigest() != m.Digest {
 		return errors.New("模型清單摘要或必要檔案不符")
 	}
 	encoded, _ := json.Marshal(m)
@@ -100,7 +124,7 @@ func (m Manifest) Validate() error {
 }
 
 func openDirectory(root, relative string) (*os.Root, error) {
-	if !validPath(filepath.ToSlash(relative)) {
+	if relative != "." && !validPath(filepath.ToSlash(relative)) {
 		return nil, errors.New("模型目錄格式無效")
 	}
 	base, err := os.OpenRoot(root)
@@ -126,7 +150,7 @@ func inventory(root *os.Root) ([]File, error) {
 			}
 			return nil
 		}
-		if entry.IsDir() || !relevant(name) {
+		if entry.IsDir() || !relevant(name) || path.Ext(name) == ".gguf" || path.Ext(name) == ".fgguf" || strings.HasSuffix(name, ".fgguf.json") {
 			return nil
 		}
 		if !validPath(name) {
@@ -168,12 +192,21 @@ func (r reader) Read(p []byte) (int, error) {
 }
 
 func Create(ctx context.Context, root, relative string, report Report) (*Snapshot, error) {
+	return CreateSelection(ctx, root, relative, nil, report)
+}
+
+// 單檔模型只傳送選定入口及其必要資產，避免連帶複製同目錄其他大型模型。
+func CreateSelection(ctx context.Context, root, relative string, auxiliary []string, report Report) (*Snapshot, error) {
+	entry := ""
+	if strings.HasSuffix(relative, ".gguf") || strings.HasSuffix(relative, ".fgguf.json") {
+		entry, relative = path.Base(relative), path.Dir(relative)
+	}
 	directory, err := openDirectory(root, relative)
 	if err != nil {
 		return nil, err
 	}
 	defer directory.Close()
-	files, err := inventory(directory)
+	files, err := selectionInventory(directory, entry, auxiliary)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +221,8 @@ func Create(ctx context.Context, root, relative string, report Report) (*Snapsho
 		}
 	}
 	progress(0)
+	buffer := make([]byte, 1<<20)
+	h := sha256.New()
 	for i := range files {
 		file, err := directory.Open(files[i].Path)
 		if err != nil {
@@ -198,8 +233,8 @@ func Create(ctx context.Context, root, relative string, report Report) (*Snapsho
 			file.Close()
 			return nil, err
 		}
-		h := sha256.New()
-		n, err := io.CopyBuffer(h, reader{ctx, file, progress}, make([]byte, 1<<20))
+		h.Reset()
+		n, err := io.CopyBuffer(h, reader{ctx, file, progress}, buffer)
 		after, statErr := file.Stat()
 		file.Close()
 		if err != nil {
@@ -210,7 +245,8 @@ func Create(ctx context.Context, root, relative string, report Report) (*Snapsho
 		}
 		files[i].SHA256 = hex.EncodeToString(h.Sum(nil))
 	}
-	manifest := Manifest{files, digest(files), total}
+	manifest := Manifest{Entry: entry, Files: files, Bytes: total}
+	manifest.Digest = manifest.contentDigest()
 	if err := manifest.Validate(); err != nil {
 		return nil, err
 	}
@@ -245,30 +281,42 @@ func Matches(ctx context.Context, root, relative string, want Manifest, report R
 		return false
 	}
 	defer directory.Close()
-	files, err := inventory(directory)
-	if err != nil || len(files) != len(want.Files) {
-		return false
-	}
-	for i, file := range files {
-		if file.Path != want.Files[i].Path || file.Size != want.Files[i].Size {
+	if want.Entry == "" {
+		files, err := inventory(directory)
+		if err != nil || len(files) != len(want.Files) {
 			return false
+		}
+		for i, file := range files {
+			if file.Path != want.Files[i].Path || file.Size != want.Files[i].Size {
+				return false
+			}
+		}
+	} else {
+		for _, file := range want.Files {
+			info, err := directory.Stat(file.Path)
+			if err != nil || !info.Mode().IsRegular() || info.Size() != file.Size {
+				return false
+			}
 		}
 	}
 	order := append([]File(nil), want.Files...)
 	sort.SliceStable(order, func(i, j int) bool { return order[i].Size < order[j].Size })
 	var done int64
+	buffer := make([]byte, 1<<20)
+	h := sha256.New()
+	progress := func(n int64) {
+		done += n
+		if report != nil {
+			report(Progress{"verifying", done, want.Bytes})
+		}
+	}
 	for _, item := range order {
 		file, err := directory.Open(item.Path)
 		if err != nil {
 			return false
 		}
-		h := sha256.New()
-		n, err := io.CopyBuffer(h, reader{ctx, file, func(n int64) {
-			done += n
-			if report != nil {
-				report(Progress{"verifying", done, want.Bytes})
-			}
-		}}, make([]byte, 1<<20))
+		h.Reset()
+		n, err := io.CopyBuffer(h, reader{ctx, file, progress}, buffer)
 		file.Close()
 		if err != nil || n != item.Size || hex.EncodeToString(h.Sum(nil)) != item.SHA256 {
 			return false
@@ -290,7 +338,37 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 	}
 	defer base.Close()
 	destination := "cluster-models/" + manifest.Digest
+	if manifest.Entry != "" {
+		preferred = path.Dir(preferred)
+	}
 	candidates := []string{preferred, destination}
+	modelPath := func(directory string) string {
+		if manifest.Entry != "" {
+			return path.Join(directory, manifest.Entry)
+		}
+		return directory
+	}
+	seen := map[string]bool{}
+	findExisting := func(candidates []string) (string, error) {
+		for _, candidate := range candidates {
+			if seen[candidate] {
+				continue
+			}
+			seen[candidate] = true
+			if Matches(ctx, root, candidate, manifest, report) {
+				return modelPath(candidate), nil
+			}
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+		}
+		return "", nil
+	}
+	// 先完整校驗指定模型與同步快取；命中時不掃描整座模型目錄。
+	if found, err := findExisting(candidates); found != "" || err != nil {
+		return found, err
+	}
+	candidates = nil
 	err = fs.WalkDir(base.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -301,7 +379,7 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 		if name != "." && entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
 			return fs.SkipDir
 		}
-		if !entry.IsDir() && entry.Name() == "config.json" {
+		if !entry.IsDir() && (entry.Name() == "config.json" || entry.Name() == manifest.Entry) {
 			candidates = append(candidates, path.Dir(name))
 		}
 		return nil
@@ -309,18 +387,8 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 	if err != nil {
 		return "", err
 	}
-	seen := map[string]bool{}
-	for _, candidate := range candidates {
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		if Matches(ctx, root, candidate, manifest, report) {
-			return candidate, nil
-		}
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
+	if found, err := findExisting(candidates); found != "" || err != nil {
+		return found, err
 	}
 	// 隱藏暫存目錄不會出現在模型清單。成功後才原子搬入可載入的目錄。
 	temp, err := os.MkdirTemp(root, ".cluster-download-")
@@ -332,6 +400,14 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 	var done int64
 	if report != nil {
 		report(Progress{"downloading", 0, manifest.Bytes})
+	}
+	buffer := make([]byte, 1<<20)
+	h := sha256.New()
+	progress := func(n int64) {
+		done += n
+		if report != nil {
+			report(Progress{"downloading", done, manifest.Bytes})
+		}
 	}
 	for i, item := range manifest.Files {
 		if ctx.Err() != nil {
@@ -350,13 +426,8 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 			out.Close()
 			return "", err
 		}
-		h := sha256.New()
-		n, err := io.CopyBuffer(io.MultiWriter(out, h), reader{ctx, io.LimitReader(in, item.Size+1), func(n int64) {
-			done += n
-			if report != nil {
-				report(Progress{"downloading", done, manifest.Bytes})
-			}
-		}}, make([]byte, 1<<20))
+		h.Reset()
+		n, err := io.CopyBuffer(io.MultiWriter(out, h), reader{ctx, io.LimitReader(in, item.Size+1), progress}, buffer)
 		in.Close()
 		if err == nil {
 			err = out.Sync()
@@ -385,5 +456,71 @@ func Ensure(ctx context.Context, root, preferred string, manifest Manifest, fetc
 	if err := base.Rename(stage, destination); err != nil {
 		return "", err
 	}
-	return destination, nil
+	return modelPath(destination), nil
+}
+
+func selectionInventory(root *os.Root, entry string, auxiliary []string) ([]File, error) {
+	if entry == "" {
+		return inventory(root)
+	}
+	names := map[string]bool{entry: true}
+	for _, name := range auxiliary {
+		names[name] = true
+	}
+	if strings.HasSuffix(entry, ".fgguf.json") {
+		data, err := root.ReadFile(entry)
+		if err != nil {
+			return nil, err
+		}
+		var manifest struct {
+			Shards                  []string `json:"shards"`
+			Configuration           string   `json:"configuration"`
+			Tokenizer               string   `json:"tokenizer"`
+			TokenizerConfiguration  string   `json:"tokenizerConfiguration"`
+			ProcessorConfiguration  string   `json:"processorConfiguration"`
+			GenerationConfiguration string   `json:"generationConfiguration"`
+		}
+		if len(data) > MaxManifestBytes || json.Unmarshal(data, &manifest) != nil || len(manifest.Shards) == 0 {
+			return nil, errors.New("Fast GGUF 清單無效")
+		}
+		for _, name := range append(manifest.Shards, manifest.Configuration, manifest.Tokenizer, manifest.TokenizerConfiguration, manifest.ProcessorConfiguration, manifest.GenerationConfiguration) {
+			if name != "" {
+				names[name] = true
+			}
+		}
+		if manifest.Configuration == "" {
+			for _, name := range []string{"config.json", "tokenizer.json", "tokenizer_config.json", "generation_config.json", "preprocessor_config.json", "processor_config.json", "chat_template.jinja"} {
+				if _, err := root.Stat(name); err == nil {
+					names[name] = true
+				}
+			}
+		}
+	} else {
+		entries, err := fs.ReadDir(root.FS(), ".")
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range entries {
+			name := item.Name()
+			if !item.IsDir() && relevant(name) && !strings.Contains(name, ".tanpopo-") && !strings.HasPrefix(name, ".") && path.Ext(name) != ".gguf" && path.Ext(name) != ".fgguf" && path.Ext(name) != ".safetensors" {
+				names[name] = true
+			}
+		}
+	}
+	var files []File
+	for name := range names {
+		if !validPath(name) || path.Base(name) != name {
+			return nil, errors.New("模型資產必須位於同一目錄，且不得包含路徑跳脫")
+		}
+		info, err := root.Stat(name)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, errors.New("模型資產不是一般檔案")
+		}
+		files = append(files, File{Path: name, Size: info.Size()})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
 }

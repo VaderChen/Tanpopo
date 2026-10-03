@@ -51,6 +51,8 @@ type Server struct {
 	netPass          *netpass.Manager
 	cluster          *cluster.Service
 	credentialsMu    sync.Mutex
+	chatClientOnce   sync.Once
+	chatClient       *http.Client
 }
 
 func NewServer(
@@ -111,6 +113,7 @@ func (s *Server) ConfigureAutomaticUpdates(options appupdate.AutomaticOptions) {
 
 // Shutdown 在主程序結束前等待對外通道停止，不能只依賴背景 goroutine。
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.runtimeChatHTTPClient().CloseIdleConnections()
 	var clusterErr error
 	if s.cluster != nil {
 		clusterErr = s.cluster.Shutdown(ctx)

@@ -58,7 +58,7 @@ actor MLXRuntime {
             requested: configuration.modelKind,
             directory: resolvedModelDirectory,
             isGGUF: isGGUF,
-            hasMMProj: ggufMMProjURL != nil
+            hasMMProj: ggufMMProjURL != nil || (isFastGGUF && (try MLXGGUFConversionCache.standaloneHasProcessor(manifestURL: modelURL)))
         )
     }
 
@@ -72,9 +72,13 @@ actor MLXRuntime {
                 try await ModelWeightLoadingContext.$beforeEvaluate.withValue({ model in
                     try distributedSession.prepareModel(model)
                 }) {
-                    try await prepareModels()
+                    try await DistributedWeightLoading.$enabled.withValue(true) {
+                        try await prepareTarget()
+                    }
                 }
             }
+            // 草稿及 KV 只存在主節點，避免再次套用切分 hook 或讓 worker 等待草稿運算。
+            if distributedSession.group.rank == 0 { try await prepareDrafts() }
             memoryMapPlan?.finishLoading()
             return
         }
@@ -102,6 +106,11 @@ actor MLXRuntime {
     }
 
     private func prepareModels() async throws {
+        try await prepareTarget()
+        try await prepareDrafts()
+    }
+
+    private func prepareTarget() async throws {
         if !modelGenerationDefaults.isEmpty {
             fputs(modelGenerationDefaults.logDescription + "\n", stderr)
         }
@@ -172,6 +181,9 @@ actor MLXRuntime {
             }
         }
 
+    }
+
+    private func prepareDrafts() async throws {
         if let draftPath = configuration.dflashDraftPath {
             guard ggufWeightURL == nil else {
                 throw DFlashError.unsupportedGeneration(

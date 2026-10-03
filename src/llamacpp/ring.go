@@ -26,21 +26,42 @@ type RingModel struct {
 	Architecture string `json:"architecture"`
 	Fingerprint  string `json:"fingerprint"`
 	Kind         string `json:"kind,omitempty"`
+	Format       string `json:"format,omitempty"`
+	MMProj       string `json:"mmproj,omitempty"`
+}
+
+// Launch 選項與單機啟動相同；只有 Target 相關欄位會傳至 worker。
+type RingOptions struct {
+	MMProj                    string `json:"mmproj,omitempty"`
+	DraftModel                string `json:"draft_model,omitempty"`
+	DFlashEnabled             bool   `json:"dflash_enabled,omitempty"`
+	FastGGUFEnabled           bool   `json:"fast_gguf_enabled,omitempty"`
+	GGUFStrategy              string `json:"gguf_strategy,omitempty"`
+	TextOnly                  bool   `json:"text_only,omitempty"`
+	ConversionConfirmationKey string `json:"conversion_confirmation_key,omitempty"`
 }
 
 const MaxRingNodes = 8
 
 type RingCapabilities struct {
-	MaxNodes              int      `json:"max_ring_nodes"`
-	Version               string   `json:"version"`
-	Available             bool     `json:"ring_available"`
-	ManagedParentStdin    bool     `json:"managed_parent_stdin"`
-	GenericLinearSharding bool     `json:"generic_linear_sharding,omitempty"`
-	TextModelTypes        []string `json:"text_model_types,omitempty"`
-	VisionModelTypes      []string `json:"vision_model_types,omitempty"`
+	MaxNodes               int      `json:"max_ring_nodes"`
+	Version                string   `json:"version"`
+	Available              bool     `json:"ring_available"`
+	ManagedParentStdin     bool     `json:"managed_parent_stdin"`
+	GenericLinearSharding  bool     `json:"generic_linear_sharding,omitempty"`
+	TextModelTypes         []string `json:"text_model_types,omitempty"`
+	VisionModelTypes       []string `json:"vision_model_types,omitempty"`
+	GGUFModelTypes         []string `json:"gguf_model_types,omitempty"`
+	GGUFSharding           bool     `json:"gguf_sharding,omitempty"`
+	SpeculativeCoordinator bool     `json:"speculative_coordinator,omitempty"`
 }
 
-func (m *Manager) RingModelDirectory() string { return m.settings().MLXModelDirectory }
+func (m *Manager) RingModelDirectory(model string) string {
+	if strings.HasPrefix(model, mlxGGUFPathPrefix) {
+		return m.settings().ModelDirectory
+	}
+	return m.settings().MLXModelDirectory
+}
 
 func (m *Manager) RingCapabilities(ctx context.Context) (RingCapabilities, error) {
 	var result RingCapabilities
@@ -63,13 +84,18 @@ func (m *Manager) RingCapabilities(ctx context.Context) (RingCapabilities, error
 	return result, nil
 }
 
-func (m *Manager) InspectRingModel(model string) (RingModel, error) {
+func (m *Manager) InspectRingModel(model string, launch ...RingOptions) (RingModel, error) {
+	var options RingOptions
+	if len(launch) > 0 {
+		options = launch[0]
+	}
 	settings := m.settings()
-	directory, err := resolveMLXModel(settings.MLXModelDirectory, model, "TCP Ring 模型")
+	selection, err := resolveMLXTargetSelection(settings, model, options.MMProj)
+	directory := selection.modelArgument
 	if err != nil {
 		return RingModel{}, err
 	}
-	base, err := filepath.Abs(settings.MLXModelDirectory)
+	base, err := filepath.Abs(m.RingModelDirectory(model))
 	if err != nil {
 		return RingModel{}, err
 	}
@@ -84,6 +110,51 @@ func (m *Manager) InspectRingModel(model string) (RingModel, error) {
 	relative, err := filepath.Rel(base, resolved)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return RingModel{}, errors.New("TCP Ring 模型不可透過符號連結離開 MLX 模型目錄")
+	}
+
+	if selection.isGGUF {
+		capability, err := m.RingCapabilities(context.Background())
+		if err != nil {
+			return RingModel{}, err
+		}
+		if !capability.GGUFSharding {
+			return RingModel{}, errors.New("請更新 Runtime 以支援 GGUF 分片")
+		}
+		architecture, err := mlxGGUFModelArchitecture(directory)
+		if err != nil {
+			return RingModel{}, err
+		}
+		if !slices.ContainsFunc(capability.GGUFModelTypes, func(value string) bool {
+			return canonicalMLXGGUFArchitecture(value) == canonicalMLXGGUFArchitecture(architecture)
+		}) {
+			return RingModel{}, errors.New("Runtime 尚未支援此 GGUF 架構")
+		}
+		format, kind, projector := "gguf", "text", ""
+		if isFastGGUFManifestPath(directory) {
+			format = "fastgguf"
+			pkg, err := readStandaloneFastGGUFPackage(directory)
+			if err != nil {
+				return RingModel{}, err
+			}
+			hasProcessor := pkg.manifest.ProcessorConfiguration != ""
+			if pkg.manifest.SchemaVersion == 3 {
+				for _, name := range []string{"preprocessor_config.json", "processor_config.json"} {
+					if info, err := os.Stat(filepath.Join(filepath.Dir(directory), name)); err == nil && info.Mode().IsRegular() {
+						hasProcessor = true
+					}
+				}
+			}
+			if hasProcessor {
+				kind = "vision"
+			}
+		} else if selection.mmprojArgument != "" {
+			if filepath.Dir(selection.mmprojArgument) != filepath.Dir(directory) {
+				return RingModel{}, errors.New("叢集的 GGUF 與 mmproj 必須放在同一模型目錄")
+			}
+			projector = filepath.Base(selection.mmprojArgument)
+			kind = "vision"
+		}
+		return RingModel{Path: mlxGGUFPathPrefix + filepath.ToSlash(relative), Architecture: architecture, Kind: kind, Format: format, MMProj: projector}, nil
 	}
 	data, err := os.ReadFile(filepath.Join(directory, "config.json"))
 	if err != nil {
@@ -105,7 +176,7 @@ func (m *Manager) InspectRingModel(model string) (RingModel, error) {
 			hasProcessor = true
 		}
 	}
-	if !slices.Contains(capability.TextModelTypes, architecture) || (hasProcessor && slices.Contains(capability.VisionModelTypes, architecture)) {
+	if !slices.Contains(capability.TextModelTypes, architecture) || (!options.TextOnly && !options.DFlashEnabled && hasProcessor && slices.Contains(capability.VisionModelTypes, architecture)) {
 		kind = "vision"
 	}
 	return RingModel{Path: filepath.ToSlash(filepath.Clean(strings.TrimSpace(model))), Architecture: architecture, Kind: kind,
@@ -149,19 +220,23 @@ func (m *Manager) ReleaseRing(owner string) {
 }
 
 func ValidateRingProfile(profile domain.StartupCommand) error {
-	if profile.Runtime != domain.RuntimeMLXServer || profile.RuntimeVariant != "" || profile.DraftModel != "" {
-		return errors.New("TCP Ring 需要標準 mlx-server 啟動參數，不能搭配 Draft")
+	if profile.Runtime != domain.RuntimeMLXServer || profile.RuntimeVariant != "" {
+		return errors.New("TCP Ring 需要 mlx-server 啟動參數")
 	}
 	for _, arg := range profile.ExtraArgs {
-		if strings.HasPrefix(arg, "--distributed-") || strings.HasPrefix(arg, "--mtp-") || strings.HasPrefix(arg, "--dflash-") ||
+		if strings.HasPrefix(arg, "--distributed-") || strings.HasPrefix(arg, "--mtp-draft") || strings.HasPrefix(arg, "--dflash-draft") ||
 			strings.HasPrefix(arg, "--mmproj") || strings.HasPrefix(arg, "--model-type") {
-			return errors.New("TCP Ring 自動設定模型模式與節點，請移除手動分散式、mmproj 與 Draft 參數")
+			return errors.New("TCP Ring 自動設定模型與節點，請由模型選擇器指定 Draft，移除手動分散式及路徑參數")
 		}
 	}
 	return nil
 }
 
-func (m *Manager) StartRing(owner, model string, rank int, addresses []string, profile domain.StartupCommand) (domain.LlamaStatus, error) {
+func (m *Manager) StartRing(owner, model string, rank int, addresses []string, profile domain.StartupCommand, launch ...RingOptions) (domain.LlamaStatus, error) {
+	var options RingOptions
+	if len(launch) > 0 {
+		options = launch[0]
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if owner == "" || m.distributedOwner != owner || rank < 0 || rank >= len(addresses) || len(addresses) < 2 || len(addresses) > MaxRingNodes {
@@ -170,7 +245,7 @@ func (m *Manager) StartRing(owner, model string, rank int, addresses []string, p
 	if err := ValidateRingProfile(profile); err != nil {
 		return m.status, err
 	}
-	descriptor, err := m.InspectRingModel(model)
+	descriptor, err := m.InspectRingModel(model, options)
 	if err != nil {
 		return m.status, err
 	}
@@ -198,9 +273,12 @@ func (m *Manager) StartRing(owner, model string, rank int, addresses []string, p
 	if rank != 0 {
 		profile.ExtraArgs = append(profile.ExtraArgs, "--distributed-rank", strconv.Itoa(rank))
 	}
-	status, err := m.startLocked(model, "", "", false, false, false,
+	if options.GGUFStrategy != "" {
+		profile.ClusterGGUFStrategy = options.GGUFStrategy
+	}
+	status, err := m.startLocked(model, options.MMProj, options.DraftModel, options.DFlashEnabled, false, options.FastGGUFEnabled,
 		profile.KVCacheQuantization != "" && profile.KVCacheQuantization != domain.KVCacheQuantizationNone,
-		false, "", profile, true)
+		false, options.ConversionConfirmationKey, profile, true)
 	if err == nil {
 		m.status.DistributedRole = "coordinator"
 		if rank != 0 {

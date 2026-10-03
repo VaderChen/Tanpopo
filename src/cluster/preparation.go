@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path"
+	"strings"
 	"time"
 
 	"LlamaLoader/src/domain"
@@ -14,7 +16,15 @@ import (
 )
 
 // Begin 只保留工作並立即回傳；檔案核對與下載不依附瀏覽器請求的生命週期。
-func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, profile domain.StartupCommand) (Status, error) {
+func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, profile domain.StartupCommand, launch ...llamacpp.RingOptions) (Status, error) {
+	var options llamacpp.RingOptions
+	if len(launch) > 0 {
+		options = launch[0]
+	}
+	options.TextOnly = options.TextOnly || options.DFlashEnabled
+	if options.DraftModel == "" {
+		options.DraftModel = profile.DraftModel
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -38,7 +48,7 @@ func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, pro
 		return s.Status(), errors.New("請啟用探索、選擇 1–7 個不同的在線節點，並先停止目前叢集")
 	}
 	for _, peer := range peers {
-		if peer.Clustered || peer.ModelSyncVersion != 1 || !peer.Capabilities.Available || !peer.Capabilities.ManagedParentStdin || peer.Capabilities.Version != capability.Version || peer.Capabilities.MaxNodes < len(peers)+1 {
+		if peer.Clustered || peer.ModelSyncVersion != 2 || !peer.Capabilities.Available || !peer.Capabilities.ManagedParentStdin || peer.Capabilities.Version != capability.Version || peer.Capabilities.MaxNodes < len(peers)+1 {
 			return s.Status(), fmt.Errorf("%s 已加入叢集，或 Tanpopo／Runtime 不支援相同的模型同步與節點數，請更新兩端", peer.Name)
 		}
 	}
@@ -48,7 +58,7 @@ func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, pro
 	if err := llamacpp.ValidateRingProfile(profile); err != nil {
 		return s.Status(), err
 	}
-	descriptor, err := s.backend.InspectRingModel(model)
+	descriptor, err := s.backend.InspectRingModel(model, options)
 	if err != nil {
 		return s.Status(), err
 	}
@@ -70,7 +80,7 @@ func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, pro
 	jobCtx, cancel := context.WithCancel(s.ctx)
 	active := &activeSession{Session: Session{ID: owner, Members: members, Rank: 0, Role: "coordinator", Phase: "verifying",
 		Model: model, StartedAt: time.Now(), Addresses: make([]string, len(members))},
-		peers: peers, listener: listener, lastLease: time.Now(), profile: profile, descriptor: descriptor,
+		peers: peers, listener: listener, lastLease: time.Now(), profile: profile, descriptor: descriptor, options: options,
 		ctx: jobCtx, cancel: cancel, starting: true, done: make(chan struct{})}
 	active.Addresses[0] = listener.Addr().String()
 	for _, member := range members {
@@ -90,8 +100,8 @@ func (s *Service) Begin(ctx context.Context, peerIDs []string, model string, pro
 }
 
 // Start 供需要等待交握的呼叫者使用；HTTP 管理介面使用 Begin 與狀態輪詢。
-func (s *Service) Start(ctx context.Context, peerIDs []string, model string, profile domain.StartupCommand) (Status, error) {
-	status, err := s.Begin(ctx, peerIDs, model, profile)
+func (s *Service) Start(ctx context.Context, peerIDs []string, model string, profile domain.StartupCommand, launch ...llamacpp.RingOptions) (Status, error) {
+	status, err := s.Begin(ctx, peerIDs, model, profile, launch...)
 	if err != nil {
 		return status, err
 	}
@@ -150,7 +160,11 @@ func (s *Service) coordinate(active *activeSession) error {
 	if err := s.stopPreviousRuntime(active); err != nil {
 		return err
 	}
-	snapshot, err := modelbundle.Create(ctx, s.backend.RingModelDirectory(), active.Model, func(p modelbundle.Progress) { s.report(active, 0, p, active.Model) })
+	var auxiliary []string
+	if active.descriptor.MMProj != "" {
+		auxiliary = []string{active.descriptor.MMProj}
+	}
+	snapshot, err := modelbundle.CreateSelection(ctx, s.backend.RingModelDirectory(active.Model), strings.TrimPrefix(active.Model, "gguf:"), auxiliary, func(p modelbundle.Progress) { s.report(active, 0, p, active.Model) })
 	if err != nil {
 		return err
 	}
@@ -165,7 +179,8 @@ func (s *Service) coordinate(active *activeSession) error {
 	version := s.capability.Version
 	s.mu.Unlock()
 	s.report(active, 0, modelbundle.Progress{Phase: "prepared", BytesDone: snapshot.Manifest.Bytes, BytesTotal: snapshot.Manifest.Bytes}, active.Model)
-	request := controlRequest{SessionID: active.ID, Model: active.descriptor, Version: version, Members: active.Members, ContextSize: active.profile.ContextSize}
+	request := controlRequest{SessionID: active.ID, Model: active.descriptor, Version: version, Members: active.Members, ContextSize: active.profile.ContextSize,
+		Options: llamacpp.RingOptions{FastGGUFEnabled: active.options.FastGGUFEnabled, GGUFStrategy: active.options.GGUFStrategy, TextOnly: active.options.TextOnly}}
 	if _, err := s.callPeers(ctx, active.peers, "prepare", request); err != nil {
 		return err
 	}
@@ -242,7 +257,7 @@ func (s *Service) coordinate(active *activeSession) error {
 	if _, err := s.callPeers(ctx, active.peers, "commit", request); err != nil {
 		return err
 	}
-	if _, err := s.backend.StartRing(active.ID, active.Model, 0, addresses, active.profile); err != nil {
+	if _, err := s.backend.StartRing(active.ID, active.Model, 0, addresses, active.profile, active.options); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -264,7 +279,7 @@ func (s *Service) prepareWorker(active *activeSession, source Peer) {
 		if manifest.Digest != active.descriptor.Fingerprint {
 			return errors.New("發起端模型清單與交握摘要不同")
 		}
-		model, err := modelbundle.Ensure(active.ctx, s.backend.RingModelDirectory(), active.descriptor.Path, manifest,
+		model, err := modelbundle.Ensure(active.ctx, s.backend.RingModelDirectory(active.descriptor.Path), strings.TrimPrefix(active.descriptor.Path, "gguf:"), manifest,
 			func(ctx context.Context, index int) (io.ReadCloser, error) {
 				return s.fetchModelFile(ctx, source, active.ID, index)
 			},
@@ -272,7 +287,13 @@ func (s *Service) prepareWorker(active *activeSession, source Peer) {
 		if err != nil {
 			return err
 		}
-		descriptor, err := s.backend.InspectRingModel(model)
+		if active.descriptor.Format != "" {
+			model = "gguf:" + model
+		}
+		if active.descriptor.MMProj != "" {
+			active.options.MMProj = path.Join(path.Dir(strings.TrimPrefix(model, "gguf:")), active.descriptor.MMProj)
+		}
+		descriptor, err := s.backend.InspectRingModel(model, active.options)
 		if err != nil {
 			return err
 		}

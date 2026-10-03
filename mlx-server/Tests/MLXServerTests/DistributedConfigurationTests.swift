@@ -31,6 +31,21 @@ final class DistributedConfigurationTests: XCTestCase {
         XCTAssertThrowsError(try ServerConfiguration.parse(["--distributed-parent-stdin"]))
     }
 
+    func testWorkerTargetAssetsFollowItsModelDirectory() {
+        var configuration = ServerConfiguration()
+        configuration.modelPath = "/models/local/target.gguf"
+        configuration.mmprojPath = "/models/local/mmproj.gguf"
+        configuration.ggufGroupSize = 32
+        configuration.dflashDraftPath = "/models/draft"
+        let arguments = configuration.distributedTargetArguments(workerModelPath: "/remote models/target.gguf")
+        XCTAssertEqual(arguments, ["--gguf-profile", configuration.ggufProfile.rawValue,
+            "--gguf-recurrent-promotion", configuration.ggufRecurrentPromotion.rawValue,
+            "--gguf-group-size", "32", "--mmproj", "/remote models/mmproj.gguf"])
+        XCTAssertEqual(configuration.distributedTargetArguments().last, "/models/local/mmproj.gguf")
+        configuration.mmprojPath = "/shared/mmproj.gguf"
+        XCTAssertEqual(configuration.distributedTargetArguments(workerModelPath: "/remote/target.gguf").last, "/shared/mmproj.gguf")
+    }
+
     func testLocalWorkerRequiresExplicitLoopbackTopology() throws {
         let value = #"{"version":1,"backend":"ring","nodes":[{"ringAddress":"127.0.0.1:5500"},{"ringAddress":"127.0.0.1:5501","launch":"local"}]}"#
         XCTAssertEqual(try decode(value).nodes[1].launchMode, .local)

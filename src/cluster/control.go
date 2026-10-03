@@ -21,14 +21,15 @@ import (
 )
 
 type controlRequest struct {
-	SessionID   string             `json:"session_id"`
-	Model       llamacpp.RingModel `json:"model"`
-	Version     string             `json:"runtime_version"`
-	Members     []Member           `json:"members,omitempty"`
-	ContextSize int                `json:"context_size"`
-	Addresses   []string           `json:"addresses,omitempty"`
-	Ready       bool               `json:"ready"`
-	StopReason  string             `json:"stop_reason,omitempty"`
+	SessionID   string               `json:"session_id"`
+	Model       llamacpp.RingModel   `json:"model"`
+	Version     string               `json:"runtime_version"`
+	Members     []Member             `json:"members,omitempty"`
+	ContextSize int                  `json:"context_size"`
+	Options     llamacpp.RingOptions `json:"options,omitempty"`
+	Addresses   []string             `json:"addresses,omitempty"`
+	Ready       bool                 `json:"ready"`
+	StopReason  string               `json:"stop_reason,omitempty"`
 }
 
 type controlResponse struct {
@@ -214,8 +215,15 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		if err != nil {
 			return controlResponse{}, err
 		}
-		if peer.ModelSyncVersion != 1 || len(request.Model.Fingerprint) != 64 || request.Model.Path == "" {
+		if peer.ModelSyncVersion != 2 || len(request.Model.Fingerprint) != 64 || request.Model.Path == "" {
 			return controlResponse{}, errors.New("模型同步協定或摘要無效，請更新 Tanpopo")
+		}
+		if request.Options.DraftModel != "" || request.Options.DFlashEnabled || request.Options.MMProj != "" || request.Options.ConversionConfirmationKey != "" ||
+			!slices.Contains([]string{"", "mode1", "mode2", "mode3"}, request.Options.GGUFStrategy) {
+			return controlResponse{}, errors.New("工作節點 Target 載入參數無效")
+		}
+		if request.Model.MMProj != "" && (strings.ContainsAny(request.Model.MMProj, "/\\") || strings.HasPrefix(request.Model.MMProj, ".")) {
+			return controlResponse{}, errors.New("mmproj 名稱無效")
 		}
 		if err = s.backend.ReserveRing(request.SessionID); err != nil {
 			return controlResponse{}, err
@@ -224,7 +232,7 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		active = &activeSession{Session: Session{ID: request.SessionID, Members: append([]Member(nil), request.Members...), Rank: rank,
 			Role: "worker", Phase: "synchronizing", Model: request.Model.Path, StartedAt: time.Now(), Addresses: make([]string, len(request.Members)),
 			Preparation: []ModelPreparation{{NodeID: request.Members[rank].ID, Name: s.name}}},
-			peers: []Peer{peer}, lastLease: time.Now(), ctx: jobCtx, cancel: cancel, descriptor: request.Model, done: make(chan struct{}),
+			peers: []Peer{peer}, lastLease: time.Now(), ctx: jobCtx, cancel: cancel, descriptor: request.Model, options: request.Options, done: make(chan struct{}),
 			profile: domain.StartupCommand{Runtime: domain.RuntimeMLXServer, Name: "TCP Ring 工作節點", ContextSize: request.ContextSize,
 				ServerHost: "127.0.0.1", ServerPort: 10084, KVCacheQuantization: domain.KVCacheQuantizationNone}}
 		s.mu.Lock()
@@ -267,7 +275,7 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		if active.Role != "worker" || active.Phase != "armed" || !slices.Equal(request.Addresses, active.Addresses) {
 			return controlResponse{}, errors.New("TCP Ring 尚未完成全部端點準備，或啟動端點已變更")
 		}
-		if _, err := s.backend.StartRing(active.ID, active.Model, active.Rank, active.Addresses, active.profile); err != nil {
+		if _, err := s.backend.StartRing(active.ID, active.Model, active.Rank, active.Addresses, active.profile, active.options); err != nil {
 			_ = s.stopLocked(ctx, err.Error(), false)
 			return controlResponse{}, err
 		}

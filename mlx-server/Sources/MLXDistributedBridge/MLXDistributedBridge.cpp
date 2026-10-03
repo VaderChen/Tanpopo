@@ -6,6 +6,33 @@
 #include "mlx/distributed/ops.h"
 #include "mlx/ops.h"
 #include "mlx/primitives.h"
+#include "mlx/io/load.h"
+
+namespace mlx::core { extern thread_local int tanpopo_matmul_output_size; }
+
+namespace {
+struct MatmulOutputScope {
+    int previous;
+    explicit MatmulOutputScope(int output) : previous(mlx::core::tanpopo_matmul_output_size) {
+        mlx::core::tanpopo_matmul_output_size = output;
+    }
+    ~MatmulOutputScope() { mlx::core::tanpopo_matmul_output_size = previous; }
+};
+template<typename Parent> class ShardedMatmul : public Parent {
+    const int output_size_;
+public:
+    template<typename... Args> ShardedMatmul(int output_size, Args&&... args)
+        : Parent(std::forward<Args>(args)...), output_size_(output_size) {}
+    void eval_gpu(const std::vector<mlx::core::array>& inputs, mlx::core::array& output) override {
+        MatmulOutputScope scope(output_size_);
+        Parent::eval_gpu(inputs, output);
+    }
+    bool is_equivalent(const mlx::core::Primitive& other) const override {
+        auto p = dynamic_cast<const ShardedMatmul*>(&other);
+        return p && p->output_size_ == output_size_ && Parent::is_equivalent(other);
+    }
+};
+}
 
 namespace dist = mlx::core::distributed;
 namespace {
@@ -61,6 +88,47 @@ extern "C" bool tanpopo_distributed_can_copy_rows(mlx_array input) {
 #endif
     });
     return supported;
+}
+// 多個張量共用一個 Reader；Load 持有檔案描述元，暫存檔 unlink 後仍可按列讀取。
+using WeightReader = std::shared_ptr<mlx::core::io::Reader>;
+extern "C" void* tanpopo_distributed_open_weights(const char* path) {
+    WeightReader* result = nullptr;
+    checked([&] {
+        auto reader = std::make_shared<mlx::core::io::ParallelFileReader>(path);
+        if (!reader->is_open()) throw std::runtime_error("Cannot open distributed weight file");
+        result = new WeightReader(reader);
+    });
+    return result;
+}
+extern "C" void tanpopo_distributed_close_weights(void* reader) {
+    delete static_cast<WeightReader*>(reader);
+}
+extern "C" int tanpopo_distributed_load_weights(void* reader, mlx_array* result, mlx_array descriptor, size_t offset) {
+    return checked([&] {
+        const auto& source = mlx_array_get_(descriptor);
+        mlx_array_set_(*result, mlx::core::array(source.shape(), source.dtype(),
+            std::make_shared<mlx::core::Load>(mlx::core::default_stream(mlx::core::Device::cpu),
+                *static_cast<WeightReader*>(reader), offset), std::vector<mlx::core::array>{}));
+    });
+}
+extern "C" int tanpopo_distributed_linear(mlx_array* result, mlx_array input, mlx_array weight, const mlx_array* bias, int original_output_size) {
+    return checked([&] {
+        using namespace mlx::core;
+        const auto& x = mlx_array_get_(input);
+        const auto& w = mlx_array_get_(weight);
+        auto flat = reshape(x, {-1, x.shape(-1)});
+        auto base = bias ? addmm(mlx_array_get_(*bias), flat, transpose(w)) : matmul(flat, transpose(w));
+        std::shared_ptr<Primitive> primitive;
+        if (bias) {
+            primitive = std::make_shared<ShardedMatmul<AddMM>>(original_output_size, base.primitive().stream(), 1.0f, 1.0f);
+        } else {
+            primitive = std::make_shared<ShardedMatmul<Matmul>>(original_output_size, base.primitive().stream());
+        }
+        auto local = array(base.shape(), base.dtype(), primitive, base.inputs());
+        auto shape = x.shape();
+        shape.back() = w.shape(0);
+        mlx_array_set_(*result, reshape(local, shape));
+    });
 }
 extern "C" int tanpopo_distributed_copy_rows(mlx_array* result, mlx_array input, int start, int end) {
     return checked([&] {

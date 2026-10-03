@@ -171,6 +171,7 @@ type DownloadJob struct {
 // StartupCommand 是可重複使用的模型 Runtime 啟動參數組合。
 // 實際啟動時才會由後端與選定的 GGUF 或 MLX 模型動態組合命令列。
 type StartupCommand struct {
+	ClusterGGUFStrategy string    `json:"-"`
 	ID                  string    `json:"id"`
 	Name                string    `json:"name"`
 	Runtime             string    `json:"runtime"`

@@ -110,6 +110,25 @@ var (
 	)
 )
 
+// 同一 Server 的請求共用連線池；金鑰仍只放在各自的 Request，且不使用代理或 Cookie Jar。
+func (s *Server) runtimeChatHTTPClient() *http.Client {
+	s.chatClientOnce.Do(func() { s.chatClient = newRuntimeChatHTTPClient() })
+	return s.chatClient
+}
+
+func newRuntimeChatHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.MaxIdleConns = 8
+	transport.MaxIdleConnsPerHost = 4
+	transport.IdleConnTimeout = 30 * time.Second
+	return &http.Client{
+		Transport:     transport,
+		Timeout:       10 * time.Minute,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 func isRuntimeLoadingMessage(message string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(message))
 	if normalized == "" {
@@ -196,18 +215,8 @@ func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		upstreamRequest.Header.Set("X-OpenLoader-Key", runtimeKey)
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Minute,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
 	requestStartedAt := time.Now()
-	response, err := client.Do(upstreamRequest)
+	response, err := s.runtimeChatHTTPClient().Do(upstreamRequest)
 	if err != nil {
 		latest := s.llama.Status()
 		if latest.Running && !latest.Ready {

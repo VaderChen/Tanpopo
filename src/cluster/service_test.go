@@ -30,12 +30,12 @@ type fakeBackend struct {
 	root      string
 }
 
-func (b *fakeBackend) RingModelDirectory() string { return b.root }
+func (b *fakeBackend) RingModelDirectory(_ string) string { return b.root }
 
 func (b *fakeBackend) RingCapabilities(context.Context) (llamacpp.RingCapabilities, error) {
 	return llamacpp.RingCapabilities{Version: "smoke-v1", Available: true, ManagedParentStdin: true, MaxNodes: 8}, nil
 }
-func (b *fakeBackend) InspectRingModel(model string) (llamacpp.RingModel, error) {
+func (b *fakeBackend) InspectRingModel(model string, _ ...llamacpp.RingOptions) (llamacpp.RingModel, error) {
 	if _, err := os.Stat(filepath.Join(b.root, model, "config.json")); err != nil {
 		return llamacpp.RingModel{}, errors.New("找不到模型")
 	}
@@ -57,7 +57,7 @@ func (b *fakeBackend) ReleaseRing(owner string) {
 		b.owner = ""
 	}
 }
-func (b *fakeBackend) StartRing(owner, model string, rank int, addresses []string, _ domain.StartupCommand) (domain.LlamaStatus, error) {
+func (b *fakeBackend) StartRing(owner, model string, rank int, addresses []string, _ domain.StartupCommand, _ ...llamacpp.RingOptions) (domain.LlamaStatus, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if owner != b.owner || addresses[0] == addresses[1] || b.failStart {

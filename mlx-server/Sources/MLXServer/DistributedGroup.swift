@@ -33,6 +33,26 @@ final class DistributedGroup: @unchecked Sendable {
     let rank: Int
     let size: Int
     private let handle: UnsafeMutableRawPointer
+    private let profiling = ProcessInfo.processInfo.environment["TANPOPO_DISTRIBUTED_PROFILE"] == "1"
+    private let profileLock = NSLock()
+    private struct Timing {
+        var calls: UInt64 = 0
+        var bytes: UInt64 = 0
+        var inputNanoseconds: UInt64 = 0
+        var collectiveNanoseconds: UInt64 = 0
+    }
+    private var timings: [String: Timing] = [:]
+
+    var functionProfile: [String: Any]? {
+        guard profiling else { return nil }
+        return profileLock.withLock {
+            timings.mapValues { value in
+                ["calls": value.calls, "input_bytes": value.bytes,
+                 "input_eval_ms": Double(value.inputNanoseconds) / 1_000_000,
+                 "collective_ms": Double(value.collectiveNanoseconds) / 1_000_000] as [String: Any]
+            }
+        }
+    }
 
     static func available(_ backend: String) -> Bool { tanpopo_distributed_available(backend) }
 
@@ -63,14 +83,28 @@ final class DistributedGroup: @unchecked Sendable {
 
     private func collective(_ input: MLXArray, gather: Bool) throws -> MLXArray {
         // 先完成 Metal 運算，再進入 CPU 通訊 stream，避免 lazy graph 反向取得其他鎖。
-        try withError {
+        return try withError {
+            let start = profiling ? DispatchTime.now().uptimeNanoseconds : 0
             eval(input)
+            let evaluated = profiling ? DispatchTime.now().uptimeNanoseconds : 0
             var result = mlx_array_new()
             let code = gather ? tanpopo_distributed_gather(handle, &result, input.ctx)
                 : tanpopo_distributed_sum(handle, &result, input.ctx)
             let array = MLXArray(result)
             guard code == 0 else { throw DistributedError.invalid(String(cString: tanpopo_distributed_error())) }
             eval(array)
+            if profiling {
+                let finished = DispatchTime.now().uptimeNanoseconds
+                let name = gather ? "gather" : input.dtype == .int32 ? "control" : "input"
+                profileLock.withLock {
+                    var value = timings[name, default: Timing()]
+                    value.calls += 1
+                    value.bytes += UInt64(input.nbytes)
+                    value.inputNanoseconds += evaluated - start
+                    value.collectiveNanoseconds += finished - evaluated
+                    timings[name] = value
+                }
+            }
             return array
         }
     }

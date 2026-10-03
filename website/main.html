@@ -276,7 +276,7 @@
           <div><dt>預估新增硬碟容量</dt><dd id="modelConversionConfirmSize">—</dd></div>
         </dl>
         <p class="muted conversion-confirm-note">實際容量可能因權重形狀與檔案系統配置略有差異。</p>
-        <p class="muted conversion-confirm-note">選擇「不建立 Fast GGUF 直接啟動」不會寫入 Fast GGUF；GGUF 權重仍會在記憶體中即時準備為 MLX 可執行格式，下次啟動會再次處理。</p>
+        <p id="modelConversionDirectNote" class="muted conversion-confirm-note">選擇「不建立 Fast GGUF 直接啟動」不會寫入 Fast GGUF；GGUF 權重仍會在記憶體中即時準備為 MLX 可執行格式，下次啟動會再次處理。</p>
       </div>
       <footer class="runtime-test-actions">
         <button id="cancelModelConversionButton" class="button secondary" type="button">取消</button>

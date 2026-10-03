@@ -1,5 +1,26 @@
 import Foundation
 
+extension ServerConfiguration {
+    // Worker 僅複製 Target 的載入策略；Draft／KV／生成設定留在主節點。
+    func distributedTargetArguments(workerModelPath: String? = nil) -> [String] {
+        var arguments = ["--gguf-profile", ggufProfile.rawValue,
+            "--gguf-recurrent-promotion", ggufRecurrentPromotion.rawValue]
+        if let ggufGroupSize { arguments += ["--gguf-group-size", String(ggufGroupSize)] }
+        if let mmprojPath {
+            let projector = URL(fileURLWithPath: mmprojPath).standardizedFileURL
+            let sourceDirectory = URL(fileURLWithPath: modelPath).standardizedFileURL.deletingLastPathComponent()
+            // 同目錄資產跟隨 worker 的模型位置，不把主節點的絕對路徑送到遠端。
+            if let workerModelPath, projector.deletingLastPathComponent() == sourceDirectory {
+                let workerDirectory = URL(fileURLWithPath: workerModelPath).deletingLastPathComponent()
+                arguments += ["--mmproj", workerDirectory.appendingPathComponent(projector.lastPathComponent).path]
+            } else {
+                arguments += ["--mmproj", mmprojPath]
+            }
+        }
+        return arguments
+    }
+}
+
 enum ModelKind: String, Sendable {
     case auto
     case text
@@ -15,7 +36,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -302,11 +323,8 @@ struct ServerConfiguration: Sendable {
         guard isDirectory.boolValue || isGGUF else {
             throw ConfigurationError.invalidModelPath(result.modelPath)
         }
-        if result.distributed != nil {
-            guard !isGGUF, result.mmprojPath == nil,
-                result.dflashDraftPath == nil, !result.mtpEnabled, !result.inspectGGUFCache else {
-                throw DistributedError.invalid("分散式模式使用已註冊的 safetensors 文字／影像模型；GGUF、mmproj 與推測解碼尚未支援。")
-            }
+        if result.distributed != nil, result.inspectGGUFCache || !result.ggufCacheEnabled {
+            throw DistributedError.invalid("分散式模式需要權重快取，轉換預檢請在建立群組前執行。")
         }
         if let mmprojPath = result.mmprojPath {
             var isMMProjDirectory: ObjCBool = false

@@ -124,14 +124,12 @@ func (m *Manager) startLocked(
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
 	settings := m.settings()
+	if startupCommand.ClusterGGUFStrategy != "" {
+		settings.DefaultFastGGUFStrategy = startupCommand.ClusterGGUFStrategy
+	}
 	if startupCommand.Runtime == domain.RuntimeMLXServer {
 		if !managedRing && hasAnyArgument(startupCommand.ExtraArgs, "--distributed-rank", "--distributed-config-base64", "--distributed-parent-stdin", "--distributed-smoke") {
 			return m.status, errors.New("受管 Runtime 不接受 worker 或 Smoke 內部參數；請使用 --distributed-config 設定節點")
-		}
-		if hasAnyArgument(startupCommand.ExtraArgs, "--distributed-config", "--distributed-config-base64") &&
-			(dflashEnabled || strings.TrimSpace(mmproj) != "" ||
-				hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size", "--dflash-draft")) {
-			return m.status, errors.New("受管 RDMA 模式僅啟動主節點，不支援多模態或推測解碼；worker 由分散式設定啟動")
 		}
 	}
 	// 本次開關必須先套用，記憶體估算與實際命令共用相同的有效 KV 模式。
@@ -211,7 +209,8 @@ func (m *Manager) startLocked(
 			return m.status, fmt.Errorf("無法判斷 GGUF 是否需要轉換: %w", inspectionErr)
 		}
 		if inspection.RequiresConversion &&
-			strings.TrimSpace(conversionConfirmationKey) != inspection.CacheKey {
+			strings.TrimSpace(conversionConfirmationKey) != inspection.CacheKey &&
+			!(managedRing && hasAnyArgument(startupCommand.ExtraArgs, "--distributed-rank")) {
 			return m.status, fmt.Errorf(
 				"此模型需要轉換並建立約 %d bytes 的 Fast GGUF，請先確認轉換",
 				inspection.EstimatedCacheBytes,
@@ -435,11 +434,8 @@ func (m *Manager) startMLXLocked(
 	}
 	modelArgument := selection.modelArgument
 	isGGUF := selection.isGGUF
-	if isGGUF && hasAnyArgument(startupCommand.ExtraArgs, "--distributed-config") {
-		return m.status, errors.New("RDMA 第一版僅支援原生 MLX safetensors 文字模型，尚不支援 GGUF／Fast GGUF")
-	}
 	var pendingSourceRemoval *pendingGGUFSourceRemoval
-	if settings.RemoveOriginalGGUF && isGGUF && !skipGGUFConversionCache &&
+	if settings.RemoveOriginalGGUF && !hasAnyArgument(startupCommand.ExtraArgs, "--distributed-config", "--distributed-config-base64") && isGGUF && !skipGGUFConversionCache &&
 		!isFastGGUFManifestPath(modelArgument) {
 		pendingSourceRemoval, err = prepareGGUFSourceRemoval(
 			settings.ModelDirectory,
@@ -645,6 +641,12 @@ func resolveMLXTargetSelection(
 		}
 		return selection, nil
 	}
+	if isFastGGUFManifestPath(modelArgument) {
+		if selection.statusMMProj != "" {
+			return mlxTargetSelection{}, errors.New("Fast GGUF 已內含所需投影權重，請勿另行指定 mmproj")
+		}
+		return selection, nil
+	}
 	if isMMProjGGUF(modelArgument) {
 		return mlxTargetSelection{}, errors.New("mmproj 不可作為 GGUF Target 模型啟動")
 	}
@@ -748,6 +750,14 @@ func resolveMLXTargetModel(settings domain.Settings, value, label string) (strin
 	value = strings.TrimSpace(value)
 	if strings.HasPrefix(value, mlxGGUFPathPrefix) {
 		modelPath := strings.TrimSpace(strings.TrimPrefix(value, mlxGGUFPathPrefix))
+		if isFastGGUFManifestPath(modelPath) {
+			resolved, err := resolveModelFile(settings.ModelDirectory, modelPath, label)
+			if err != nil {
+				return "", true, err
+			}
+			_, err = readStandaloneFastGGUFPackage(resolved)
+			return resolved, true, err
+		}
 		path, err := resolveMLXGGUFFile(settings.ModelDirectory, modelPath, label)
 		if err == nil {
 			return path, true, nil
@@ -3215,7 +3225,12 @@ func isMLXModelDirectory(directory string) bool {
 	if err := json.Unmarshal(content, &index); err != nil || len(index.WeightMap) == 0 {
 		return false
 	}
+	// 索引是「張量 → 分片」；同一分片只需驗證一次，且每次呼叫重新核對。
+	checked := make(map[string]struct{})
 	for _, filename := range index.WeightMap {
+		if _, ok := checked[filename]; ok {
+			continue
+		}
 		path, joinErr := download.SafeJoin(directory, filepath.ToSlash(filename))
 		if joinErr != nil {
 			return false
@@ -3224,6 +3239,7 @@ func isMLXModelDirectory(directory string) bool {
 		if statErr != nil || !info.Mode().IsRegular() {
 			return false
 		}
+		checked[filename] = struct{}{}
 	}
 	return true
 }
@@ -3314,7 +3330,6 @@ func (b *logBuffer) trimLocked() {
 	if nextLine := bytes.IndexByte(content[start:], '\n'); nextLine >= 0 {
 		start += nextLine + 1
 	}
-	trimmed := append([]byte(nil), content[start:]...)
-	b.bytes.Reset()
-	_, _ = b.bytes.Write(trimmed)
+	// 推進讀取位置；bytes.Buffer 會在需要時攤銷搬移，避免每筆日誌複製 128 KiB。
+	b.bytes.Next(start)
 }

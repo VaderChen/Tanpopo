@@ -1,6 +1,6 @@
 # MLX 分散推論與 RDMA 使用指南
 
-狀態：實驗功能；2026-10-03。本次原始碼與測試 Runtime 版本尾碼為 `rdma8`。
+狀態：實驗功能；2026-10-03。發行版 [1.26.1003 build 2049](releases/v1.26.1003-build-2049.md) 內附 `rdma11` Runtime；所有參與節點需更新完整 App／Server 後重新配對。
 
 本功能讓多台 Mac 共同執行同一個模型。正式程式仍是 Go、Swift 與 C++，不需要 Python、pip 或 `mlx_lm.server`。
 
@@ -8,16 +8,18 @@
 
 - TCP Ring 支援 2–8 個節點；JACCL RDMA 維持雙節點。Rank 0 提供 API、請求排程、Tokenizer、Attention、KV Cache 與抽樣；其餘 Rank 執行權重分片的線性層運算。
 - 後端 `jaccl` 使用 MLX Core 的 Thunderbolt RDMA；`ring` 使用 TCP，兩者共用相同推論協定。Ring 測試成功不代表 RDMA 硬體已驗證。
-- 模型能力直接取自原生 Runtime 的文字與影像模型註冊表，Server 與網頁不另維護架構白名單。兩類模型共用同一個載入前掛鉤與線性層分片；輸入必須是完整 safetensors 模型目錄。註冊不代表每種 checkpoint 都已驗證，啟動仍會檢查權重、切分計畫與記憶體預算。
+- 模型能力直接取自原生 Runtime 的文字與影像模型註冊表，Server 與網頁不另維護架構白名單。各種來源共用同一個載入前掛鉤與線性層分片；輸入可為完整 safetensors 模型目錄、支援的 GGUF 或獨立 Fast GGUF。註冊不代表每種 checkpoint 都已驗證，啟動仍會檢查權重、切分計畫與記憶體預算。
 - 通用演算法切分 `Linear`／`QuantizedLinear` 的輸出列，量化權重、scales、biases 與偏置使用相同列範圍。列數有餘數時，分片最多相差一列；通訊先補齊長度再移除暫存列，支援三台等無法整除的組合。輸出列數小於節點數的線性層留在主節點。
 - 切分依據實際模組型別、形狀與可按列讀取的權重，不辨識模型檔名。只替換標準 `Linear`／`QuantizedLinear`；自訂子類別、載入時轉換而無法直接按列讀取的權重、專家層、卷積、Attention 及循環狀態保留在主節點。Qwen3.5 的 Gated Delta Net 與 MambaCache 沿用原本實作。
 - 包裝後保留完整權重形狀與量化型別；一般 forward 使用分片，直接存取權重的融合運算則在主節點按需載入完整權重。這類操作會增加主節點記憶體需求，不能將分片層數或 `local_linear_bytes` 當作整個模型的實際記憶體占用。
 - 主節點保留四個生成名額與每個請求獨立的取消、KV Cache、Prefill 及記憶體預算。單次遠端線性運算共用鎖，避免不同請求混用 collective 的順序與資料。
-- 支援文字與影像模型；已註冊影像架構且附有 processor 設定時，自動選擇影像載入器，文字 checkpoint 仍走文字載入器。Server 的 `/api/chat/completions` 接受文字或 OpenAI 格式的 `text`／`image_url` 內容陣列；圖片使用 base64 data URL，單次最多 8 張，請求上限 32 MiB。GGUF／Fast GGUF、DFlash、MTP 與管線平行仍不適用。MoE 等特殊架構僅分散其中的一般線性層，不會切分專家權重；若模型沒有可分散的線性層，會明確拒絕啟動。
+- 支援文字與影像模型；已註冊影像架構且附有 processor 設定時，自動選擇影像載入器，文字 checkpoint 仍走文字載入器。Server 的 `/api/chat/completions` 接受文字或 OpenAI 格式的 `text`／`image_url` 內容陣列；圖片使用 base64 data URL，單次最多 8 張，請求上限 32 MiB。GGUF／Fast GGUF 經原生轉換載入器接入相同分片機制；DFlash／MTP 的草稿生成保留在主節點，Target 驗證使用叢集。推測解碼仍須符合單機的模型／Draft 契約，不能任意混搭；管線平行仍不適用。MoE 等特殊架構僅分散其中的一般線性層，不會切分專家權重；若模型沒有可分散的線性層，會明確拒絕啟動。
 
-此版本採每層輸入廣播與輸出匯集，通訊頻率較高。目的先建立可驗證的權重分攤與原生服務路徑，尚未對大型模型做效能調校，不能承諾雙機加速。
+此版本採每層輸入廣播與輸出匯集，通訊頻率較高。`rdma10` 重用控制張量及有限容量的 worker 零值緩衝區，降低每層反覆配置與 Metal 排程成本；模型同步也重用雜湊緩衝區，已有正確副本時省去模型庫掃描。完整 SHA-256 核對仍保留。量測與界線見[函式級最佳化報告](MLX-FUNCTION-OPTIMIZATION.md)，不能據此承諾雙機加速。
 
 多台記憶體不會形成透明的共用記憶體。KV Cache、Embedding、Norm 及不能切分的部分仍由主節點負擔；可容納模型大小需以各節點實際預算判斷。
+
+`rdma11` 進一步在載入安全策略時預先解析 IP 規則，並配合 Go／網頁的共用路徑最佳化，減少重複檔案查詢、連線及字串處理。基準條件、回歸與同機 Server Smoke 見[全專案函式最佳化報告](PROJECT-FUNCTION-OPTIMIZATION.md)。
 
 ## 建置
 
@@ -28,7 +30,7 @@
 ./mlx-runtime/prebuilt/darwin-arm64/bin/mlx-server --distributed-capabilities
 ```
 
-建置器沿用固定的 `mlx-swift 0.31.6` 與專案 Vendor fork，依序套用版本化的 Metal、分散式後端、TCP 連線診斷、收送佇列同步、socket 事件等待及分片讀取補丁，不需升級整個 Swift MLX 依賴組合。
+建置器沿用固定的 `mlx-swift 0.31.6` 與專案 Vendor fork，依序套用版本化的 Metal、分散式後端、TCP 連線診斷、收送佇列同步、socket 事件等待、分片讀取及矩陣加總順序補丁，不需升級整個 Swift MLX 依賴組合。
 
 macOS SDK 包含 `infiniband/verbs.h` 時，自動編入 JACCL；較舊 SDK 只編入 Ring。建置 JACCL 需要 macOS 26.2 或以上的 SDK。未編入 JACCL 的成品不能用來驗證 RDMA，應更換工具鏈後重新建置。
 
@@ -42,19 +44,19 @@ TCP 連線診斷可用 `./scripts/smoke-mlx-distributed-sockets.sh` 驗證。此
 
 ## 在 Tanpopo Server 一鍵啟動 TCP Ring
 
-此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma8` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types`／`vision_model_types` 及足夠的 `max_ring_nodes`。
+此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma11` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types`／`vision_model_types` 及足夠的 `max_ring_nodes`。
 
-版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma8` 不可與 `rdma7` 或更早版本混用。節點還須公布 `model_sync_version: 1`；只更新網頁不會加入模型同步能力。
+版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma11` 不可與 `rdma10` 或更早版本混用。節點還須公布 `model_sync_version: 2`；只更新網頁不會加入模型同步能力。
 
-1. 各台在「系統設定」指定可寫入的 MLX 模型目錄；只需先在發起端準備要使用的完整模型。
+1. 各台在「系統設定」指定可寫入的 MLX／GGUF 模型目錄；只需先在發起端準備要使用的完整模型。
 2. 各台開啟「執行狀態 → TCP Ring 叢集 → 搜尋節點」，保持探索開啟。
-3. 發起端選擇 safetensors 模型與一般 MLX 啟動參數，在對話框勾選 1–7 個節點，再按「配對並啟用」。勾選本身不改變服務；配對後會停止各台原有的單機服務，切換成此次模型。已加入另一叢集、版本不同或不支援同步的節點不可加入。
+3. 發起端選擇模型與 MLX 啟動參數，在對話框勾選 1–7 個節點，再按「配對並啟用」。勾選本身不改變服務；配對後會停止各台原有的單機服務，切換成此次模型。已加入另一叢集、版本不同或不支援同步的節點不可加入。
 4. 發起端建立包含設定、Tokenizer、聊天範本、Processor 與權重的完整 SHA-256 清單。遠端先核對指定位置、同步快取與其他模型資料夾；內容一致即可使用，不要求資料夾名稱相同。
 5. 找不到相同內容時，遠端透過管理 HTTP 向發起端下載到隱藏暫存目錄。逐檔比對大小與 SHA-256 後，才搬入 `cluster-models/<內容摘要>`。舊模型、不同量化版本及不一致的原檔一律保留；已驗證副本可供下次直接重用。這條路徑也適用手動匯入或自行量化模型，不猜測 Hugging Face repository，也不交換下載 Token。
 6. 卡片顯示各台的核對／下載進度。背景工作不依附瀏覽器連線，可關閉對話框；按「停止叢集」會取消傳輸與回收租約。下載失敗不會發布半份模型。
 7. 全部節點完成內容準備後，才協商並釋放 Ring 保留埠、啟動各 Rank。原生 Runtime 再核對執行檔、模型內容及切分計畫；就緒後從主節點對話。任一成員停止會清理整組。
 
-主節點沿用選定參數的服務埠、Context、一般推論參數與 KV Cache 開關。工作節點收到模型識別、內容摘要、Context、成員及 Ring 端點；不接受對端指定任意命令、任意下載 URL 或執行檔路徑。DFlash、MTP、GGUF、mmproj 及自訂分散式 CLI 參數不適用；載入使用非 mmap 路徑。
+主節點沿用選定參數的服務埠、Context、一般推論參數與 KV Cache 開關。工作節點收到模型識別、內容摘要、Context、成員及 Ring 端點；不接受對端指定任意命令、任意下載 URL 或執行檔路徑。GGUF 工作節點沿用發起端的轉換策略；模型與 mmproj 放在同一資料夾。Draft 只需存在主節點；工作節點不接受對端的 Draft 路徑或任意啟動參數。自訂分散式 CLI 參數仍須移除。
 
 探索設定儲存在管理設定檔同層的 `data/cluster.json`，權限 `0600`，包含穩定節點 ID、探索開關、埠與網路介面，不再需要金鑰。舊版金鑰會忽略，重新儲存設定時移除。重開 Server 會恢復已啟用的探索，但推論需重新選取成員與配對，不會使用舊端點自動恢復。
 
@@ -77,7 +79,7 @@ TCP 連線診斷可用 `./scripts/smoke-mlx-distributed-sockets.sh` 驗證。此
 
 ### API 與同機三 Server Smoke
 
-管理 API：`GET /api/cluster/status`、`PUT /api/cluster/config`、`POST /api/cluster/start`、`POST /api/cluster/stop`。探索設定只需 `enabled`、`discovery_port` 與 `interface`。啟動 JSON 使用 `peer_ids` 陣列（不含本機）、`model`、`startup_command_id` 及可選 `kv_cache_quantization_enabled`；空白、重複、失聯或超出上限的選取會遭拒絕。`POST /api/cluster/start` 回傳 HTTP 202 表示已接受背景工作，不表示已載入模型。輪詢狀態中的 `session.phase` 與 `session.preparation`，同步失敗會清除 session 並保留 `last_error`。`POST /api/cluster/control` 是已探索節點間的控制協定；`POST /api/cluster/model` 只接受目前被選成員、符合來源 IP／nonce／session 的清單或檔案索引請求，不能讀取任意路徑。
+管理 API：`GET /api/cluster/status`、`PUT /api/cluster/config`、`POST /api/cluster/start`、`POST /api/cluster/stop`。探索設定只需 `enabled`、`discovery_port` 與 `interface`。啟動 JSON 使用 `peer_ids` 陣列（不含本機）、`model`、`startup_command_id` 及可選 `kv_cache_quantization_enabled`；另接受 `draft_model`、`dflash_enabled`、`fast_gguf_enabled`、`mmproj` 與 `conversion_confirmation_key`。轉換策略採發起端的 Server 設定。空白、重複、失聯或超出上限的選取會遭拒絕。`POST /api/cluster/start` 回傳 HTTP 202 表示已接受背景工作，不表示已載入模型。輪詢狀態中的 `session.phase` 與 `session.preparation`，同步失敗會清除 session 並保留 `last_error`。`POST /api/cluster/control` 是已探索節點間的控制協定；`POST /api/cluster/model` 只接受目前被選成員、符合來源 IP／nonce／session 的清單或檔案索引請求，不能讀取任意路徑。
 
 ```bash
 TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
@@ -94,7 +96,7 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
 - 修正 macOS 將 `/var` 列舉為 `/private/var` 時，原生內容校驗錯把部分目錄名稱算入摘要的問題；摘要與模型資料夾名稱無關。
 - Go Smoke 覆蓋完整內容核對、原檔保留、快取重用、錯誤下載、取消清理、路徑越界與未選成員拒絕；叢集生命週期使用 race detector 檢查。
 - Qwen3.5-4B 真實影像模型在同一台 Mac 的兩個獨立 Server，透過圖片請求得到相同回答「這張圖片的主要顏色是紅色。」；單機與叢集皆為 28 個輸入、7 個輸出 Token，SSE 與整組停止通過。切分 346 層，每個 Rank 的線性權重為 1,333,287,424 bytes，主節點另有 367,572,480 bytes 常駐參數。這是功能 Smoke，不是雙實體機效能基準。
-- 模型註冊表是可嘗試範圍，不是逐款認證。無可切分線性層、特殊算子或記憶體不足仍會明確拒絕；GGUF／Fast GGUF 要先解決轉換期間完整權重的常駐與分片讀取，不能只移除格式檢查便宣稱通用。
+- 模型註冊表是可嘗試範圍，不是逐款認證。無可切分線性層、特殊算子或記憶體不足仍會明確拒絕；Fast GGUF raw 權重按列讀取，LZFSE 部分逐張量解壓到匿名暫存檔再按列讀取，不在每個 worker 常駐完整解壓權重。首次 GGUF 轉換仍沿用既有轉換器，須有足夠本機記憶體及磁碟空間；已有快取後才使用上述分片讀取。
 
 ### 重複執行本機多模型驗證
 
@@ -124,6 +126,25 @@ go test ./tests/distributed -run '^TestTanpopoDistributedSmoke$' -count=1 -v -ti
 每輪須使用新的結果目錄。工具建立獨立設定、隨機埠與 `lo0` 探索，使用既有完整模型依序生成英文短句、中文多輪、跨 Prefill 區塊的長提示及選用的圖片。圖片預設為隨附的 56 × 56 純紅 PNG，也可用頂層 `image` 欄位指定另一張 PNG。固定 temperature 0、Context 4096、Prefill 128，逐項比對回答、推理內容、Token 數及結束原因；另比對 SSE 結果，並檢查兩端停止及 session 回收。錯誤與載入紀錄寫入結果目錄的 `result.json`，有任一失敗時以非零狀態結束。
 
 Go 原生 Smoke 另使用固定數值的微型模型，涵蓋 Llama（F32／Q4／Q8）、Mistral、Phi3、Gemma2、Starcoder2、Qwen2、Qwen3、Qwen3 MoE 與 Qwen3.5 兩種設定格式。這些 fixture 可檢查合併投影、偏置、不同 Norm、混合精度及專家層保留；不是訓練完成的模型，不能當作對應所有真實 checkpoint 的認證。
+
+### 函式耗時量測
+
+在案例 JSON 頂層加入 `"benchmark": { "iterations": 5, "max_tokens": 48 }`，工具會在單機與叢集各暖機一次，再以固定中文提示量測五次，並逐筆核對回答、推理、Token 數及結束原因。`iterations` 可設 1–30，`max_tokens` 可設 16–256；未設定 `benchmark` 時維持一般 Smoke。
+
+```bash
+TANPOPO_DISTRIBUTED_PROFILE=1 \
+node scripts/smoke-mlx-model-matrix.mjs cases.json .cache/function-profile-run
+
+go test ./src/modelbundle -run '^$' \
+  -bench 'Benchmark(CreateModelManifest|MatchModelManifest|EnsureExistingModel)$' \
+  -benchmem -benchtime=500ms -count=5
+```
+
+量測期間請避免同時編譯、跑其他基準或使用 GPU。兩版使用相同提示、參數與量測開關；比較完整 HTTP 請求的耗時中位數，不能將同機雙 Rank 結果當作實體多機加速比。
+
+`TANPOPO_DISTRIBUTED_PROFILE=1` 須在啟動 Server／原生 Runtime 前設定，預設關閉。啟用後，原生 `/health` 的 `distributed.function_profile` 提供 `control`、`input`、`gather` 的累積 `calls`、`input_bytes`、`input_eval_ms` 與 `collective_ms`；工具保存暖機後與量測後的快照。程序重啟即歸零，兩次快照的差值可能包含期間的心跳。
+
+`input_eval_ms` 是 collective 前完成輸入張量求值的時間；`gather.input_eval_ms` 包含本地線性層運算。`collective_ms` 包含 CPU stream、傳輸與等待其他 Rank，不能視為純網路延遲；`input_bytes` 是本 Rank 傳入 collective 的張量大小，不能視為網卡傳輸量。worker 零值快取最多保留 16 MiB／32 筆，這是保留張量的上限，不是整個程序或 Metal allocator 的記憶體上限。
 
 ### 2026-10-03 較早版本驗證紀錄
 
@@ -297,3 +318,14 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
 - 原生 collective、FP32／FP16／BF16、一般／Q4 線性層及四路交錯運算。
 
 真正設備到位後，仍需驗證 JACCL 的數值結果、長時間穩定性、線材中斷／worker 結束後回收，以及大型模型的首 Token 延遲、生成速度、逐節點記憶體與 CPU 使用量。本機 Ring 通過不能替代這些驗收。
+
+## GGUF 與推測解碼的叢集設定
+
+- 在一般 GGUF 清單選模型；`gguf:` 前綴對應 GGUF 根目錄，safetensors 使用 MLX 根目錄。API 也接受 `gguf:目錄/模型.fgguf.json`，不需要保留來源 GGUF 才能載入獨立 Fast GGUF。
+- 「快速 GGUF」開關與轉換策略由發起端決定，各節點使用相同策略。首次轉換沿用轉換容量確認；工作節點在本次配對授權下建立自己的快取，停止後保留供下次使用。叢集期間不自動移除來源 GGUF。
+- 同步清單含選定入口、完整雜湊與必要資產。Fast GGUF 只傳 manifest 指定的分片與啟動資產；GGUF 包含選定權重、mmproj 與設定／Tokenizer，不會順帶傳送同目錄其他大型模型。
+- CLI 自動啟動 local／SSH worker 時，與 Target 同目錄的 mmproj 會依 worker 的 `modelPath` 對應至其模型目錄。若刻意將 projector 放在其他位置，需讓該絕對路徑在兩端皆可使用，或手動啟動各 Rank 並分別指定 `--mmproj`。
+- DFlash 請在進階設定開啟並選用相容的 safetensors Target／Draft；MTP 使用既有 MTP 啟動參數與相容 Draft，或含原生預測層的 GGUF。KV 量化與推測解碼互斥。Fast GGUF fallback 尚未保存內嵌 MTP 預測層，仍需原 GGUF。
+- 草稿模型、抽樣與 KV 由發起端持有。加入節點不會擴大 Draft 的相容模型範圍，也不代表所有運算都會分散。
+
+[本機格式與推測解碼驗證](MLX-CLUSTER-FORMATS-VALIDATION.md) 提供實際案例及限制。重跑多模型工具時，可在案例加上 `launch`（與啟動 API 欄位相同）、`extra_args` 與 `speculative: "dflash"`／`"mtp"`；工具會檢查草稿提案、標準解碼比對、SSE 及停止回收。可用 `worker_model_root` 指定空的工作節點模型目錄，驗證真正的檔案下載。

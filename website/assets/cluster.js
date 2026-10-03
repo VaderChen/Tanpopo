@@ -15,7 +15,7 @@
 
   function peerIssue(peer) {
     if (peer.clustered) return "已加入其他叢集";
-    if (peer.model_sync_version !== 1) return "需更新 Tanpopo";
+    if (peer.model_sync_version !== 2) return "需更新 Tanpopo";
     if (!peer.capabilities?.ring_available || !peer.capabilities?.managed_parent_stdin || (peer.capabilities?.max_ring_nodes || 0) < 2) return "需更新 Runtime";
     if (peer.capabilities.version !== cluster?.local?.capabilities?.version) return "Runtime 版本不同";
     return "";
@@ -23,21 +23,28 @@
 
   function modelIssue() {
     if (selection.calibrating) return "請先等待效能校準完成。";
-    if (selection.runtime !== "mlx-server" || !selection.model || String(selection.model.path).startsWith("gguf:") || !selection.command) {
-      return "請先在上方選擇 safetensors 模型與 MLX 啟動參數；GGUF 尚不適用。";
+    if (selection.runtime !== "mlx-server" || !selection.model || !selection.command) {
+      return "請先在上方選擇模型與 MLX 啟動參數。";
     }
     // 使用模型清單提供的架構，不從資料夾名稱猜測；啟動時仍由 Server 完整核對。
     const capability = cluster?.local?.capabilities;
     if (!capability?.generic_linear_sharding || !((capability.text_model_types?.length || 0) + (capability.vision_model_types?.length || 0))) {
       return "請更新原生 Runtime，以取得通用 TCP Ring 的模型支援資訊。";
     }
-    if (selection.model.architecture && ![...(capability.text_model_types || []), ...(capability.vision_model_types || [])].includes(selection.model.architecture)) {
+    const gguf = String(selection.model.path).startsWith("gguf:");
+    if (gguf && !capability.gguf_sharding) return "請更新 Runtime，以使用 GGUF／Fast GGUF 叢集。";
+    if (!gguf && selection.model.architecture && ![...(capability.text_model_types || []), ...(capability.vision_model_types || [])].includes(selection.model.architecture)) {
       return "目前 Runtime 尚未支援所選模型的分散推論；請更新 Runtime 或更換模型。";
     }
     const profile = selection.command;
-    if (profile.runtime_variant || profile.draft_model || (profile.extra_args || []).some((arg) => /^--(distributed-|mtp-|dflash-|mmproj|model-type)/.test(arg))) {
-      return "請使用標準 MLX 啟動參數，移除 Draft 與手動分散式設定。";
+    if (profile.runtime_variant || (profile.extra_args || []).some((arg) => /^--(distributed-|mtp-draft|dflash-draft|mmproj|model-type)/.test(arg))) {
+      return "請移除手動分散式與模型路徑參數，改由上方的模型選擇器設定。";
     }
+    if (selection.mtp && !selection.model.mtp_supported) return "所選 Target 不支援 MTP；內嵌 MTP 需要保留原 GGUF。";
+    const draft = selection.mtp || byId("dflashToggle").checked;
+    if (draft && !capability.speculative_coordinator) return "請更新 Runtime，以使用叢集推測解碼。";
+    if (draft && byId("kvCacheQuantizationToggle").checked) return "DFlash／MTP 與 KV 量化不能同時使用。";
+    if (draft && !(selection.mtp && selection.model.mtp_embedded) && !selection.draft) return "請先下載與 Target 相容的 Draft 模型。";
     return "";
   }
 
@@ -231,8 +238,20 @@
     if (issue) throw new Error(issue);
     // 送出前固定選取快照，探索清單更新不改變這次要加入的成員。
     const ids = Array.from(selected);
+    const payload = { draft_model: selection.draft?.path || "", dflash_enabled: !selection.mtp && byId("dflashToggle").checked,
+      fast_gguf_enabled: byId("fastGGUFToggle").checked };
+    if (String(selection.model.path).startsWith("gguf:")) {
+      const inspection = await api("/api/runtime/conversion-preflight", { method: "POST", body: JSON.stringify({
+        model: selection.model.path, startup_command_id: selection.command.id, fast_gguf_enabled: payload.fast_gguf_enabled }) });
+      if (inspection.requires_conversion) {
+        const choice = await selection.confirmConversion(inspection, { allowDirect: false });
+        if (!choice) return;
+        if (choice === "direct") throw new Error("叢集需建立可分片的 Fast GGUF 快取，請選擇轉換後再啟動。");
+        payload.conversion_confirmation_key = inspection.cache_key;
+      }
+    }
     cluster = await api("/api/cluster/start", { method: "POST", body: JSON.stringify({
-      peer_ids: ids, model: selection.model.path, startup_command_id: selection.command.id,
+      ...payload, peer_ids: ids, model: selection.model.path, startup_command_id: selection.command.id,
       kv_cache_quantization_enabled: byId("kvCacheQuantizationToggle").checked
     }) });
     selected.clear();

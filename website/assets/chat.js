@@ -271,8 +271,14 @@
     view.thinking.classList.toggle("is-streaming", !complete);
     if (complete) view.thinking.open = false;
     view.message.hidden = !content;
-    if (reasoning) renderMarkdown(view.reasoningContent, reasoning);
-    if (content) renderMarkdown(view.message, content);
+    if (reasoning && reasoning !== view.renderedReasoning) {
+      renderMarkdown(view.reasoningContent, reasoning);
+      view.renderedReasoning = reasoning;
+    }
+    if (content && content !== view.renderedContent) {
+      renderMarkdown(view.message, content);
+      view.renderedContent = content;
+    }
     const metaText = complete ? usageText(snapshot.usage) : "";
     view.meta.hidden = !metaText;
     view.meta.textContent = metaText;

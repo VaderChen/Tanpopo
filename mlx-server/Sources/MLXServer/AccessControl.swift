@@ -37,8 +37,16 @@ final class RuntimeAccessControl: @unchecked Sendable {
     private struct Snapshot {
         let apiKeyEnabled: Bool
         let ipAllowlistEnabled: Bool
-        let ipAllowlist: [String]
+        let ipAllowlist: [IPRule]
         let keyHashes: [[UInt8]]
+    }
+
+    // 在策略更新時解析規則；每個 HTTP 請求只解析自己的來源位址。
+    private enum IPRule {
+        case any
+        case exact(ParsedIPAddress)
+        case network(ParsedIPAddress, prefix: Int)
+        case wildcard([UInt8])
     }
 
     private enum ParsedIPAddress {
@@ -117,8 +125,11 @@ final class RuntimeAccessControl: @unchecked Sendable {
             let patterns = rawPatterns.map {
                 $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             }
-            guard patterns.allSatisfy(Self.isValidIPPattern) else {
-                throw AccessControlError.invalidSnapshot("IP 白名單格式錯誤")
+            let rules = try patterns.map { pattern in
+                guard let rule = Self.parseIPRule(pattern) else {
+                    throw AccessControlError.invalidSnapshot("IP 白名單格式錯誤")
+                }
+                return rule
             }
             guard !decoded.policy.apiKeyEnabled || !hashes.isEmpty else {
                 throw AccessControlError.invalidSnapshot("已啟用金鑰驗證，但沒有金鑰")
@@ -129,7 +140,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
             snapshot = Snapshot(
                 apiKeyEnabled: decoded.policy.apiKeyEnabled,
                 ipAllowlistEnabled: decoded.policy.ipAllowlistEnabled,
-                ipAllowlist: patterns,
+                ipAllowlist: rules,
                 keyHashes: hashes
             )
             lastError = ""
@@ -153,64 +164,61 @@ final class RuntimeAccessControl: @unchecked Sendable {
         return matched
     }
 
-    private static func isIPAllowed(_ remoteAddress: String?, patterns: [String]) -> Bool {
+    private static func isIPAllowed(_ remoteAddress: String?, patterns: [IPRule]) -> Bool {
         guard let remoteAddress,
               let remote = parseIPAddress(remoteAddress) else { return false }
-        let comparable = addressWithoutZone(remoteAddress).lowercased()
+        var comparable: [UInt8]?
         for pattern in patterns {
-            if pattern == "*" { return true }
-            if pattern.contains("/") {
-                if matchesCIDR(remote, pattern: pattern) { return true }
-            } else if pattern.contains("*") {
-                if wildcardMatch(comparable, pattern: pattern) { return true }
-            } else if let exact = parseIPAddress(pattern),
-                      remote.hasSameFamily(as: exact), remote.bytes == exact.bytes {
-                return true
+            switch pattern {
+            case .any: return true
+            case .network(let network, let prefix):
+                if matchesCIDR(remote, network: network, prefix: prefix) { return true }
+            case .wildcard(let bytes):
+                if comparable == nil { comparable = Array(addressWithoutZone(remoteAddress).lowercased().utf8) }
+                if wildcardMatch(comparable!, pattern: bytes) { return true }
+            case .exact(let exact):
+                if remote.hasSameFamily(as: exact), remote.bytes == exact.bytes { return true }
             }
         }
         return false
     }
 
-    private static func isValidIPPattern(_ pattern: String) -> Bool {
-        guard !pattern.isEmpty else { return false }
-        if pattern == "*" { return true }
+    private static func parseIPRule(_ pattern: String) -> IPRule? {
+        guard !pattern.isEmpty else { return nil }
+        if pattern == "*" { return .any }
         if pattern.contains("/") {
             let parts = pattern.split(separator: "/", omittingEmptySubsequences: false)
             guard parts.count == 2,
                   let address = parseIPAddress(String(parts[0])),
                   let prefix = Int(parts[1]),
-                  (0...address.bitCount).contains(prefix) else { return false }
-            return true
+                  (0...address.bitCount).contains(prefix) else { return nil }
+            return .network(address, prefix: prefix)
         }
         if pattern.contains("*") {
-            guard pattern.count <= 128 else { return false }
-            return pattern.unicodeScalars.allSatisfy {
-                CharacterSet(charactersIn: "0123456789abcdefABCDEF:.*").contains($0)
-            }
+            let bytes = Array(pattern.utf8)
+            guard bytes.count <= 128, bytes.allSatisfy({
+                (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+                    || $0 == 58 || $0 == 46 || $0 == 42
+            }) else { return nil }
+            return .wildcard(bytes)
         }
-        return parseIPAddress(pattern) != nil
+        return parseIPAddress(pattern).map { .exact($0) }
     }
 
-    private static func matchesCIDR(_ remote: ParsedIPAddress, pattern: String) -> Bool {
-        let parts = pattern.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let network = parseIPAddress(String(parts[0])),
-              remote.hasSameFamily(as: network),
-              let prefix = Int(parts[1]),
-              (0...remote.bitCount).contains(prefix) else { return false }
+    private static func matchesCIDR(_ remote: ParsedIPAddress, network: ParsedIPAddress, prefix: Int) -> Bool {
+        guard remote.hasSameFamily(as: network) else { return false }
+        let remoteBytes = remote.bytes, networkBytes = network.bytes
         let fullBytes = prefix / 8
         let remainingBits = prefix % 8
-        guard Array(remote.bytes.prefix(fullBytes)) == Array(network.bytes.prefix(fullBytes)) else {
+        guard remoteBytes.prefix(fullBytes).elementsEqual(networkBytes.prefix(fullBytes)) else {
             return false
         }
         guard remainingBits > 0 else { return true }
-            let mask = UInt8.max << (8 - remainingBits)
-        return remote.bytes[fullBytes] & mask == network.bytes[fullBytes] & mask
+        let mask = UInt8.max << (8 - remainingBits)
+        return remoteBytes[fullBytes] & mask == networkBytes[fullBytes] & mask
     }
 
-    private static func wildcardMatch(_ value: String, pattern: String) -> Bool {
-        let value = Array(value)
-        let pattern = Array(pattern)
+    private static func wildcardMatch(_ value: [UInt8], pattern: [UInt8]) -> Bool {
         var valueIndex = 0
         var patternIndex = 0
         var wildcardIndex: Int?
@@ -219,7 +227,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
             if patternIndex < pattern.count, pattern[patternIndex] == value[valueIndex] {
                 valueIndex += 1
                 patternIndex += 1
-            } else if patternIndex < pattern.count, pattern[patternIndex] == "*" {
+            } else if patternIndex < pattern.count, pattern[patternIndex] == 42 {
                 wildcardIndex = patternIndex
                 patternIndex += 1
                 wildcardValueIndex = valueIndex
@@ -231,7 +239,7 @@ final class RuntimeAccessControl: @unchecked Sendable {
                 return false
             }
         }
-        while patternIndex < pattern.count, pattern[patternIndex] == "*" {
+        while patternIndex < pattern.count, pattern[patternIndex] == 42 {
             patternIndex += 1
         }
         return patternIndex == pattern.count

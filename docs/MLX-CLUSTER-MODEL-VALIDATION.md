@@ -59,7 +59,7 @@
 
 - 真實權重樣本皆為 Q4；Q8 與 F32 的完整服務路徑目前由微型案例驗證。
 - 真實 MoE 大模型、其他註冊架構、長時間負載、多張／高解析圖片、影片與音訊仍需另外驗證。
-- GGUF／Fast GGUF、DFlash、MTP 仍不在此叢集支援範圍；語音、影像生成等其他 Runtime 模型也不列入本次母體。
+- 本報告的 `rdma8` 測試不含 GGUF／Fast GGUF、DFlash、MTP；後續 `rdma9` 的成果另見[格式與推測解碼驗證](MLX-CLUSTER-FORMATS-VALIDATION.md)；語音、影像生成等其他 Runtime 模型也不列入本次母體。
 - 本次使用同一台實體 Mac。先前實體 Wi-Fi 長請求問題與 Thunderbolt RDMA 的驗收狀態不變；不能將同機成功視為網路問題已修復，亦不能保證雙機會加速。
 
 [重跑方式](MLX-RDMA.md#重複執行本機多模型驗證) · [機器可讀驗證紀錄](validation/mlx-cluster-model-matrix-2026-10-03.json)

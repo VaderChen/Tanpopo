@@ -2,6 +2,8 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
+[最新リリース：1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049) — クラスタの形式対応拡張と関数単位の最適化。Runtime は `rdma11` です。
+
 Tanpopo は Go で実装されたローカルモデルサービス管理ツールです。名称は日本語の「蒲公英（たんぽぽ）」に由来し、生成された Token が種のように外へ広がるイメージを表しています。GGUF 向けのクロスプラットフォーム `llama-server` と、Apple Silicon 向けのネイティブ Swift／MLX `mlx-server` を管理できます。
 
 ![Tanpopo TCP Ring DEMO](images/tanpopo-demo.gif)

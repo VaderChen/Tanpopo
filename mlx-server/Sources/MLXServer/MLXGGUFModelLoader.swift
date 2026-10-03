@@ -3071,7 +3071,7 @@ enum MLXGGUFModelLoader {
             verify: [.all]
         )
         modelLoadingProgress(55, 100)
-        eval(model)
+        if try ModelWeightLoadingContext.beforeEvaluate?(model) ?? true { eval(model) }
         modelLoadingProgress(85, 100)
         let tokenizer = try MLXGGUFEmbeddedAssets.tokenizer(
             tokenizerData: package.tokenizerData,
@@ -3467,7 +3467,7 @@ enum MLXGGUFModelLoader {
         let parameters = ModuleParameters.unflattened(weights)
         try model.update(parameters: parameters, verify: [.all])
         modelLoadingProgress(50, 100)
-        eval(model)
+        if try ModelWeightLoadingContext.beforeEvaluate?(model) ?? true { eval(model) }
         modelLoadingProgress(85, 100)
 
         let tokenizer = try await tokenizerTask

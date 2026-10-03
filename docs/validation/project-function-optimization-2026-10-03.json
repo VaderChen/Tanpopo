@@ -1,0 +1,1197 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Go、Swift 原生 Runtime、網頁與共用工具的函式級最佳化；效能基準與同機服務 Smoke 分開記錄",
+  "source_commit": "1cbfe1ec838eb292512eed46a0608a0446ff6bc9",
+  "source_worktree_clean": false,
+  "provenance_note": "基底 commit 不含工作目錄內未提交修改；source_files 記錄本輪修改前後內容摘要，validation_tools 記錄交付的驗證工具。前後基準以本輪開始時工作目錄快照為準。",
+  "environment": {
+    "cpu": "Apple M4 Pro",
+    "physical_memory_bytes": 68719476736,
+    "platform": "darwin/arm64",
+    "os": "27.0",
+    "go": "go version go1.27.0 darwin/arm64",
+    "node": "v26.6.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.30.4 clang-2100.3.30.1)\nTarget: arm64-apple-macosx27.0.0"
+  },
+  "native_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
+  "model_sync_version": 2,
+  "native_sha256": "438afa7510e4c497529ffc023305f0b019284fc88dfc2318883069f72739272c",
+  "go_smoke_binary_sha256": "e125ae718d88704982ea4f20602f0b3c4958bb8cabe83b49483c570789dbfcda",
+  "matrix_script_sha256": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a",
+  "source_files": [
+    {
+      "file": "src/llamacpp/manager.go",
+      "before_sha256": "f46d192179602253351137aaf9e4d1bcd411a3af1b881c613b58922bd5d3407a",
+      "after_sha256": "2799f7f75a498007da2f752bc3902b70a6c8fb284945fddfca35b45c4ceb4ca2"
+    },
+    {
+      "file": "src/llamacpp/gguf.go",
+      "before_sha256": "7433f5d8d37244378026fb2bbf4ac9f51ef48e4d5fc24be2488ba74be9810f14",
+      "after_sha256": "e8fad006f459edf7ccd697478f5c85ec2b37ed1af1b90876102187bbda6ba36a"
+    },
+    {
+      "file": "src/api/chat.go",
+      "before_sha256": "3dbb86bdff0ca1b4c34e1ff1cd18980e2eb72e3c72f0999a7b3e2b12c24401d1",
+      "after_sha256": "497b0f193f34f3643a1d023f70c78e4fa910e98c48e570e27b3a5d7108ed04e4"
+    },
+    {
+      "file": "src/api/server.go",
+      "before_sha256": "a8454e6a53113cf0cc2ffb0beb1afa99a50948c36da51041371f7ea06e024a64",
+      "after_sha256": "78174563f08c9d23e1b8a2f6f7ff32e601d2d52ca40b1ead0ddf32a6ef1a70bc"
+    },
+    {
+      "file": "website/assets/chat.js",
+      "before_sha256": "7373506e153d4e5c5ff0db548be5ba792b6c0ed32c31f2e3267031fb0d6f1052",
+      "after_sha256": "a8ff5060e7f7bbe163a01e2f01574c53adc11e18df40044fe5862ecdfbc8b256"
+    },
+    {
+      "file": "website/assets/chat-stream.js",
+      "before_sha256": "abf9fc00e3fade2067bd36b6f055ccc907c0ce3338eb180d3b7e2265d74b9908",
+      "after_sha256": "b2c9003fc02938be1f0cf12059d4d5ba285ad20ec6c09b42c8bb1b04fee5c988"
+    },
+    {
+      "file": "mlx-server/Sources/MLXServer/AccessControl.swift",
+      "before_sha256": "6deca615bb54b24f77cd1ada1efef0b09bb408751f125100287a882316693b5b",
+      "after_sha256": "bfb5fb0348b480e9ca7ed850da670a0cff1f724c3639801959bde71ee2fb985a"
+    },
+    {
+      "file": "mlx-server/Sources/MLXServer/Configuration.swift",
+      "before_sha256": "f4a0f16436427c9cb8d26d1271746b8a33f7f90b9f94df565e6ca6279ccdf6cb",
+      "after_sha256": "5b9c209fed58dd1692ffe68bf21853f24924e3ca91c44f297c440be57ba70911"
+    },
+    {
+      "file": "mlx-server/VERSION",
+      "before_sha256": "747fb3c3ce834679c2d0bb936508e0f96c122b8ab67ab0ca604d0e5018006536",
+      "after_sha256": "c11abf6a663bf9873d9e8de6ec1ea53aeb6c8d76a07e83c7824c24b4c80248ea"
+    },
+    {
+      "file": "tests/cluster-ui.test.cjs",
+      "before_sha256": "75a3a044a3d8060172fcc437398b32ff60612c115e442647cd84fc4f5bf98b68",
+      "after_sha256": "898fe1e47ffa8644899d39003dfe9afa18d063c9625e49df8766d1fcbdc79911"
+    },
+    {
+      "file": "tests/lan-tcp-diagnostic.test.mjs",
+      "before_sha256": "a552795b72f464a76c4c10020952b25014c90b69c8b0fedce2009615f4952cc3",
+      "after_sha256": "4bd353a5e6d994249d8bb6036ea2de56225b9a96faa69914d6575055fb665443"
+    },
+    {
+      "file": "README.md",
+      "before_sha256": "e0ba8abf5668bee5339ab3d815197cfbe5d74529204a60481382efbc4caf4bc4",
+      "after_sha256": "4afe829905481d42ee38de036ccc69a58561ce478f14a9c514a917bf7cc2bd0c"
+    },
+    {
+      "file": "README.zh-TW.md",
+      "before_sha256": "f9e64db7013c67f02fb3262e6a265fa780de1e090a73f543727586a0e7508ea5",
+      "after_sha256": "c8e94e057f3ec76e0d0b230a1b06e915451239f07ca31828397bc3f9b48f1638"
+    },
+    {
+      "file": "docs/MLX-RDMA.md",
+      "before_sha256": "fcdde8b3b335d967c14aea497b65061f224335615e67d866b916cf06339fbfee",
+      "after_sha256": "32158899c7e883bb867cc53b92ed1d496c628e59fe8d358cd2d99dd61864823b"
+    },
+    {
+      "file": "docs/MLX-RUNTIME-TROUBLESHOOTING.md",
+      "before_sha256": "a0b751459f9dff5dc889a5a6d1c4f99ae32146abbf316b79c6356a6199c8dee3",
+      "after_sha256": "0b320246a0ae067210e1f9b746d71cc1cf68f50c1d5ad5980aa028311838265c"
+    }
+  ],
+  "validation_tools": [
+    {
+      "file": "src/llamacpp/function_benchmark_test.go",
+      "sha256": "e4523d524a93019265c03c4cf760756b526d03a0b08a2780c38682a527ed0fa2"
+    },
+    {
+      "file": "src/llamacpp/function_optimization_test.go",
+      "sha256": "b1a53507fb60e625fe0d4d53d28c9a3df984d7873791a796d4b2f75a68cf6662"
+    },
+    {
+      "file": "src/api/chat_transport_test.go",
+      "sha256": "cab253fd946a65e7a0dbdffcd136084caacf5aee9971301bcf9912d47c64b27e"
+    },
+    {
+      "file": "scripts/benchmark-chat-stream.cjs",
+      "sha256": "f6a2d7fc0202ab4be8315321ebda9d18f3d09e1a0123152ca23cccf13a9ca26b"
+    },
+    {
+      "file": "scripts/benchmark-runtime-access.swift",
+      "sha256": "6e1ce509d7d24d22e7450feb2afd3c8be7eb2fea3ff4029f1319a6eba84da103"
+    },
+    {
+      "file": "scripts/smoke-mlx-model-matrix.mjs",
+      "sha256": "e0969659e11dfa62514aa061d12312a22ec4365ae913e179f296ff8242ec060a"
+    },
+    {
+      "file": "tests/chat-stream-framing.test.cjs",
+      "sha256": "b02f8b102a72d8e499f854ba73f6881c8f0ea0dc70d75ec01711182164bc7d42"
+    },
+    {
+      "file": "tests/chat-render.test.cjs",
+      "sha256": "39fc4a8a630fb74546648f0796795770f9a89e9ae1eb24121736b20a88c5856f"
+    },
+    {
+      "file": "tests/cluster-ui.test.cjs",
+      "sha256": "898fe1e47ffa8644899d39003dfe9afa18d063c9625e49df8766d1fcbdc79911"
+    },
+    {
+      "file": "tests/lan-tcp-diagnostic.test.mjs",
+      "sha256": "4bd353a5e6d994249d8bb6036ea2de56225b9a96faa69914d6575055fb665443"
+    },
+    {
+      "file": "mlx-server/Tests/MLXServerTests/AccessControlCompiledPolicyTests.swift",
+      "sha256": "7f98222e3ea6c32413c7dd1915e60ecc4f0a7d7911cf4cc93599479655e85f91"
+    }
+  ],
+  "benchmark_policy": {
+    "samples": 5,
+    "summary": "中位數",
+    "concurrent_benchmarks_or_builds": false,
+    "go_file_benchtime": "300ms",
+    "http_benchtime": "100x",
+    "http_baseline": "同一測試程式保留逐次建立／關閉連線池的舊呼叫方式；不是兩個 App 的端到端推論比較",
+    "excluded_attempt": "最初 HTTP 自動迭代次數的測量耗盡臨時埠，未採用該次樣本。",
+    "allocation_note": "Go allocs/op 會取整數；日誌原版平均配置不足一次，但 B/op 非零。"
+  },
+  "go_benchmarks": [
+    {
+      "name": "BenchmarkRuntimeLogAppend",
+      "before": [
+        {
+          "ns": 5167,
+          "bytes": 65541,
+          "allocs": 0
+        },
+        {
+          "ns": 5213,
+          "bytes": 65540,
+          "allocs": 0
+        },
+        {
+          "ns": 5195,
+          "bytes": 65540,
+          "allocs": 0
+        },
+        {
+          "ns": 5234,
+          "bytes": 65541,
+          "allocs": 0
+        },
+        {
+          "ns": 5229,
+          "bytes": 65539,
+          "allocs": 0
+        }
+      ],
+      "after": [
+        {
+          "ns": 11.4,
+          "bytes": 0,
+          "allocs": 0
+        },
+        {
+          "ns": 11.53,
+          "bytes": 0,
+          "allocs": 0
+        },
+        {
+          "ns": 11.48,
+          "bytes": 0,
+          "allocs": 0
+        },
+        {
+          "ns": 11.43,
+          "bytes": 0,
+          "allocs": 0
+        },
+        {
+          "ns": 11.44,
+          "bytes": 0,
+          "allocs": 0
+        }
+      ],
+      "medians": {
+        "before_ns": 5213,
+        "after_ns": 11.44,
+        "before_bytes": 65540,
+        "after_bytes": 0,
+        "before_allocs": 0,
+        "after_allocs": 0
+      },
+      "reduction_percent": 99.78054862842892
+    },
+    {
+      "name": "BenchmarkMLXShardInventory",
+      "before": [
+        {
+          "ns": 7099522,
+          "bytes": 2690737,
+          "allocs": 16470
+        },
+        {
+          "ns": 6895367,
+          "bytes": 2690448,
+          "allocs": 16469
+        },
+        {
+          "ns": 6803484,
+          "bytes": 2690240,
+          "allocs": 16469
+        },
+        {
+          "ns": 6860782,
+          "bytes": 2690664,
+          "allocs": 16470
+        },
+        {
+          "ns": 6822650,
+          "bytes": 2690474,
+          "allocs": 16469
+        }
+      ],
+      "after": [
+        {
+          "ns": 725333,
+          "bytes": 920216,
+          "allocs": 4189
+        },
+        {
+          "ns": 735795,
+          "bytes": 920168,
+          "allocs": 4189
+        },
+        {
+          "ns": 757729,
+          "bytes": 920230,
+          "allocs": 4189
+        },
+        {
+          "ns": 759037,
+          "bytes": 920299,
+          "allocs": 4190
+        },
+        {
+          "ns": 764642,
+          "bytes": 920490,
+          "allocs": 4190
+        }
+      ],
+      "medians": {
+        "before_ns": 6860782,
+        "after_ns": 757729,
+        "before_bytes": 2690474,
+        "after_bytes": 920230,
+        "before_allocs": 16469,
+        "after_allocs": 4189
+      },
+      "reduction_percent": 88.95564674697432
+    },
+    {
+      "name": "BenchmarkGGUFTokenMetadata",
+      "before": [
+        {
+          "ns": 1195987,
+          "bytes": 1117534,
+          "allocs": 65564
+        },
+        {
+          "ns": 1189638,
+          "bytes": 1117464,
+          "allocs": 65564
+        },
+        {
+          "ns": 1191650,
+          "bytes": 1117752,
+          "allocs": 65564
+        },
+        {
+          "ns": 1193188,
+          "bytes": 1117522,
+          "allocs": 65564
+        },
+        {
+          "ns": 1203319,
+          "bytes": 1117784,
+          "allocs": 65564
+        }
+      ],
+      "after": [
+        {
+          "ns": 329847,
+          "bytes": 66008,
+          "allocs": 14
+        },
+        {
+          "ns": 329769,
+          "bytes": 66008,
+          "allocs": 14
+        },
+        {
+          "ns": 324549,
+          "bytes": 66008,
+          "allocs": 14
+        },
+        {
+          "ns": 329795,
+          "bytes": 66008,
+          "allocs": 14
+        },
+        {
+          "ns": 335046,
+          "bytes": 66008,
+          "allocs": 14
+        }
+      ],
+      "medians": {
+        "before_ns": 1193188,
+        "after_ns": 329795,
+        "before_bytes": 1117534,
+        "after_bytes": 66008,
+        "before_allocs": 65564,
+        "after_allocs": 14
+      },
+      "reduction_percent": 72.36018129582263
+    },
+    {
+      "name": "RuntimeChatTransport",
+      "before": [
+        {
+          "ns": 188119,
+          "bytes": 26989,
+          "allocs": 180
+        },
+        {
+          "ns": 150811,
+          "bytes": 26781,
+          "allocs": 179
+        },
+        {
+          "ns": 104208,
+          "bytes": 27101,
+          "allocs": 179
+        },
+        {
+          "ns": 111239,
+          "bytes": 26900,
+          "allocs": 179
+        },
+        {
+          "ns": 111571,
+          "bytes": 26500,
+          "allocs": 179
+        }
+      ],
+      "after": [
+        {
+          "ns": 38927,
+          "bytes": 9588,
+          "allocs": 89
+        },
+        {
+          "ns": 36165,
+          "bytes": 9496,
+          "allocs": 89
+        },
+        {
+          "ns": 37664,
+          "bytes": 9064,
+          "allocs": 89
+        },
+        {
+          "ns": 37263,
+          "bytes": 9419,
+          "allocs": 89
+        },
+        {
+          "ns": 38112,
+          "bytes": 9404,
+          "allocs": 89
+        }
+      ],
+      "medians": {
+        "before_ns": 111571,
+        "after_ns": 37664,
+        "before_bytes": 26900,
+        "after_bytes": 9419,
+        "before_allocs": 179,
+        "after_allocs": 89
+      },
+      "reduction_percent": 66.2421238493874
+    }
+  ],
+  "swift_access_benchmark": {
+    "condition": "256 條混合規則，最後一條命中；策略暖機後，每樣本 1000 次呼叫",
+    "before": {
+      "decisions_verified": true,
+      "iterations_per_sample": 1000,
+      "median_ns_per_call": 180057.959,
+      "patterns": 256,
+      "samples_ns_per_call": [
+        199298.917,
+        178481.875,
+        181513.584,
+        179299.333,
+        180057.959
+      ]
+    },
+    "after": {
+      "decisions_verified": true,
+      "iterations_per_sample": 1000,
+      "median_ns_per_call": 1551.792,
+      "patterns": 256,
+      "samples_ns_per_call": [
+        1689.959,
+        1484.125,
+        1545.458,
+        1551.792,
+        1666
+      ]
+    },
+    "reduction_percent": 99.13817083753571
+  },
+  "sse_benchmarks": [
+    {
+      "condition": "一般事件跨封包",
+      "before": {
+        "name": "一般事件跨封包",
+        "events": 2000,
+        "bytes": 72016,
+        "chunk_bytes": 97,
+        "samples_ms": [
+          1.6517499999999998,
+          1.59525,
+          1.1779159999999997,
+          1.1610830000000014,
+          1.113709
+        ],
+        "median_ms": 1.1779159999999997,
+        "verified": true
+      },
+      "after": {
+        "name": "一般事件跨封包",
+        "events": 2000,
+        "bytes": 72016,
+        "chunk_bytes": 97,
+        "samples_ms": [
+          1.8798329999999979,
+          1.4954590000000003,
+          1.1837909999999994,
+          1.2091250000000002,
+          1.198041
+        ],
+        "median_ms": 1.2091250000000002,
+        "verified": true
+      },
+      "reduction_percent": -2.6495098122447214
+    },
+    {
+      "condition": "大型事件跨小封包",
+      "before": {
+        "name": "大型事件跨小封包",
+        "events": 1,
+        "bytes": 294952,
+        "chunk_bytes": 32,
+        "samples_ms": [
+          98.80550000000002,
+          110.7295,
+          109.04158299999995,
+          107.64966700000002,
+          105.30787500000008
+        ],
+        "median_ms": 107.64966700000002,
+        "verified": true
+      },
+      "after": {
+        "name": "大型事件跨小封包",
+        "events": 1,
+        "bytes": 294952,
+        "chunk_bytes": 32,
+        "samples_ms": [
+          8.300249999999998,
+          6.275708000000002,
+          6.544082999999993,
+          5.690000000000005,
+          6.1887920000000065
+        ],
+        "median_ms": 6.275708000000002,
+        "verified": true
+      },
+      "reduction_percent": 94.17024857122874
+    }
+  ],
+  "chat_render_calls": {
+    "condition": "固定思考內容、300 次答案增長與一次完成通知；正式函式搭配 DOM 替身",
+    "before": {
+      "updates": 301,
+      "markdown_calls": 602,
+      "math_calls": 602,
+      "dom_state_verified": true
+    },
+    "after": {
+      "updates": 301,
+      "markdown_calls": 301,
+      "math_calls": 301,
+      "dom_state_verified": true
+    },
+    "browser_render_time_measured": false
+  },
+  "verification": {
+    "go_all_passed": true,
+    "go_race_packages": [
+      "src/llamacpp",
+      "src/api"
+    ],
+    "active_request_cancellation_passed": true,
+    "node_tests": {
+      "passed": 24,
+      "failed": 0
+    },
+    "javascript_syntax_files": 25,
+    "swift_tests": {
+      "total": 64,
+      "passed": 61,
+      "skipped": 3,
+      "failed": 0,
+      "skipped_cases": [
+        {
+          "name": "testRealQwen35LayerDriftWhenConfigured",
+          "reason": "未另行指定真實 GGUF Layer Trace 診斷資料"
+        },
+        {
+          "name": "testRealQwen35LayoutAgainstNativeMLXWhenConfigured",
+          "reason": "未另行指定原始 GGUF 佈局診斷模型"
+        },
+        {
+          "name": "testRealQwen35TokenizerMatchesNativeWhenConfigured",
+          "reason": "未另行指定 Tokenizer 對照診斷模型"
+        }
+      ]
+    },
+    "native_smoke": {
+      "passed": true,
+      "architecture_fixtures": [
+        "llama",
+        "llama_q4",
+        "llama_q8",
+        "mistral",
+        "phi3",
+        "gemma2",
+        "starcoder2",
+        "qwen2",
+        "qwen3",
+        "qwen3_moe",
+        "qwen3_5",
+        "qwen3_5_text"
+      ],
+      "three_rank_collectives": true,
+      "three_server_discovery": true,
+      "model_sync_and_download": true,
+      "queue_capacity_and_cancellation": true,
+      "credentials_and_sse": true,
+      "process_failure_and_recovery": true
+    }
+  },
+  "real_model_smoke": {
+    "scope": "同機兩個獨立 Server，非實體雙機效能驗收",
+    "started_at": "2026-10-03T12:37:49.948Z",
+    "completed_at": "2026-10-03T12:40:01.526Z",
+    "settings": {
+      "temperature": 0,
+      "context_size": 4096,
+      "prefill_step_size": 128,
+      "kv_quantization": false
+    },
+    "capability": {
+      "generic_linear_sharding": true,
+      "gguf_model_types": [
+        "apertus",
+        "gemma",
+        "gemma3",
+        "gemma4",
+        "llama",
+        "mimo",
+        "minicpm",
+        "mistral",
+        "qwen2",
+        "qwen3",
+        "qwen35",
+        "smollm3"
+      ],
+      "gguf_sharding": true,
+      "hardware_verified": false,
+      "jaccl_library_available": true,
+      "managed_parent_stdin": true,
+      "max_ring_nodes": 8,
+      "note": "後端可用不代表 Thunderbolt 線路或雙機推論已通過驗證。",
+      "ring_available": true,
+      "speculative_coordinator": true,
+      "text_model_types": [
+        "acereason",
+        "afmoe",
+        "apertus",
+        "baichuan_m1",
+        "bailing_moe",
+        "bitnet",
+        "cohere",
+        "deepseek_v3",
+        "ernie4_5",
+        "exaone4",
+        "falcon_h1",
+        "gemma",
+        "gemma2",
+        "gemma3",
+        "gemma3_text",
+        "gemma3n",
+        "gemma4",
+        "gemma4_text",
+        "gemma4_unified",
+        "glm4",
+        "glm4_moe",
+        "glm4_moe_lite",
+        "gpt_oss",
+        "granite",
+        "granitemoehybrid",
+        "internlm2",
+        "jamba",
+        "lfm2",
+        "lfm2_moe",
+        "lille-130m",
+        "llama",
+        "mamba2",
+        "mimo",
+        "mimo_v2_flash",
+        "minicpm",
+        "minimax",
+        "mistral",
+        "mistral3",
+        "mixtral",
+        "nanochat",
+        "nemotron_h",
+        "nemotron_labs_diffusion",
+        "olmo2",
+        "olmo3",
+        "olmoe",
+        "openelm",
+        "phi",
+        "phi3",
+        "phimoe",
+        "qwen2",
+        "qwen3",
+        "qwen3_5",
+        "qwen3_5_moe",
+        "qwen3_5_text",
+        "qwen3_moe",
+        "qwen3_next",
+        "smollm3",
+        "starcoder2"
+      ],
+      "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
+      "vision_model_types": [
+        "fastvlm",
+        "gemma3",
+        "gemma4",
+        "gemma4_unified",
+        "glm_ocr",
+        "idefics3",
+        "lfm2-vl",
+        "lfm2_vl",
+        "llava_qwen2",
+        "mistral3",
+        "paligemma",
+        "pixtral",
+        "qwen2_5_vl",
+        "qwen2_vl",
+        "qwen3_5",
+        "qwen3_5_moe",
+        "qwen3_vl",
+        "smolvlm"
+      ]
+    },
+    "generated_requests": 26,
+    "cases": [
+      {
+        "name": "Qwen3-0.6B Q4",
+        "model": "mlx-community-qwen3-0-6b-4bit-73e3e38d981303bc594367cd910ea6eb48349da8-b67ec7b2",
+        "architecture": "qwen3",
+        "config_sha256": "15d3ac26c043ae477273ed5802ee0f0b33bb14f18c9d3dd70910c02d906e3f1f",
+        "weight_bytes": 335450584,
+        "quantization": {
+          "group_size": 64,
+          "bits": 4
+        },
+        "image": false,
+        "generated_requests": 7,
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 448.22912102591505,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 10.23153824809194,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 4,
+                "prompt_tokens": 51,
+                "tokens_per_second": 430.61564128230793,
+                "total_tokens": 55
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 4,
+                "prompt_tokens": 51,
+                "tokens_per_second": 10.432751839948214,
+                "total_tokens": 55
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 688,
+                "tokens_per_second": 480.7776249426868,
+                "total_tokens": 689
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 688,
+                "tokens_per_second": 11.357828250346952,
+                "total_tokens": 689
+              },
+              "finish_reason": "stop"
+            }
+          }
+        ],
+        "sse": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "usage": {
+            "completion_tokens": 2,
+            "tokens_per_second": 11.469930191363582,
+            "total_tokens": 23,
+            "prompt_tokens": 21
+          },
+          "finish_reason": "stop"
+        },
+        "distributed": {
+          "world_size": 2,
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "sharded_layers": 196,
+          "specialized_operations": "rank0",
+          "rank": 0,
+          "strategy": "linear-output-sharding",
+          "weight_loading": "direct-row-read",
+          "original_linear_bytes": 247726080,
+          "kv_cache_location": "rank0",
+          "hardware_validation": "experimental",
+          "coordinator_replicated_bytes": 87646208,
+          "local_linear_bytes": 123863040,
+          "backend": "ring"
+        },
+        "passed": true,
+        "stopped": true
+      },
+      {
+        "name": "Qwen3.5-4B GGUF",
+        "model": "gguf:Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_0.gguf",
+        "architecture": "qwen3_5",
+        "config_sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670",
+        "weight_bytes": 2583221408,
+        "image": true,
+        "generated_requests": 9,
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 54.97968560033819,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 8.18960869824143,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 45,
+                "tokens_per_second": 45.72781710198886,
+                "total_tokens": 47
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 45,
+                "tokens_per_second": 8.267126706609723,
+                "total_tokens": 47
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 784,
+                "tokens_per_second": 47.24326150865613,
+                "total_tokens": 785
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 784,
+                "tokens_per_second": 8.064775023698413,
+                "total_tokens": 785
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "圖片",
+            "matched": true,
+            "single": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 16,
+                "prompt_tokens": 28,
+                "tokens_per_second": 51.42394399438473,
+                "total_tokens": 44
+              },
+              "finish_reason": "length"
+            },
+            "cluster": {
+              "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 16,
+                "prompt_tokens": 28,
+                "tokens_per_second": 8.24730334361857,
+                "total_tokens": 44
+              },
+              "finish_reason": "length"
+            }
+          }
+        ],
+        "sse": {
+          "content": "這張圖片的主要顏色是紅色，畫面中充滿了純淨的紅色色",
+          "reasoning": "",
+          "usage": {
+            "total_tokens": 44,
+            "prompt_tokens": 28,
+            "completion_tokens": 16,
+            "tokens_per_second": 8.731536930043214
+          },
+          "finish_reason": "length"
+        },
+        "distributed": {
+          "rank": 0,
+          "original_linear_bytes": 4451120128,
+          "specialized_operations": "rank0",
+          "coordinator_replicated_bytes": 685422080,
+          "hardware_validation": "experimental",
+          "local_linear_bytes": 2225560064,
+          "backend": "ring",
+          "sharded_layers": 346,
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "kv_cache_location": "rank0",
+          "world_size": 2,
+          "strategy": "linear-output-sharding",
+          "weight_loading": "direct-row-read"
+        },
+        "passed": true,
+        "stopped": true
+      },
+      {
+        "name": "Qwen3.5-4B DFlash",
+        "model": "Qwen3.5-4B-MLX-4bit-aligned",
+        "architecture": "qwen3_5",
+        "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+        "weight_bytes": 3034311168,
+        "quantization": {
+          "group_size": 64,
+          "bits": 4,
+          "mode": "affine"
+        },
+        "image": false,
+        "generated_requests": 10,
+        "checks": [
+          {
+            "name": "英文短句",
+            "matched": true,
+            "single": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 5.868422681894451,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "Ring ready",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 21,
+                "tokens_per_second": 11.417025350954855,
+                "total_tokens": 23
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "中文多輪",
+            "matched": true,
+            "single": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 45,
+                "tokens_per_second": 16.392372276074596,
+                "total_tokens": 47
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "藍色松鼠",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 45,
+                "tokens_per_second": 11.68749773595526,
+                "total_tokens": 47
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "跨區塊 Prefill",
+            "matched": true,
+            "single": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 784,
+                "tokens_per_second": 12.564868848333793,
+                "total_tokens": 785
+              },
+              "finish_reason": "stop"
+            },
+            "cluster": {
+              "content": "blue",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 784,
+                "tokens_per_second": 4.999501158896685,
+                "total_tokens": 785
+              },
+              "finish_reason": "stop"
+            }
+          },
+          {
+            "name": "推測多區塊驗證",
+            "matched": true,
+            "single": {
+              "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 48,
+                "prompt_tokens": 35,
+                "tokens_per_second": 25.059516830943732,
+                "total_tokens": 83
+              },
+              "finish_reason": "length"
+            },
+            "cluster": {
+              "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+              "reasoning": "",
+              "usage": {
+                "completion_tokens": 48,
+                "prompt_tokens": 35,
+                "tokens_per_second": 7.728425598277906,
+                "total_tokens": 83
+              },
+              "finish_reason": "length"
+            }
+          }
+        ],
+        "sse": {
+          "content": "Ring ready",
+          "reasoning": "",
+          "usage": {
+            "total_tokens": 23,
+            "completion_tokens": 2,
+            "prompt_tokens": 21,
+            "tokens_per_second": 12.50782129485633
+          },
+          "finish_reason": "stop"
+        },
+        "standard": {
+          "content": "清晨的陽光透過茂密的樹葉灑下斑駁光影，一隻鮮紅的小鳥輕盈地躍出巢穴，展開雙翅在翠綠的樹冠間穿梭。它細細地聆聽著",
+          "reasoning": "",
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 35,
+            "tokens_per_second": 84.86367416653424,
+            "total_tokens": 83
+          },
+          "finish_reason": "length"
+        },
+        "standard_matched": true,
+        "distributed": {
+          "direct_weight_access": "lazy-full-weight-on-rank0",
+          "rank": 0,
+          "original_linear_bytes": 2007613440,
+          "local_linear_bytes": 1003806720,
+          "coordinator_replicated_bytes": 359505408,
+          "weight_loading": "direct-row-read",
+          "world_size": 2,
+          "sharded_layers": 248,
+          "strategy": "linear-output-sharding",
+          "specialized_operations": "rank0",
+          "kv_cache_location": "rank0",
+          "backend": "ring",
+          "hardware_validation": "experimental"
+        },
+        "speculative": {
+          "single_proposals_observed": true,
+          "cluster_proposals_observed": true,
+          "fallback_observed": false,
+          "worker_loaded_draft": false
+        },
+        "passed": true,
+        "stopped": true
+      }
+    ],
+    "passed": true,
+    "elapsed_times_used_as_performance_evidence": false
+  },
+  "limits": [
+    "函式基準不是 App 總推論加速比例。",
+    "未重新驗證實體 Wi-Fi 或 Thunderbolt RDMA。",
+    "本輪未重跑完整 Fast GGUF／MTP／DFlash2 矩陣；前輪報告仍保留為 rdma10 的歷史紀錄。",
+    "沒有替換使用者已安裝的 App 或發布 Release。"
+  ],
+  "evidence_logs": [
+    {
+      "local_relative_path": ".cache/project-function-optimization/go-baseline.log",
+      "sha256": "9ac22b8bd36df14ebf56a4d043e54607b358024e73fbbc3507ebb3989a9309fe"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/go-optimized.log",
+      "sha256": "80975b3ea4fa8f1482752e2caafc97113f5c56bc045210cf4f5204a3bdd781b6"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/http-benchmark.log",
+      "sha256": "4ce70b7645d54c1b37e69ea97e98818440039283406e1ef4753981465e2489dd"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/go-all-tests.log",
+      "sha256": "9bc012f3af2f4c92101d973bb5df318e5a1a1aa93cce15f91283f70f5bc77f3e"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/go-race-tests.log",
+      "sha256": "c412f147a6fc834894e3fffa712321ea4a8961a2b451e2e2a02211ffcd7c6626"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/go-chat-cancel-test.log",
+      "sha256": "ed703920f52c77f5ea3004f1c578ee153f8ab94d4708ac6c77c9ed2638084ea9"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/node-all-tests.log",
+      "sha256": "805dd29068150d73ce84b995d37c1b5df1a980ff031e2df6d2e0b22f1348091c"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/swift-tests.log",
+      "sha256": "b589c848aa0090c3da40706abdb1f13739f2766bf28207e0a9f6cbf78e9eb6b3"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/native-smoke.log",
+      "sha256": "f706f7888271a0599ffd57e4e015ea6e4d02a6ff74a942396d928e445a3d0770"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/server-smoke.log",
+      "sha256": "66b8b59bc63ab2ca6efb875612dff0a73eb8225c268490f835674dc1f887a7f5"
+    },
+    {
+      "local_relative_path": ".cache/project-function-optimization/build.log",
+      "sha256": "6001c625c4ee359cd92580a48c2701e85b047699bb815598fa48889cbf245541"
+    }
+  ]
+}

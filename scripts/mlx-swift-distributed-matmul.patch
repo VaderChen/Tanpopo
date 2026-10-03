@@ -1,0 +1,52 @@
+--- a/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
++++ b/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+@@ -20,6 +20,9 @@
+ 
+ namespace mlx::core {
+ 
++// TANPOPO_MATMUL_OUTPUT_SIZE: 分片仍按完整矩陣決定 K 維度的加總分段。
++thread_local int tanpopo_matmul_output_size = 0;
++
+ namespace {
+ 
+ std::tuple<bool, int64_t, array> check_transpose(
+@@ -548,7 +551,8 @@
+   using namespace mlx::steel;
+ 
+   int _tm = (M + 32 - 1) / 32;
+-  int _tn = (N + 32 - 1) / 32;
++  int reference_n = tanpopo_matmul_output_size > 0 ? tanpopo_matmul_output_size : N;
++  int _tn = (reference_n + 32 - 1) / 32;
+   int _tk = K / 16;
+ 
+   int bm = M < 40 ? 16 : 32;
+@@ -926,7 +930,8 @@
+   // Split K specialization
+ 
+   int _tm = (M + 16 - 1) / 16;
+-  int _tn = (N + 16 - 1) / 16;
++  int reference_n = tanpopo_matmul_output_size > 0 ? tanpopo_matmul_output_size : N;
++  int _tn = (reference_n + 16 - 1) / 16;
+   int _tk = K / 16;
+ 
+   // Case 1: Small M×N with large K, use SIMD split-K
+@@ -934,7 +939,7 @@
+   // Max and Ultra dispatch larger sizes to splitk
+   int min_tmn_threshold = (devc == 's' || devc == 'd') ? 2048 : 1024;
+   if (batch_size_out == 1 && (_tm * _tn) <= min_tmn_threshold && _tk >= 8 &&
+-      K >= std::max(M, N)) {
++      K >= std::max(M, reference_n)) {
+     return steel_gemm_splitk_axpby<CHECK_AB>(
+         /* const Stream& s = */ s,
+         /* metal::Device& d = */ d,
+@@ -962,8 +967,8 @@
+   if (batch_size_out == 1 && metal::is_nax_available() &&
+       !issubdtype(a.dtype(), complexfloating) &&
+       (env::enable_tf32() || a.dtype() != float32) &&
+-      int64_t(M) * N >= min_mn_threshold && K >= min_k_threshold &&
+-      K >= (3 * std::max(M, N))) {
++      int64_t(M) * reference_n >= min_mn_threshold && K >= min_k_threshold &&
++      K >= (3 * std::max(M, reference_n))) {
+     return steel_gemm_splitk_axpby_nax<CHECK_AB>(
+         /* const Stream& s = */ s,
+         /* metal::Device& d = */ d,

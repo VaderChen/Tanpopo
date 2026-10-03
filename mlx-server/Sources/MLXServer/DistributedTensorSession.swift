@@ -13,6 +13,17 @@ final class DistributedTensorSession: @unchecked Sendable {
     private let lock = NSLock()
     private var layers: [Linear] = []
     private var outputSizes: [Int] = []
+    private struct ControlHeader {
+        let shape: [Int]
+        let dtype: Int
+        let array: MLXArray
+        let detail: String
+    }
+    // 每層只保留最近一種形狀；並行請求或 Prefill 改變形狀時直接替換。
+    private var controlHeaders: [ControlHeader?] = []
+    private var referenceLayers: [(String, Linear)] = []
+    private var comparedLayers: Set<Int> = []
+    private let verifyLinear = ProcessInfo.processInfo.environment["TANPOPO_DISTRIBUTED_VERIFY_LINEAR"] == "1"
     private(set) var originalLinearBytes = 0
     private(set) var localLinearBytes = 0
     private(set) var replicatedBytes = 0
@@ -38,12 +49,14 @@ final class DistributedTensorSession: @unchecked Sendable {
     }
 
     var summary: [String: Any] {
-        ["backend": configuration.backend, "rank": group.rank, "world_size": group.size,
+        var value: [String: Any] = ["backend": configuration.backend, "rank": group.rank, "world_size": group.size,
          "strategy": "linear-output-sharding", "sharded_layers": layers.count,
          "original_linear_bytes": originalLinearBytes, "local_linear_bytes": localLinearBytes,
          "coordinator_replicated_bytes": replicatedBytes, "kv_cache_location": "rank0",
          "specialized_operations": "rank0", "direct_weight_access": "lazy-full-weight-on-rank0",
          "weight_loading": "direct-row-read", "hardware_validation": "experimental"]
+        if let profile = group.functionProfile { value["function_profile"] = profile }
+        return value
     }
 
     /// 必須在模型首次 eval 前執行，避免先將整份大模型搬入裝置記憶體。
@@ -104,12 +117,14 @@ final class DistributedTensorSession: @unchecked Sendable {
                     biases: try quantized.biases.map { try Self.copyRows($0, rows: rows) },
                     groupSize: quantized.groupSize, bits: quantized.bits, mode: quantized.mode)
             } else {
-                local = Linear(weight: try Self.copyRows(linear.weight, rows: rows),
-                    bias: try linear.bias.map { try Self.copyRows($0, rows: rows) })
+                local = DistributedLocalLinear(weight: try Self.copyRows(linear.weight, rows: rows),
+                    bias: try linear.bias.map { try Self.copyRows($0, rows: rows) }, originalOutput: output)
             }
             let identifier = layers.count
             layers.append(local)
+            if verifyLinear && group.rank == 0 { referenceLayers.append((path, linear)) }
             outputSizes.append(output)
+            controlHeaders.append(nil)
             originalLinearBytes += linear.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
             localLinearBytes += local.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
             signatures.append("\(path):\(linear.shape):\(linear.weight.dtype):\(String(describing: type(of: linear)))")
@@ -153,27 +168,46 @@ final class DistributedTensorSession: @unchecked Sendable {
     /// 主節點的多個請求共用此序列化通訊入口；worker 不持有請求／KV／抽樣狀態。
     func execute(layer: Int, input: MLXArray) -> MLXArray {
         // 請求本身的限制在通訊開始前回報給現有 MLX 錯誤處理器，不破壞群組。
+        let shape = input.shape
         guard (1...8).contains(input.ndim), let dtype = Self.dtypes.firstIndex(of: input.dtype),
-            input.shape.allSatisfy({ $0 > 0 && $0 <= Int(Int32.max) }), input.nbytes <= 256 * 1024 * 1024 else {
+            shape.allSatisfy({ $0 > 0 && $0 <= Int(Int32.max) }), input.nbytes <= 256 * 1024 * 1024 else {
             tanpopo_distributed_raise("分散式 Linear 輸入型別／形狀不支援或超過 256 MiB。")
             return MLXArray.zeros([1])
         }
         return lock.withLock {
             do {
-                let detail = "Rank \(group.rank) layer=\(layer) shape=\(input.shape) dtype=\(input.dtype)"
+                let header: ControlHeader
+                if let cached = controlHeaders[layer], cached.shape == shape, cached.dtype == dtype {
+                    header = cached
+                } else {
+                    var values = [Int32](repeating: 0, count: headerSize)
+                    values[0] = 1
+                    values[1] = Int32(layer)
+                    values[2] = Int32(shape.count)
+                    values[3] = Int32(dtype)
+                    for (index, dimension) in shape.enumerated() { values[4 + index] = Int32(dimension) }
+                    header = ControlHeader(shape: shape, dtype: dtype, array: MLXArray(values),
+                        detail: "Rank \(group.rank) layer=\(layer) shape=\(shape) dtype=\(input.dtype)")
+                    controlHeaders[layer] = header
+                }
+                let detail = header.detail
                 let deadline = DistributedDeadline(seconds: configuration.operationTimeout, operation: "\(detail) 運算交握")
                 defer { withExtendedLifetime(deadline) {} }
-                var header = [Int32](repeating: 0, count: headerSize)
-                header[0] = 1
-                header[1] = Int32(layer)
-                header[2] = Int32(input.ndim)
-                header[3] = Int32(dtype)
-                for (index, dimension) in input.shape.enumerated() { header[4 + index] = Int32(dimension) }
-                _ = try group.sum(MLXArray(header))
+                _ = try group.sum(header.array)
                 deadline.update("\(detail) 輸入交換")
                 let shared = try group.sum(input)
                 deadline.update("\(detail) 線性運算／輸出匯集")
-                return try gatherOutput(layers[layer](shared), layer: layer)
+                let result = try gatherOutput(layers[layer](shared), layer: layer)
+                if verifyLinear && !comparedLayers.contains(layer) {
+                    let reference = referenceLayers[layer]
+                    let expected = reference.1(input)
+                    let difference = abs(result.asType(.float32) - expected.asType(.float32)).max().item(Float.self)
+                    if difference > 0 {
+                        comparedLayers.insert(layer)
+                        fputs("TANPOPO_LINEAR_COMPARE layer=\(reference.0) input=\(input.shape) dtype=\(input.dtype) max_abs=\(difference)\n", stderr)
+                    }
+                }
+                return result
             } catch {
                 // 已進入 collective 後不能安全地讓任一 Rank 單獨跳過運算。
                 Self.failGroup(error)
@@ -207,9 +241,12 @@ final class DistributedTensorSession: @unchecked Sendable {
 
     func workerLoop() throws {
         guard group.rank != 0 else { throw DistributedError.invalid("主節點不能進入 worker loop。") }
+        // 控制訊息不需 Metal kernel；CPU 建立一次後供所有迭代共用。
+        let emptyHeader = MLXArray([Int32](repeating: 0, count: headerSize))
+        let zeroBuffers = DistributedZeroBuffers()
         while true {
             let lease = DistributedDeadline(seconds: max(60, configuration.operationTimeout * 2), operation: "主節點心跳")
-            let header = try group.sum(MLXArray.zeros([headerSize], dtype: .int32)).asArray(Int32.self)
+            let header = try group.sum(emptyHeader).asArray(Int32.self)
             lease.cancel()
             let deadline = DistributedDeadline(seconds: configuration.operationTimeout, operation: "Worker 張量運算")
             defer { withExtendedLifetime(deadline) {} }
@@ -232,7 +269,7 @@ final class DistributedTensorSession: @unchecked Sendable {
                 }
                 let detail = "Rank \(group.rank) layer=\(identifier) shape=\(shape) dtype=\(Self.dtypes[dtype])"
                 deadline.update("\(detail) 輸入交換")
-                let input = try group.sum(MLXArray.zeros(shape, dtype: Self.dtypes[dtype]))
+                let input = try group.sum(zeroBuffers.zeros(shape: shape, dtype: Self.dtypes[dtype]))
                 deadline.update("\(detail) 線性運算／輸出匯集")
                 let output = try gatherOutput(layers[identifier](input), layer: identifier)
                 eval(output)
@@ -268,16 +305,19 @@ final class DistributedTensorSession: @unchecked Sendable {
         _exit(70)
     }
 
-    static func modelDigest(directory: URL) throws -> [UInt8] {
+    static func modelDigest(configuration: ServerConfiguration) throws -> [UInt8] {
+        let target = URL(fileURLWithPath: configuration.modelPath)
+        let fileTarget = target.pathExtension.lowercased() == "gguf" || target.lastPathComponent.hasSuffix(".fgguf.json")
+        let sourceDirectory = fileTarget ? target.deletingLastPathComponent() : target
         // FileManager 列舉會展開 /var → /private/var；先正規化根目錄，
         // 才不會把模型資料夾名稱的一部分誤算進相對檔名摘要。
-        guard let canonical = realpath(directory.path, nil) else {
+        guard let canonical = realpath(sourceDirectory.path, nil) else {
             throw DistributedError.invalid("無法解析模型目錄的實際位置。")
         }
         let directory = URL(fileURLWithPath: String(cString: canonical), isDirectory: true)
         free(canonical)
         var hash = SHA256()
-        hash.update(data: Data("\(ServerConfiguration.version):linear-output-sharding-v3".utf8))
+        hash.update(data: Data("\(ServerConfiguration.version):linear-output-sharding-v4".utf8))
         func appendFile(_ file: URL) throws {
             let handle = try FileHandle(forReadingFrom: file)
             defer { try? handle.close() }
@@ -292,12 +332,43 @@ final class DistributedTensorSession: @unchecked Sendable {
         guard let iterator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]) else {
             throw DistributedError.invalid("無法讀取模型目錄。")
         }
+        var selected: Set<String> = []
+        if fileTarget {
+            selected.insert(target.lastPathComponent)
+            if let mmproj = configuration.mmprojPath {
+                // mmproj 可位於其他資料夾；摘要仍使用固定角色，不含機器本機路徑。
+                hash.update(data: Data("mmproj".utf8))
+                try appendFile(URL(fileURLWithPath: mmproj))
+            }
+            if target.lastPathComponent.hasSuffix(".fgguf.json") {
+                guard let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: target)) as? [String: Any],
+                    let shards = manifest["shards"] as? [String], !shards.isEmpty else {
+                    throw DistributedError.invalid("Fast GGUF 清單缺少權重分片。")
+                }
+                if manifest["configuration"] == nil {
+                    for name in ["config.json", "tokenizer.json", "tokenizer_config.json", "generation_config.json", "preprocessor_config.json", "processor_config.json", "chat_template.jinja"] where FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path) { selected.insert(name) }
+                }
+                for name in shards + ["configuration", "tokenizer", "tokenizerConfiguration", "processorConfiguration", "generationConfiguration"].compactMap({ manifest[$0] as? String }) {
+                    guard !name.isEmpty, URL(fileURLWithPath: name).lastPathComponent == name, !name.hasPrefix(".") else {
+                        throw DistributedError.invalid("Fast GGUF 清單包含無效路徑。")
+                    }
+                    selected.insert(name)
+                }
+            }
+            hash.update(data: Data("\(configuration.ggufProfile.rawValue):\(configuration.ggufGroupSize ?? 0):\(configuration.ggufRecurrentPromotion.rawValue)".utf8))
+        }
         let files = iterator.compactMap { $0 as? URL }.filter { file in
             let relative = String(file.path.dropFirst(directory.path.count + 1))
+            if fileTarget {
+                // 只核對本次載入的模型與資產，不把旁邊其他轉換快取算進摘要。
+                if selected.contains(relative) { return true }
+                if target.lastPathComponent.hasSuffix(".fgguf.json") { return false }
+                if relative.contains("/") || relative.contains(".tanpopo-") || file.pathExtension == "safetensors" { return false }
+            }
             return !relative.split(separator: "/").contains(where: { $0.hasPrefix(".") })
                 && ["safetensors", "json", "model", "jinja", "txt", "tiktoken"].contains(file.pathExtension)
         }.sorted { $0.path < $1.path }
-        guard files.contains(where: { $0.pathExtension == "safetensors" }) else {
+        guard fileTarget || files.contains(where: { $0.pathExtension == "safetensors" }) else {
             throw DistributedError.invalid("模型目錄中沒有 safetensors。")
         }
         for file in files {
@@ -306,6 +377,28 @@ final class DistributedTensorSession: @unchecked Sendable {
             try appendFile(file)
         }
         return Array(hash.finalize())
+    }
+}
+
+/// 不改變單機 kernel；分片只補上原始輸出寬度，讓 K 加總順序保持一致。
+private final class DistributedLocalLinear: Linear {
+    let originalOutput: Int
+    init(weight: MLXArray, bias: MLXArray?, originalOutput: Int) {
+        self.originalOutput = originalOutput
+        super.init(weight: weight, bias: bias)
+    }
+    override func callAsFunction(_ input: MLXArray) -> MLXArray {
+        var result = mlx_array_new()
+        let code: Int32
+        if let bias {
+            var context = bias.ctx
+            code = tanpopo_distributed_linear(&result, input.ctx, weight.ctx, &context, Int32(originalOutput))
+        } else {
+            code = tanpopo_distributed_linear(&result, input.ctx, weight.ctx, nil, Int32(originalOutput))
+        }
+        let output = MLXArray(result)
+        if code != 0 { tanpopo_distributed_raise(tanpopo_distributed_error()) }
+        return output
     }
 }
 

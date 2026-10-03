@@ -748,7 +748,8 @@
       || !state.mmprojModels.length;
     byId("startButton").disabled = state.calibrating || running || !modelReady || !commandReady;
     byId("stopButton").disabled = state.calibrating || (!running && !status.desired_running);
-    window.TanpopoCluster?.update({ runtime: selectedRuntime(), model: selectedModel(), command: selectedCommand(), status, calibrating: state.calibrating });
+    window.TanpopoCluster?.update({ runtime: selectedRuntime(), model: selectedModel(), command: selectedCommand(), status, calibrating: state.calibrating,
+      draft: matchedDraftModel(), mtp: commandUsesMTP(), confirmConversion: requestModelConversionConfirmation });
     const calibrationButton = byId("calibrateRuntimeButton");
     calibrationButton.hidden = !state.settings?.auto_performance_calibration_enabled;
     calibrationButton.disabled = state.testing || state.calibrating;
@@ -917,7 +918,9 @@
     if (dialog.open) dialog.close();
   }
 
-  function requestModelConversionConfirmation(inspection) {
+  function requestModelConversionConfirmation(inspection, { allowDirect = true } = {}) {
+    byId("skipModelConversionCacheButton").hidden = !allowDirect;
+    byId("modelConversionDirectNote").hidden = !allowDirect;
     const dialog = byId("modelConversionConfirmDialog");
     const modelName = displayModelName(inspection?.model || selectedModel()?.path) || "—";
     byId("modelConversionConfirmModel").textContent = modelName;

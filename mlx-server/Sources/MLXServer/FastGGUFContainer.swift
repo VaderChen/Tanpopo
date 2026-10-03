@@ -194,6 +194,15 @@ enum FastGGUFContainer {
         }
         try validate(header: header, fileSize: fileSize)
 
+        // 分散式載入不把完整模型實體化：raw 直接 lazy 讀檔，壓縮部分逐張量落盤。
+        let source = DistributedWeightLoading.enabled ? try DistributedWeightFile(url: url) : nil
+        let scratchURL = FileManager.default.temporaryDirectory.appendingPathComponent("tanpopo-weights-" + UUID().uuidString)
+        var scratch: FileHandle?
+        var scratchReader: DistributedWeightFile?
+        defer {
+            try? scratch?.close()
+            if scratch != nil { try? FileManager.default.removeItem(at: scratchURL) }
+        }
         var arrays = [String: MLXArray]()
         arrays.reserveCapacity(header.tensors.count)
         var rawBytes: Int64 = 0
@@ -213,6 +222,8 @@ enum FastGGUFContainer {
                 rawTensorCount += 1
                 if tensor.rawBytes == 0 {
                     value = MLXArray.zeros(tensor.shape, dtype: dtype)
+                } else if let source {
+                    value = try source.array(offset: Int(absoluteOffset), shape: tensor.shape, dtype: dtype)
                 } else if memoryMapped {
                     value = try MemoryMappedTensorArray.load(
                         from: url,
@@ -236,7 +247,21 @@ enum FastGGUFContainer {
                     expectedBytes: Int(tensor.rawBytes),
                     name: tensor.name
                 )
-                value = MLXArray(decoded, tensor.shape, dtype: dtype)
+                if source != nil {
+                    if scratch == nil {
+                        guard FileManager.default.createFile(atPath: scratchURL.path, contents: nil,
+                            attributes: [.posixPermissions: 0o600]) else {
+                            throw ContainerError.createFailed(scratchURL.lastPathComponent)
+                        }
+                        scratch = try FileHandle(forWritingTo: scratchURL)
+                        scratchReader = try DistributedWeightFile(url: scratchURL)
+                    }
+                    let offset = try scratch!.offset()
+                    try scratch!.write(contentsOf: decoded)
+                    value = try scratchReader!.array(offset: Int(offset), shape: tensor.shape, dtype: dtype)
+                } else {
+                    value = MLXArray(decoded, tensor.shape, dtype: dtype)
+                }
             default:
                 throw ContainerError.invalidTensor(tensor.name)
             }

@@ -2,6 +2,8 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
+[最新發行：1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049)：通用格式叢集與函式級最佳化，內附 `rdma11` Runtime。
+
 `Tanpopo` 是一個以 Go 實作的本機模型服務管理器；名稱取自日語「蒲公英（たんぽぽ）」，象徵模型把生成的 Token 像種子般向外散發。管理介面提供簡單登入、模型服務管理與暫存式簡易對話；`llama-server` 維持跨平台與 GGUF 高相容性，Apple Silicon 另提供原生 Swift／MLX 的 `mlx-server`，支援文生文與多模態模型。
 
 ![Tanpopo TCP Ring 搜尋、複選配對與串流對話展示](images/tanpopo-demo.gif)
@@ -158,11 +160,15 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 整個應用不呼叫 Python、`mlx_lm.server`、pip 或虛擬環境；Go 管理服務與 Swift MLX Runtime 都是原生執行檔。部署主機不需要安裝 Python。
 
-另提供實驗性的 MLX 分散推論：JACCL 使用雙節點 Thunderbolt RDMA，TCP Ring 支援 2–8 個節點，可用同機多程序驗證。文字與影像模型能力由原生 Runtime 註冊表動態提供，包含 Qwen3.5；依模組型別與形狀切分一般／量化線性層，不另外維護架構白名單。Attention、循環狀態、自訂層與專家運算保留在主節點，直接讀取權重的特殊路徑會按需保留完整權重，因此記憶體節省幅度依架構而異。主節點保留四人並行、獨立 KV Cache 與取消機制；輸入需為 safetensors 文字／影像模型，圖片可透過聊天 API 的 base64 data URL 傳送；GGUF、DFlash 與 MTP 尚不支援。設定、部署限制及驗收方式見 [MLX 分散推論與 RDMA 使用指南](docs/MLX-RDMA.md)。實際 Thunderbolt 硬體效能仍待雙機驗證。
+另提供實驗性的 MLX 分散推論：JACCL 使用雙節點 Thunderbolt RDMA，TCP Ring 支援 2–8 個節點，可用同機多程序驗證。文字與影像模型能力由原生 Runtime 註冊表動態提供，包含 Qwen3.5；依模組型別與形狀切分一般／量化線性層，不另外維護架構白名單。Attention、循環狀態、自訂層與專家運算保留在主節點，直接讀取權重的特殊路徑會按需保留完整權重，因此記憶體節省幅度依架構而異。主節點保留四人並行、獨立 KV Cache 與取消機制；支援 safetensors 與 GGUF／Fast GGUF；圖片可透過聊天 API 的 base64 data URL 傳送。相容的 DFlash／MTP 在主節點產生草稿，再由 Target 叢集驗證。首次 GGUF 轉換仍需本機資源，Fast GGUF 的內嵌 MTP fallback 尚不適用；詳見[格式與推測解碼驗證](docs/MLX-CLUSTER-FORMATS-VALIDATION.md)。設定、部署限制及驗收方式見 [MLX 分散推論與 RDMA 使用指南](docs/MLX-RDMA.md)。實際 Thunderbolt 硬體效能仍待雙機驗證。
+
+函式級最佳化已加入控制張量、worker 零值緩衝區及模型核對緩衝區的重用，並提供可關閉的耗時量測；前後版比較與 Smoke 紀錄見[最佳化報告](docs/MLX-FUNCTION-OPTIMIZATION.md)。
+
+全專案函式最佳化進一步涵蓋模型索引、GGUF metadata、日誌緩衝、聊天連線池、串流解析／排版及原生 IP 白名單。修改、前後基準與實際 Server 驗證見[全專案函式最佳化報告](docs/PROJECT-FUNCTION-OPTIMIZATION.md)；函式基準不代表整體推論加速比例。
 
 單機可使用 `launch: "local"`，由 Tanpopo Server 的正常 Profile 啟動路徑自動帶起兩個原生 Runtime，統一處理停止與重開恢復。完整服務 Smoke 使用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run TestTanpopoDistributedSmoke -count=1 -v -timeout 12m`，測試資料與流程均由 Go 產生及執行，不使用 Python。
 
-TCP Ring 支援免金鑰 UDP 區網探索：在「執行狀態 → TCP Ring 叢集」按右側「搜尋節點」，於對話框複選後按「配對並啟用」，即可一次交握並啟動所有選取成員。按下配對後，系統會保留成員並切換各台原有單機服務；已加入其他叢集的節點不會被接管。發起端核對完整模型內容；遠端有同內容副本就直接載入，沒有時從發起端下載到獨立目錄，逐檔驗證後才啟動，且保留原有模型。資料夾名稱可不同，卡片顯示進度並可取消。各台需先開啟探索，一起更新支援模型同步的 Server 與同一份 `rdma8` Runtime；不能混用舊版。任一端停止會清理整組，失聯由租約回收；重開後重新探索與配對。此模式適用信任的區網。同機三個獨立 Server 的完整 Smoke 可用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run 'TestTanpopoDiscoveredRingSmoke|TestNativeThreeRankCollectivesSmoke' -count=1 -v -timeout 5m`。操作與網路條件見 [一鍵啟動 TCP Ring](docs/MLX-RDMA.md#在-tanpopo-server-一鍵啟動-tcp-ring)。
+TCP Ring 支援免金鑰 UDP 區網探索：在「執行狀態 → TCP Ring 叢集」按右側「搜尋節點」，於對話框複選後按「配對並啟用」，即可一次交握並啟動所有選取成員。按下配對後，系統會保留成員並切換各台原有單機服務；已加入其他叢集的節點不會被接管。發起端核對完整模型內容；遠端有同內容副本就直接載入，沒有時從發起端下載到獨立目錄，逐檔驗證後才啟動，且保留原有模型。資料夾名稱可不同，卡片顯示進度並可取消。各台需先開啟探索，一起更新支援模型同步的 Server 與同一份 `rdma11` Runtime；不能混用舊版。任一端停止會清理整組，失聯由租約回收；重開後重新探索與配對。此模式適用信任的區網。同機三個獨立 Server 的完整 Smoke 可用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run 'TestTanpopoDiscoveredRingSmoke|TestNativeThreeRankCollectivesSmoke' -count=1 -v -timeout 5m`。操作與網路條件見 [一鍵啟動 TCP Ring](docs/MLX-RDMA.md#在-tanpopo-server-一鍵啟動-tcp-ring)。
 
 啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。GGUF 同目錄若有且只有一份可配對的 `mmproj`，mlx-server 會自動掛載；完全沒有 `mmproj` 時則當作純文字 LLM 載入，存在多份候選時不會猜測配對。
 

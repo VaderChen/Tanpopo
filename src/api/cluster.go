@@ -9,6 +9,7 @@ import (
 
 	"LlamaLoader/src/cluster"
 	"LlamaLoader/src/domain"
+	"LlamaLoader/src/llamacpp"
 )
 
 // 預設關閉管理登入不代表允許區網替使用者加入叢集；此時配對只接受本機操作。
@@ -50,6 +51,7 @@ func (s *Server) handleClusterConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClusterStart(w http.ResponseWriter, r *http.Request) {
 	var request struct {
+		llamacpp.RingOptions
 		PeerIDs                    []string `json:"peer_ids"`
 		Model                      string   `json:"model"`
 		StartupCommandID           string   `json:"startup_command_id"`
@@ -67,7 +69,8 @@ func (s *Server) handleClusterStart(w http.ResponseWriter, r *http.Request) {
 	if !request.KVCacheQuantizationEnabled {
 		profile.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
-	status, err := s.cluster.Begin(r.Context(), request.PeerIDs, request.Model, profile)
+	request.RingOptions.GGUFStrategy = s.settings.Get().DefaultFastGGUFStrategy
+	status, err := s.cluster.Begin(r.Context(), request.PeerIDs, request.Model, profile, request.RingOptions)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return

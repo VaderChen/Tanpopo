@@ -16,6 +16,8 @@ enum MLXServerMain {
                 "managed_parent_stdin": true,
                 "max_ring_nodes": 8,
                 "generic_linear_sharding": true,
+                "gguf_model_types": MLXGGUFEmbeddedAssets.supportedGGUFArchitectures,
+                "gguf_sharding": true, "speculative_coordinator": true,
                 "text_model_types": await LLMTypeRegistry.shared.registeredModelTypes.sorted(),
                 "vision_model_types": await VLMTypeRegistry.shared.registeredModelTypes.sorted(),
                 "jaccl_library_available": DistributedGroup.available("jaccl"),
@@ -43,7 +45,8 @@ enum MLXServerMain {
                 distributedDirectory = try distributed.configureEnvironment(rank: configuration.distributedRank)
                 if configuration.distributedRank == 0, distributed.nodes[1].launchMode != .manual {
                     worker = try DistributedWorkerProcess(configuration: distributed,
-                        modelPath: configuration.modelPath, modelKind: configuration.modelKind, smoke: configuration.distributedSmoke)
+                        modelPath: configuration.modelPath, modelKind: configuration.modelKind, smoke: configuration.distributedSmoke,
+                        targetArguments: configuration.distributedTargetArguments(workerModelPath: distributed.nodes[1].modelPath))
                 }
                 if configuration.distributedParentStdin { DistributedWorkerProcess.monitorParentInput() }
                 let group = try DistributedGroup(configuration: distributed, rank: configuration.distributedRank)
@@ -55,7 +58,7 @@ enum MLXServerMain {
                 }
                 let deadline = DistributedDeadline(seconds: distributed.startupTimeout, operation: "模型核對")
                 defer { withExtendedLifetime(deadline) {} }
-                let digest = try DistributedTensorSession.modelDigest(directory: URL(fileURLWithPath: configuration.modelPath))
+                let digest = try DistributedTensorSession.modelDigest(configuration: configuration)
                 try group.verifyDigest(digest, label: "Runtime 版本與模型內容")
             }
             if configuration.inspectGGUFCache {

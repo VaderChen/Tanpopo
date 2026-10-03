@@ -318,17 +318,53 @@ func skipGGUFBytes(reader io.Reader, count uint64) error {
 	if count > uint64(^uint64(0)>>1) {
 		return errors.New("GGUF metadata 大小異常")
 	}
+	if buffered, ok := reader.(*bufio.Reader); ok {
+		for count > 0 {
+			chunk := min(count, uint64(int(^uint(0)>>1)))
+			if _, err := buffered.Discard(int(chunk)); err != nil {
+				return err
+			}
+			count -= chunk
+		}
+		return nil
+	}
 	_, err := io.CopyN(io.Discard, reader, int64(count))
 	return err
 }
 
 func readGGUFUint32(reader io.Reader) (uint32, error) {
+	if buffered, ok := reader.(*bufio.Reader); ok {
+		data, err := buffered.Peek(4)
+		if err != nil {
+			_, _ = buffered.Discard(len(data))
+			if len(data) > 0 && errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
+		value := binary.LittleEndian.Uint32(data)
+		_, _ = buffered.Discard(4)
+		return value, nil
+	}
 	var value uint32
 	err := binary.Read(reader, binary.LittleEndian, &value)
 	return value, err
 }
 
 func readGGUFUint64(reader io.Reader) (uint64, error) {
+	if buffered, ok := reader.(*bufio.Reader); ok {
+		data, err := buffered.Peek(8)
+		if err != nil {
+			_, _ = buffered.Discard(len(data))
+			if len(data) > 0 && errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
+		value := binary.LittleEndian.Uint64(data)
+		_, _ = buffered.Discard(8)
+		return value, nil
+	}
 	var value uint64
 	err := binary.Read(reader, binary.LittleEndian, &value)
 	return value, err

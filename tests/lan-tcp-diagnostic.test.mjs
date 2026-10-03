@@ -32,8 +32,11 @@ test("持續連線降速時保留部分傳輸與新連線對照，並釋放連�
     assert.ok(report.fresh.length > 0);
     assert.ok(report.fresh.every(item => !item.reused && item.bytes === 4096 && !item.error));
   } finally {
+    // server.close 回呼不保證已派送每個 Socket 的 close 事件。
+    const closed = [...sockets].map(socket => new Promise(resolve => socket.once("close", resolve)));
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
+    await Promise.all(closed);
   }
   assert.equal(sockets.size, 0);
 });

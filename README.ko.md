@@ -2,6 +2,8 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
+[최신 릴리스: 1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049) — 클러스터 형식 지원 확장과 함수 단위 최적화, `rdma11` Runtime 포함.
+
 Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은 일본어로 민들레를 뜻하는 ‘たんぽぽ’에서 왔으며, 생성된 Token이 민들레 씨앗처럼 퍼져 나간다는 의미를 담고 있습니다. GGUF용 크로스 플랫폼 `llama-server`와 Apple Silicon용 네이티브 Swift/MLX `mlx-server`를 관리합니다.
 
 ![Tanpopo TCP Ring DEMO](images/tanpopo-demo.gif)

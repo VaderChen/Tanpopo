@@ -3,7 +3,10 @@
   async function consume(body, onEvent) {
     const reader = body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
+    // event 可能跨許多封包；只保留分隔符所需的尾端，完整片段等 event 結束才合併。
+    let tail = "";
+    let fragments = [];
+    const boundaryPattern = /\r?\n\r?\n/g;
     let receivedDone = false;
     const consumeEvent = (eventText) => {
       const data = eventText.split(/\r?\n/)
@@ -26,15 +29,21 @@
     try {
       while (!receivedDone) {
         const { value, done } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        let boundary = /\r?\n\r?\n/.exec(buffer);
+        const text = tail + decoder.decode(value || new Uint8Array(), { stream: !done });
+        boundaryPattern.lastIndex = 0;
+        let start = 0;
+        let boundary = boundaryPattern.exec(text);
         while (boundary) {
-          const eventText = buffer.slice(0, boundary.index);
-          buffer = buffer.slice(boundary.index + boundary[0].length);
+          const eventText = fragments.join("") + text.slice(start, boundary.index);
+          fragments = [];
+          start = boundary.index + boundary[0].length;
           consumeEvent(eventText);
           if (receivedDone) break;
-          boundary = /\r?\n\r?\n/.exec(buffer);
+          boundary = boundaryPattern.exec(text);
         }
+        const split = Math.max(start, text.length - 3);
+        if (split > start) fragments.push(text.slice(start, split));
+        tail = text.slice(split);
         if (done) break;
       }
       // EOF 不是完成訊號；未結束的 SSE event 也不可當成完整回答。

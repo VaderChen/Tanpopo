@@ -2,6 +2,7 @@ package modelbundle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -9,6 +10,66 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestFileModelsTransferOnlySelectedAssets(t *testing.T) {
+	for _, fast := range []bool{false, true} {
+		t.Run(map[bool]string{false: "GGUF", true: "FastGGUF"}[fast], func(t *testing.T) {
+			source, target := t.TempDir(), t.TempDir()
+			files := map[string]string{"target.gguf": "weights", "mmproj.gguf": "vision", "other.gguf": "unrelated", "tokenizer.json": "{}"}
+			entry := "target.gguf"
+			auxiliary := []string{"mmproj.gguf"}
+			if fast {
+				entry = "target.fgguf.json"
+				auxiliary = nil
+				files[entry] = `{"shards":["target.fgguf"],"configuration":"target.config.json","tokenizer":"tokenizer.json"}`
+				files["target.fgguf"], files["target.config.json"] = "converted weights", "{}"
+			}
+			for name, content := range files {
+				if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snapshot, err := CreateSelection(context.Background(), source, entry, auxiliary, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range snapshot.Manifest.Files {
+				if file.Path == "other.gguf" || (fast && strings.HasSuffix(file.Path, ".gguf")) {
+					t.Fatalf("多傳了未選模型：%s", file.Path)
+				}
+			}
+			model, err := Ensure(context.Background(), target, entry, snapshot.Manifest,
+				func(_ context.Context, index int) (io.ReadCloser, error) { return snapshot.Open(index) }, nil)
+			if err != nil || filepath.Base(model) != entry {
+				t.Fatalf("下載入口不符：%s %v", model, err)
+			}
+			if _, err := Ensure(context.Background(), target, entry, snapshot.Manifest,
+				func(context.Context, int) (io.ReadCloser, error) {
+					t.Fatal("應重用下載的完整副本")
+					return nil, nil
+				}, nil); err != nil {
+				t.Fatal(err)
+			}
+			changed := snapshot.Manifest
+			changed.Entry = "other.gguf"
+			if !fast {
+				changed.Entry = "mmproj.gguf"
+			}
+			if changed.Validate() == nil {
+				t.Fatal("不可更換入口而沿用摘要")
+			}
+			if fast {
+				bad, _ := json.Marshal(map[string]any{"shards": []string{"../outside.fgguf"}})
+				if err := os.WriteFile(filepath.Join(source, entry), bad, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Create(context.Background(), source, entry, nil); err == nil {
+					t.Fatal("接受路徑跳脫")
+				}
+			}
+		})
+	}
+}
 
 func fixture(t *testing.T, root, name, weights string) {
 	t.Helper()
