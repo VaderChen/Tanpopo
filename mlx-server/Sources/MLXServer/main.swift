@@ -1,4 +1,5 @@
 import Foundation
+import MLXLLM
 
 @main
 enum MLXServerMain {
@@ -13,6 +14,8 @@ enum MLXServerMain {
                 "ring_available": DistributedGroup.available("ring"),
                 "managed_parent_stdin": true,
                 "max_ring_nodes": 8,
+                "generic_linear_sharding": true,
+                "text_model_types": await LLMTypeRegistry.shared.registeredModelTypes.sorted(),
                 "jaccl_library_available": DistributedGroup.available("jaccl"),
                 "hardware_verified": false,
                 "note": "後端可用不代表 Thunderbolt 線路或雙機推論已通過驗證。"]

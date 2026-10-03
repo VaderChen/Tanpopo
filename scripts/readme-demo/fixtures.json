@@ -95,10 +95,19 @@
       "platform": "darwin/arm64",
       "busy": false,
       "capabilities": {
-        "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+        "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma5",
         "ring_available": true,
         "managed_parent_stdin": true,
-        "max_ring_nodes": 8
+        "max_ring_nodes": 8,
+        "generic_linear_sharding": true,
+        "text_model_types": [
+          "llama",
+          "mistral",
+          "qwen2",
+          "qwen3",
+          "qwen3_5",
+          "qwen3_5_text"
+        ]
       }
     },
     "peers": [
@@ -110,10 +119,19 @@
         "platform": "darwin/arm64",
         "busy": false,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma5",
           "ring_available": true,
           "managed_parent_stdin": true,
-          "max_ring_nodes": 8
+          "max_ring_nodes": 8,
+          "generic_linear_sharding": true,
+          "text_model_types": [
+            "llama",
+            "mistral",
+            "qwen2",
+            "qwen3",
+            "qwen3_5",
+            "qwen3_5_text"
+          ]
         }
       },
       {
@@ -124,10 +142,19 @@
         "platform": "darwin/arm64",
         "busy": false,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma5",
           "ring_available": true,
           "managed_parent_stdin": true,
-          "max_ring_nodes": 8
+          "max_ring_nodes": 8,
+          "generic_linear_sharding": true,
+          "text_model_types": [
+            "llama",
+            "mistral",
+            "qwen2",
+            "qwen3",
+            "qwen3_5",
+            "qwen3_5_text"
+          ]
         }
       },
       {
@@ -138,10 +165,19 @@
         "platform": "darwin/arm64",
         "busy": true,
         "capabilities": {
-          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma4",
+          "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma5",
           "ring_available": true,
           "managed_parent_stdin": true,
-          "max_ring_nodes": 8
+          "max_ring_nodes": 8,
+          "generic_linear_sharding": true,
+          "text_model_types": [
+            "llama",
+            "mistral",
+            "qwen2",
+            "qwen3",
+            "qwen3_5",
+            "qwen3_5_text"
+          ]
         }
       }
     ]

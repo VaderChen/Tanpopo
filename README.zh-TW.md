@@ -158,11 +158,11 @@ MMap 位於執行狀態頁的「進階設定」泡泡，是獨立且預設關閉
 
 整個應用不呼叫 Python、`mlx_lm.server`、pip 或虛擬環境；Go 管理服務與 Swift MLX Runtime 都是原生執行檔。部署主機不需要安裝 Python。
 
-另提供實驗性的 MLX 分散推論：JACCL 使用雙節點 Thunderbolt RDMA，TCP Ring 支援 2–8 個節點，可在設備到位前用同機多程序驗證。第一版將支援架構的線性層權重分片，保留主節點的四人並行、獨立 KV Cache 與取消機制；目前適用 Llama／Mistral、Qwen2、Qwen3 的原生 safetensors 文字模型。設定、部署限制及驗收方式見 [MLX 分散推論與 RDMA 使用指南](docs/MLX-RDMA.md)。實際 Thunderbolt 硬體效能仍待雙機驗證。
+另提供實驗性的 MLX 分散推論：JACCL 使用雙節點 Thunderbolt RDMA，TCP Ring 支援 2–8 個節點，可用同機多程序驗證。文字模型能力由原生 Runtime 註冊表動態提供，包含 Qwen3.5；依模組型別與形狀切分一般／量化線性層，不另外維護架構白名單。Attention、循環狀態、自訂層與專家運算保留在主節點，直接讀取權重的特殊路徑會按需保留完整權重，因此記憶體節省幅度依架構而異。主節點保留四人並行、獨立 KV Cache 與取消機制；輸入需為 safetensors 文字模型，不支援 GGUF、影像輸入、DFlash 或 MTP。設定、部署限制及驗收方式見 [MLX 分散推論與 RDMA 使用指南](docs/MLX-RDMA.md)。實際 Thunderbolt 硬體效能仍待雙機驗證。
 
 單機可使用 `launch: "local"`，由 Tanpopo Server 的正常 Profile 啟動路徑自動帶起兩個原生 Runtime，統一處理停止與重開恢復。完整服務 Smoke 使用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run TestTanpopoDistributedSmoke -count=1 -v -timeout 12m`，測試資料與流程均由 Go 產生及執行，不使用 Python。
 
-TCP Ring 支援免金鑰 UDP 區網探索：在「執行狀態 → TCP Ring 叢集」按右側「搜尋節點」，於對話框複選後按「配對並啟用」，即可一次交握並啟動所有選取成員。各台需先開啟探索，使用同一份 `rdma4` Runtime 及相同模型。任一端停止會清理整組，失聯由租約回收；重開後重新探索與配對。此模式適用信任的區網。同機三個獨立 Server 的完整 Smoke 可用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run 'TestTanpopoDiscoveredRingSmoke|TestNativeThreeRankCollectivesSmoke' -count=1 -v -timeout 5m`。操作與網路條件見 [一鍵啟動 TCP Ring](docs/MLX-RDMA.md#在-tanpopo-server-一鍵啟動-tcp-ring)。
+TCP Ring 支援免金鑰 UDP 區網探索：在「執行狀態 → TCP Ring 叢集」按右側「搜尋節點」，於對話框複選後按「配對並啟用」，即可一次交握並啟動所有選取成員。忙碌節點可先勾選，待本機與選取節點停止服務後才可啟動。各台需先開啟探索，一起更新 Server、同一份 `rdma5` Runtime 及相同模型；不能混用 `rdma4`。任一端停止會清理整組，失聯由租約回收；重開後重新探索與配對。此模式適用信任的區網。同機三個獨立 Server 的完整 Smoke 可用 `TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed -run 'TestTanpopoDiscoveredRingSmoke|TestNativeThreeRankCollectivesSmoke' -count=1 -v -timeout 5m`。操作與網路條件見 [一鍵啟動 TCP Ring](docs/MLX-RDMA.md#在-tanpopo-server-一鍵啟動-tcp-ring)。
 
 啟動時可直接使用完整 MLX 模型目錄，或從一般 GGUF 模型目錄選擇 GGUF 檔案。MLX 目錄會由 `config.json` 自動判斷文生文或多模態架構，再載入 safetensors、Tokenizer 與 Processor；若衍生 checkpoint 保留 Vision 設定但未提供 Processor 檔案，會退回文字模型載入。支援型別由內建 `mlx-swift-lm 3.31.4` 註冊表動態回報，包含原生 Gemma 4 多模態模型。GGUF 則會優先使用檔案內嵌的模型設定與 Tokenizer，並在 MLX 載入階段轉換支援的量化權重；目前 Runtime 回報的直載架構為 Gemma、Llama、Mimo、MiniCPM、Mistral、Qwen2、Qwen3、Qwen3.5 與 SmolLM3。其他掃描到的語言模型會顯示在可選取的「尚未測試」群組；啟動時會交由 mlx-server 實際載入，若不相容則回報既有的失敗原因。管理頁會以 `MLX`／`GGUF` 標示來源，並以獨立路徑前綴避免兩個模型根目錄的同名項目互相覆蓋。GGUF 同目錄若有且只有一份可配對的 `mmproj`，mlx-server 會自動掛載；完全沒有 `mmproj` 時則當作純文字 LLM 載入，存在多份候選時不會猜測配對。
 

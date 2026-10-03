@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -114,6 +115,16 @@ func (s *Service) Start(ctx context.Context, peerIDs []string, model string, pro
 	s.mu.Lock()
 	s.active.Addresses, s.active.Phase = append([]string(nil), addresses...), "starting"
 	s.mu.Unlock()
+	// 所有節點先釋放保留埠，再允許任何原生程序連線。否則較早啟動的
+	// worker 可能連上 Go 的保留 listener，造成 MLX 等不到真正的對端。
+	_, err = s.callPeers(ctx, peers, "arm", request)
+	if err != nil {
+		return s.Status(), err
+	}
+	_ = listener.Close()
+	s.mu.Lock()
+	s.active.listener = nil
+	s.mu.Unlock()
 	_, err = s.callPeers(ctx, peers, "commit", request)
 	if err != nil {
 		return s.Status(), err
@@ -121,7 +132,6 @@ func (s *Service) Start(ctx context.Context, peerIDs []string, model string, pro
 	if err = ctx.Err(); err != nil {
 		return s.Status(), err
 	}
-	_ = listener.Close()
 	_, err = s.backend.StartRing(owner, model, 0, addresses, profile)
 	if err != nil {
 		return s.Status(), err
@@ -354,7 +364,7 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		return controlResponse{}, errors.New("節點不屬於目前群組")
 	}
 	switch p.Kind {
-	case "commit":
+	case "arm":
 		if active.Role != "worker" || active.Phase != "prepared" || len(request.Addresses) != len(active.Members) {
 			return controlResponse{}, errors.New("TCP Ring 啟動狀態或節點數不符")
 		}
@@ -367,7 +377,14 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 			seen[address] = true
 		}
 		_ = active.listener.Close()
-		if _, err := s.backend.StartRing(active.ID, active.Model, active.Rank, request.Addresses, active.profile); err != nil {
+		s.mu.Lock()
+		s.active.Addresses, s.active.listener, s.active.Phase, s.active.lastLease = append([]string(nil), request.Addresses...), nil, "armed", time.Now()
+		s.mu.Unlock()
+	case "commit":
+		if active.Role != "worker" || active.Phase != "armed" || !slices.Equal(request.Addresses, active.Addresses) {
+			return controlResponse{}, errors.New("TCP Ring 尚未完成全部端點準備，或啟動端點已變更")
+		}
+		if _, err := s.backend.StartRing(active.ID, active.Model, active.Rank, active.Addresses, active.profile); err != nil {
 			_ = s.stopLocked(ctx, err.Error(), false)
 			return controlResponse{}, err
 		}
@@ -442,7 +459,7 @@ func (s *Service) maintain() {
 	}
 	status := s.backend.Status()
 	reason := ""
-	if active.Phase != "prepared" && active.Phase != "preparing" && active.Phase != "starting" && !status.Running {
+	if active.Phase != "prepared" && active.Phase != "armed" && active.Phase != "preparing" && active.Phase != "starting" && !status.Running {
 		reason = "TCP Ring 程序已結束：" + status.LastError
 	} else if active.Role == "worker" && time.Since(active.lastLease) > leaseLifetime {
 		reason = "主節點租約逾時，已停止工作節點"

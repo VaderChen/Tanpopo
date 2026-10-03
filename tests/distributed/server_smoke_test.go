@@ -132,7 +132,7 @@ func TestTanpopoDistributedSmoke(t *testing.T) {
 	}
 	t.Log("原生程序自動啟停、collective、FP32／FP16／BF16、一般／Q4 線性層通過")
 
-	for _, architecture := range []string{"llama", "qwen2", "qwen3"} {
+	for _, architecture := range []string{"llama", "qwen2", "qwen3", "qwen3_5", "qwen3_5_text"} {
 		if !t.Run(architecture, func(t *testing.T) {
 			writeFixture(t, filepath.Join(models, architecture), architecture)
 			writeFixture(t, filepath.Join(workers, architecture), architecture)

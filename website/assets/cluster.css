@@ -91,7 +91,7 @@
 .cluster-dialog-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; flex-shrink: 0; padding: 20px 28px; border-top: 1px solid var(--line); background: var(--surface-glass); }
 .cluster-selection-summary { flex: 1; min-width: 140px; display: grid; gap: 6px; }
 .cluster-selection-summary strong { font-size: 12px; font-weight: 600; }
-.cluster-selection-summary > span { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.cluster-selection-summary > span { color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .cluster-dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .cluster-dialog-actions .button { min-height: 42px; font-size: 12px; padding: 10px 16px; }
 

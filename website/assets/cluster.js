@@ -11,20 +11,26 @@
   const selected = new Set();
   const rows = new Map();
   const dialog = byId("clusterDialog");
-  const phases = { preparing: "交握配對中", prepared: "等待主節點", starting: "啟動節點中", loading: "載入模型", running: "推論就緒" };
+  const phases = { preparing: "交握配對中", prepared: "等待主節點", armed: "等待啟動", starting: "啟動節點中", loading: "載入模型", running: "推論就緒" };
 
   function peerIssue(peer) {
-    if (peer.busy) return "使用中";
     if (!peer.capabilities?.ring_available || !peer.capabilities?.managed_parent_stdin || (peer.capabilities?.max_ring_nodes || 0) < 2) return "需更新 Runtime";
     if (peer.capabilities.version !== cluster?.local?.capabilities?.version) return "Runtime 版本不同";
     return "";
   }
 
   function modelIssue() {
-    if (selection.status?.running) return "請先停止目前的模型服務。";
     if (selection.calibrating) return "請先等待效能校準完成。";
     if (selection.runtime !== "mlx-server" || !selection.model || String(selection.model.path).startsWith("gguf:") || !selection.command) {
       return "請先在上方選擇 MLX 文字模型與啟動參數。";
+    }
+    // 使用模型清單提供的架構，不從資料夾名稱猜測；啟動時仍由 Server 完整核對。
+    const capability = cluster?.local?.capabilities;
+    if (!capability?.generic_linear_sharding || !capability.text_model_types?.length) {
+      return "請更新原生 Runtime，以取得通用 TCP Ring 的模型支援資訊。";
+    }
+    if (selection.model.architecture && !capability.text_model_types.includes(selection.model.architecture)) {
+      return "目前 Runtime 尚未支援所選模型的文字分散推論；請更新 Runtime 或更換模型。";
     }
     const profile = selection.command;
     if (profile.runtime_variant || profile.draft_model || (profile.extra_args || []).some((arg) => /^--(distributed-|mtp-|dflash-|mmproj|model-type)/.test(arg))) {
@@ -34,6 +40,23 @@
   }
 
   function nodeLimit() { return Math.min(8, cluster?.local?.capabilities?.max_ring_nodes || 2); }
+
+  function startIssue(peers) {
+    if (connectionError) return connectionError;
+    const issues = [];
+    const busyNames = [];
+    if (selection.status?.running || cluster?.local?.busy) busyNames.push("本機");
+    for (const peer of peers) {
+      if (selected.has(peer.id) && peer.busy) busyNames.push(peer.name || peer.ip);
+    }
+    if (busyNames.length) issues.push(`${busyNames.join("、")} 使用中；請先在各台 Server 停止目前服務。`);
+    const model = modelIssue();
+    if (model) issues.push(model);
+    if (peers.some((peer) => selected.has(peer.id) && peer.capabilities.max_ring_nodes < selected.size + 1)) {
+      issues.push("部分節點不支援此群組大小，請更新 Runtime。");
+    }
+    return issues.join("\n");
+  }
 
   function createRow(peer) {
     const label = document.createElement("label");
@@ -49,7 +72,8 @@
     copy.className = "cluster-peer-copy";
     const name = document.createElement("strong");
     const address = document.createElement("span");
-    copy.append(name, address);
+    const hint = document.createElement("span");
+    copy.append(name, address, hint);
     const badge = document.createElement("span");
     badge.className = "cluster-node-tag";
     label.append(checkbox, icon, copy, badge);
@@ -58,7 +82,7 @@
       byId("clusterDialogError").hidden = true;
       render();
     });
-    return { label, checkbox, name, address, badge };
+    return { label, checkbox, name, address, hint, badge };
   }
 
   function renderPeers(peers) {
@@ -79,9 +103,11 @@
       row.checkbox.disabled = !!activity || !!cluster?.session || !!issue || (!row.checkbox.checked && selected.size >= nodeLimit() - 1);
       row.name.textContent = peer.name || "未命名 Server";
       row.address.textContent = `${peer.ip}:${peer.port} · ${peer.platform || "Mac"}`;
-      row.badge.textContent = issue || (row.checkbox.checked ? "已選取" : "可連線");
+      row.hint.hidden = !peer.busy || !!issue;
+      row.hint.textContent = "可先選取；配對前請在此節點停止目前服務。";
+      row.badge.textContent = issue || (peer.busy ? "使用中" : row.checkbox.checked ? "已選取" : "可連線");
       row.label.dataset.state = issue ? "unavailable" : row.checkbox.checked ? "selected" : "available";
-      row.checkbox.setAttribute("aria-label", `${peer.name || "Server"}，${peer.ip}，${issue || "可連線"}`);
+      row.checkbox.setAttribute("aria-label", `${peer.name || "Server"}，${peer.ip}，${issue || (peer.busy ? "使用中，可先選取" : "可連線")}`);
     }
   }
 
@@ -118,15 +144,14 @@
     byId("clusterSelectedModel").textContent = selection.model?.path || "尚未選擇模型";
     const eligible = peers.filter((peer) => !peerIssue(peer));
     const allSelected = eligible.length > 0 && eligible.slice(0, nodeLimit() - 1).every((peer) => selected.has(peer.id));
-    byId("clusterSelectAll").textContent = allSelected ? "清除選取" : "全選可用節點";
+    byId("clusterSelectAll").textContent = allSelected ? "清除選取" : "全選節點";
     byId("clusterSelectAll").disabled = !!activity || !!active || !eligible.length;
     byId("clusterRescan").disabled = !!activity || !!active || refreshing;
     byId("clusterSelectionCount").textContent = `已選 ${selected.size} 個節點${selected.size ? ` · 共 ${selected.size + 1} 台 Mac` : ""}`;
-    const unsupportedSize = peers.some((peer) => selected.has(peer.id) && peer.capabilities.max_ring_nodes < selected.size + 1);
-    const issue = connectionError || modelIssue() || (unsupportedSize ? "部分節點不支援此群組大小，請更新 Runtime。" : "")
-      || (!selected.size ? "請至少選擇一個可用節點。" : "啟用後，從這台 Mac 進行對話。");
-    byId("clusterSelectionHint").textContent = activity === "starting" ? "正在交握與啟動，請稍候…" : issue;
-    byId("clusterStart").disabled = !!activity || !!active || !cluster?.enabled || !!connectionError || !!modelIssue() || unsupportedSize || !selected.size;
+    const issue = startIssue(peers);
+    byId("clusterSelectionHint").textContent = activity === "starting" ? "正在交握與啟動，請稍候…"
+      : issue || (!selected.size ? "請至少選擇一個節點。" : "啟用後，從這台 Mac 進行對話。");
+    byId("clusterStart").disabled = !!activity || !!active || !cluster?.enabled || !!issue || !selected.size;
     byId("clusterStart").textContent = activity === "starting" ? "交握配對中…" : "配對並啟用";
     for (const id of ["clusterDialogClose", "clusterCancel"]) byId(id).disabled = !!activity;
     dialog.setAttribute("aria-busy", String(!!activity));
@@ -200,6 +225,8 @@
     render();
   });
   byId("clusterStart").addEventListener("click", () => action("starting", async () => {
+    const issue = startIssue(cluster?.peers || []);
+    if (issue) throw new Error(issue);
     // 送出前固定選取快照，探索清單更新不改變這次要加入的成員。
     const ids = Array.from(selected);
     cluster = await api("/api/cluster/start", { method: "POST", body: JSON.stringify({

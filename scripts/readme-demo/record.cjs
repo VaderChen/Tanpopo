@@ -98,7 +98,7 @@ async function main() {
       await wait(650);
     }
     assert.equal(await ui.locator("#clusterPeerList input:checked").count(), 2);
-    assert.equal(await ui.locator("#clusterPeerList input:disabled").count(), 1);
+    assert.equal(await ui.locator("#clusterPeerList input:disabled").count(), 0);
     await checkpoint("04-selected", "#clusterStart:enabled");
     await wait(1500);
     await click(ui.locator("#clusterStart"));

@@ -227,14 +227,14 @@
         <div class="cluster-dialog-body">
           <div class="cluster-discovery-bar"><span id="clusterDiscoveryState" role="status" aria-live="polite">正在搜尋區網節點…</span><button id="clusterRescan" class="button quiet compact" type="button">重新整理</button></div>
           <div class="cluster-local-node"><span class="cluster-local-mark" aria-hidden="true">●</span><div><strong id="clusterLocalName">這台 Mac</strong><span>本機 · 主節點，自動加入</span></div><span class="cluster-node-tag">已加入</span></div>
-          <div class="cluster-list-toolbar"><span>可探索的節點</span><button id="clusterSelectAll" class="button quiet compact" type="button">全選可用節點</button></div>
+          <div class="cluster-list-toolbar"><span>可探索的節點</span><button id="clusterSelectAll" class="button quiet compact" type="button">全選節點</button></div>
           <div id="clusterPeerList" class="cluster-peer-list" role="group" aria-label="區網節點，可複選"></div>
           <div id="clusterEmpty" class="cluster-empty"><span class="cluster-search-orbit" aria-hidden="true"></span><strong>正在尋找其他 Server</strong><p>請在其他 Mac 按「搜尋節點」開啟探索，<br>清單會自動更新。</p></div>
           <div class="cluster-model-summary"><span>此次使用的模型</span><strong id="clusterSelectedModel">尚未選擇模型</strong></div>
         </div>
         <p id="clusterDialogError" class="cluster-dialog-error" role="alert" hidden></p>
         <footer class="cluster-dialog-footer">
-          <div class="cluster-selection-summary"><strong id="clusterSelectionCount" aria-live="polite">已選 0 個節點</strong><span id="clusterSelectionHint">請至少選擇一個可用節點。</span></div>
+          <div class="cluster-selection-summary"><strong id="clusterSelectionCount" aria-live="polite">已選 0 個節點</strong><span id="clusterSelectionHint" role="status" aria-live="polite">請至少選擇一個節點。</span></div>
           <div class="cluster-dialog-actions"><button id="clusterCancel" class="button secondary" type="button">取消</button><button id="clusterStart" class="button primary" type="button" disabled>配對並啟用</button></div>
         </footer>
       </dialog>

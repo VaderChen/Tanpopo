@@ -48,6 +48,20 @@ extern "C" int tanpopo_distributed_gather(void* group, mlx_array* result, mlx_ar
             *static_cast<dist::Group*>(group), mlx::core::Device::cpu));
     });
 }
+extern "C" bool tanpopo_distributed_can_copy_rows(mlx_array input) {
+    bool supported = false;
+    checked([&] {
+        const auto& source = mlx_array_get_(input);
+        if (source.ndim() < 1) return;
+        supported = source.is_available();
+#ifdef TANPOPO_MLX_LOAD_ROW_SLICE
+        if (source.has_primitive() && dynamic_cast<mlx::core::Load*>(&source.primitive())) {
+            supported = true;
+        }
+#endif
+    });
+    return supported;
+}
 extern "C" int tanpopo_distributed_copy_rows(mlx_array* result, mlx_array input, int start, int end) {
     return checked([&] {
         const auto& source = mlx_array_get_(input);

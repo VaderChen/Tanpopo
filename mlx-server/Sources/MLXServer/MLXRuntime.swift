@@ -53,7 +53,9 @@ actor MLXRuntime {
             ? modelURL.deletingPathExtension().lastPathComponent
             : resolvedModelDirectory.lastPathComponent
         kind = try Self.resolveModelKind(
-            requested: configuration.modelKind,
+            // 分散式文字模式由 LLM registry 載入語言部分；模型附帶 vision_config
+            // 不代表必須啟用視覺。未知或只有 VLM 的架構仍由 registry 拒絕。
+            requested: configuration.distributed == nil ? configuration.modelKind : .text,
             directory: resolvedModelDirectory,
             isGGUF: isGGUF,
             hasMMProj: ggufMMProjURL != nil

@@ -15,6 +15,7 @@ const char* tanpopo_distributed_error(void);
 void tanpopo_distributed_raise(const char* message);
 int tanpopo_distributed_sum(void* group, mlx_array* result, mlx_array input);
 int tanpopo_distributed_gather(void* group, mlx_array* result, mlx_array input);
+bool tanpopo_distributed_can_copy_rows(mlx_array input);
 int tanpopo_distributed_copy_rows(mlx_array* result, mlx_array input, int start, int end);
 #ifdef __cplusplus
 }

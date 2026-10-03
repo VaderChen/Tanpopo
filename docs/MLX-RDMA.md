@@ -1,6 +1,6 @@
 # MLX 分散推論與 RDMA 使用指南
 
-狀態：實驗功能；2026-10-02。Runtime 版本尾碼為 `rdma4`。
+狀態：實驗功能；2026-10-03。Runtime 版本尾碼為 `rdma5`。
 
 本功能讓多台 Mac 共同執行同一個模型。正式程式仍是 Go、Swift 與 C++，不需要 Python、pip 或 `mlx_lm.server`。
 
@@ -8,11 +8,12 @@
 
 - TCP Ring 支援 2–8 個節點；JACCL RDMA 維持雙節點。Rank 0 提供 API、請求排程、Tokenizer、Attention、KV Cache 與抽樣；其餘 Rank 執行權重分片的線性層運算。
 - 後端 `jaccl` 使用 MLX Core 的 Thunderbolt RDMA；`ring` 使用 TCP，兩者共用相同推論協定。Ring 測試成功不代表 RDMA 硬體已驗證。
-- 已宣告運算契約的架構為 `LlamaModel`（含使用此實作的 Mistral）、`Qwen2Model`、`Qwen3Model`，輸入必須是完整 safetensors 模型目錄。
+- 模型能力直接取自原生 Runtime 的文字模型註冊表，Server 與網頁不另維護架構白名單。包含 Qwen3.5／Qwen3.5 Text 的文字路徑；輸入必須是完整 safetensors 模型目錄。註冊不代表每種 checkpoint 都已驗證，啟動仍會檢查權重、切分計畫與記憶體預算。
 - 通用演算法切分 `Linear`／`QuantizedLinear` 的輸出列，量化權重、scales、biases 與偏置使用相同列範圍。列數有餘數時，分片最多相差一列；通訊先補齊長度再移除暫存列，支援三台等無法整除的組合。輸出列數小於節點數的線性層留在主節點。
-- 架構透過 `DistributedLinearCompatible` 宣告能力，切分演算法不辨識模型檔名。新增架構前要確認它透過 `Linear.callAsFunction` 使用線性層，沒有直接讀取完整 `weight` 或替換成不同運算語意的子類別。
+- 切分依據實際模組型別、形狀與可按列讀取的權重，不辨識模型檔名。只替換標準 `Linear`／`QuantizedLinear`；自訂子類別、載入時轉換而無法直接按列讀取的權重、專家層、卷積、Attention 及循環狀態保留在主節點。Qwen3.5 的 Gated Delta Net 與 MambaCache 沿用原本實作。
+- 包裝後保留完整權重形狀與量化型別；一般 forward 使用分片，直接存取權重的融合運算則在主節點按需載入完整權重。這類操作會增加主節點記憶體需求，不能將分片層數或 `local_linear_bytes` 當作整個模型的實際記憶體占用。
 - 主節點保留四個生成名額與每個請求獨立的取消、KV Cache、Prefill 及記憶體預算。單次遠端線性運算共用鎖，避免不同請求混用 collective 的順序與資料。
-- 第一版不支援 GGUF／Fast GGUF、多模態、MoE、自訂 Linear 子類別、DFlash、MTP 或管線平行。遇到不支援的組合會回報錯誤。
+- 此模式只接受文字輸入，不支援 GGUF／Fast GGUF、影像輸入、DFlash、MTP 或管線平行。具有 Vision 設定但也登錄於文字註冊表的模型會載入語言部分。MoE 等特殊架構僅分散其中的一般線性層，不會切分專家權重；若模型沒有可分散的線性層，會明確拒絕啟動。
 
 此版本採每層輸入廣播與輸出匯集，通訊頻率較高。目的先建立可驗證的權重分攤與原生服務路徑，尚未對大型模型做效能調校，不能承諾雙機加速。
 
@@ -39,12 +40,14 @@ macOS SDK 包含 `infiniband/verbs.h` 時，自動編入 JACCL；較舊 SDK 只�
 
 ## 在 Tanpopo Server 一鍵啟動 TCP Ring
 
-此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。所有節點必須安裝同一份 `rdma4` 或後續相容 Runtime；`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true` 與足夠的 `max_ring_nodes`。
+此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma5` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types` 及足夠的 `max_ring_nodes`。
+
+版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma4` 和 `rdma5` 不可混用。
 
 1. 各台在「系統設定」指定 MLX 模型目錄，下載相同版本、相同量化格式的支援模型。根目錄可以不同，模型相對路徑必須一致，例如各台都是 `Qwen3-8B-4bit`。
 2. 各台到「執行狀態 → TCP Ring 叢集」，按卡片右側的「搜尋節點」。這會開啟區網探索及節點清單對話框；工作節點可關閉對話框，探索仍保持開啟。
-3. 主節點先選擇 `mlx-server`、文字模型與一般啟動參數，再在搜尋對話框勾選 1–7 個節點。本機自動加入，可逐台勾選或全選可用節點；忙碌、Runtime 版本不同與不支援的節點不可選取，失聯節點會移出清單。
-4. 按「配對並啟用」。系統先保留所有成員、核對版本與模型設定、協商埠，再啟動各 Rank。原生 Runtime 接著核對完整模型及執行檔 SHA-256，載入分片。
+3. 主節點先選擇 `mlx-server`、文字模型與一般啟動參數，再在搜尋對話框勾選 1–7 個節點。本機自動加入，可逐台勾選或全選節點。忙碌節點也能先勾選，狀態更新時會保留選取；Runtime 版本不同與不支援的節點不可選取，失聯節點會移出清單。
+4. 依對話框提示，在本機與已選的忙碌節點停止目前服務，確認使用支援的模型，再按「配對並啟用」。勾選不會停止或啟動任何服務。系統先保留所有成員、核對版本與模型設定、協商埠，再等所有端點釋放保留 listener 後啟動各 Rank，避免工作程序誤連保留埠而卡住。原生 Runtime 接著核對完整模型及執行檔 SHA-256，載入分片。
 5. 推論就緒後，從主節點進行對話或呼叫 API。任一成員按「停止叢集」或既有「停止服務」，都會清理整組。
 
 主節點沿用選定參數的服務埠、Context、一般推論參數與 KV Cache 量化開關。工作節點只接收模型相對路徑、Context、成員名單與 Ring 端點，不接受遠端指定任意命令、執行檔路徑或額外 CLI 參數。DFlash、MTP、多模態、GGUF 及自訂分散式 CLI 參數不適用；此模式使用 Runtime 預設的非 mmap 載入。
@@ -75,9 +78,17 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
   -count=1 -v -timeout 5m
 ```
 
-此測試建立三個獨立 Go Server、各自設定／模型目錄與三個 Swift Runtime，使用真實 UDP multicast、免金鑰交握與正式管理 API。驗證單／三節點輸出及 Token 數一致、SSE、保留衝突、整組停止、模型不符回滾、Server 強制結束、父端 EOF、租約回收與重啟探索。另一項原生 Smoke 驗證三份無法平均分割的 FP32／FP16／BF16 一般與 Q4 線性層、四路交錯運算及 collective。
+此測試建立三個獨立 Go Server、各自設定／模型目錄與三個 Swift Runtime，使用真實 UDP multicast、免金鑰交握與正式管理 API。驗證單／三節點輸出及 Token 數一致、SSE、保留衝突、整組停止、模型不符回滾、Server 強制結束、父端 EOF、租約回收與重啟探索。另一項原生 Smoke 驗證三份無法平均分割的 FP32／FP16／BF16 一般與 Q4 線性層、完整權重直接存取、自訂線性子類別保留、四路交錯運算及 collective。
 
 微型 safetensors fixture 由 Go 產生；測試的獨立設定關閉啟動前系統記憶體保留檢查，不改使用者設定。這可驗證同機完整流程；不同實體 Mac 的網路、防火牆、效能及 Thunderbolt RDMA 仍需設備到位後驗收。一般 Profile 的 `launch: "local"`／SSH 自動帶起 worker 仍限定雙節點，三個以上由各 Server 管理，或各 Rank 使用 `manual` 啟動。
+
+### 2026-10-03 驗證紀錄
+
+- 兩台實體 Mac 使用同一份已發布的 `rdma4` Runtime，透過 Tanpopo Server 探索及交握，執行 `mlx-community/Qwen3-0.6B-4bit`（revision `73e3e38d981303bc594367cd910ea6eb48349da8`）。單機與雙機均回覆 `TCP Ring ready`，輸入 19、輸出 3 Token；健康資訊確認 `world_size: 2`。此項證明既有區網路徑可用。
+- `rdma5` 以同機兩個獨立 Tanpopo Server 載入 `Qwen3.5-4B-MLX-4bit` 真實權重，經 UDP 探索及管理 API 啟動。切分 248 個線性層，每個 Rank 的線性權重為 1,003,806,720 bytes（原始總計 2,007,613,440 bytes）。兩組中英文回答及輸入／輸出 Token 數與單機一致，SSE、整組停止與租約清理通過。
+- 原生三 Rank Smoke 驗證 FP32／FP16／BF16、Q4、直接讀取完整權重、自訂線性子類別及 lazy 權重轉換保留。三 Server Smoke 驗證探索、端點準備、交握回滾、故障及重啟回收。
+
+以上不是效能基準：每層通訊仍有明顯成本。Qwen3.5 的新版實體雙機測試需兩端一起更新 `rdma5`；Thunderbolt JACCL RDMA 尚未實測。
 
 ## JACCL 設備前置作業
 
@@ -208,7 +219,7 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
 涵蓋的實際流程：
 
 - 管理登入、模型 API Key、Profile 建立、啟動與就緒狀態。
-- Llama、Qwen2、Qwen3 的單機／雙節點 Chat 輸出與 Token 數、分段長 Prefill、SSE。
+- Llama、Qwen2、Qwen3、Qwen3.5、Qwen3.5 Text 的單機／雙節點 Chat 輸出與 Token 數、分段長 Prefill、SSE。Qwen3.5 fixture 同時含循環與完整注意力層。
 - 經 Go 聊天代理四人受理、一般／SSE 第五人回傳 429、取消隔離及名額回收。
 - Runtime 的 401／429 保留原有語意；模型金鑰失敗不會讓網頁誤判管理登入失效。
 - 主節點／worker 故障回報、父端 EOF、停止回收、Server 重開自動恢復。

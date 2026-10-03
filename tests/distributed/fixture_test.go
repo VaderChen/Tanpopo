@@ -17,13 +17,28 @@ import (
 func writeFixture(t *testing.T, directory, architecture string) {
 	t.Helper()
 	must(t, os.MkdirAll(directory, 0700))
-	writeJSON(t, filepath.Join(directory, "config.json"), map[string]any{
+	configuration := map[string]any{
 		"model_type": architecture, "hidden_size": 64, "intermediate_size": 128,
 		"num_hidden_layers": 2, "num_attention_heads": 4, "num_key_value_heads": 2,
 		"head_dim": 16, "rms_norm_eps": 1e-5, "vocab_size": 128,
 		"max_position_embeddings": 4096, "rope_theta": 10000,
 		"tie_word_embeddings": false, "attention_bias": false, "eos_token_id": 2,
-	})
+	}
+	hybrid := architecture == "qwen3_5" || architecture == "qwen3_5_text"
+	if hybrid {
+		configuration["full_attention_interval"] = 2
+		configuration["linear_num_value_heads"] = 2
+		configuration["linear_num_key_heads"] = 1
+		configuration["linear_key_head_dim"] = 64
+		configuration["linear_value_head_dim"] = 64
+		configuration["linear_conv_kernel_dim"] = 4
+	}
+	if architecture == "qwen3_5" {
+		configuration["model_type"] = "qwen3_5_text"
+		configuration = map[string]any{"model_type": architecture, "text_config": configuration,
+			"vision_config": map[string]any{"model_type": architecture}}
+	}
+	writeJSON(t, filepath.Join(directory, "config.json"), configuration)
 	type tensor struct {
 		shape []int
 		data  []byte
@@ -54,15 +69,31 @@ func writeFixture(t *testing.T, directory, architecture string) {
 	add("lm_head.weight", []int{128, 64}, false, false)
 	for index := 0; index < 2; index++ {
 		base := fmt.Sprintf("model.layers.%d.", index)
-		for name, rows := range map[string]int{"q_proj": 64, "k_proj": 32, "v_proj": 32, "o_proj": 64} {
-			add(base+"self_attn."+name+".weight", []int{rows, 64}, false, false)
-			if architecture == "qwen2" && name != "o_proj" {
-				add(base+"self_attn."+name+".bias", []int{rows}, false, true)
+		if hybrid && index == 0 {
+			// 同一個模型同時包含循環狀態、深度卷積與完整注意力，驗證一般線性層
+			// 分散後不改變非線性層及 MambaCache 的原有行為。
+			for name, shape := range map[string][]int{"in_proj_qkv": {256, 64}, "in_proj_z": {128, 64},
+				"in_proj_b": {2, 64}, "in_proj_a": {2, 64}, "out_proj": {64, 128}, "conv1d": {256, 4, 1}} {
+				add(base+"linear_attn."+name+".weight", shape, false, false)
 			}
-		}
-		if architecture == "qwen3" {
-			for _, name := range []string{"q_norm", "k_norm"} {
-				add(base+"self_attn."+name+".weight", []int{16}, true, false)
+			add(base+"linear_attn.dt_bias", []int{2}, false, true)
+			add(base+"linear_attn.A_log", []int{2}, false, true)
+			add(base+"linear_attn.norm.weight", []int{64}, true, false)
+		} else {
+			projections := map[string]int{"q_proj": 64, "k_proj": 32, "v_proj": 32, "o_proj": 64}
+			if hybrid {
+				projections["q_proj"] = 128
+			}
+			for name, rows := range projections {
+				add(base+"self_attn."+name+".weight", []int{rows, 64}, false, false)
+				if architecture == "qwen2" && name != "o_proj" {
+					add(base+"self_attn."+name+".bias", []int{rows}, false, true)
+				}
+			}
+			if architecture == "qwen3" || hybrid {
+				for _, name := range []string{"q_norm", "k_norm"} {
+					add(base+"self_attn."+name+".weight", []int{16}, true, false)
+				}
 			}
 		}
 		for name, shape := range map[string][]int{"gate_proj": {128, 64}, "up_proj": {128, 64}, "down_proj": {64, 128}} {

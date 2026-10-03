@@ -3,17 +3,9 @@ import CryptoKit
 import Cmlx
 import MLX
 import MLXNN
-import MLXLLM
 import MLXLMCommon
 import MLXDistributedBridge
 import Darwin
-
-/// 模型必須只透過 Linear.callAsFunction 使用線性層，不能直接讀取其完整 weight。
-/// 新架構需確認此契約再宣告能力；切分演算法不依模型檔名或 model_type 判斷。
-protocol DistributedLinearCompatible {}
-extension LlamaModel: DistributedLinearCompatible {}
-extension Qwen2Model: DistributedLinearCompatible {}
-extension Qwen3Model: DistributedLinearCompatible {}
 
 final class DistributedTensorSession: @unchecked Sendable {
     let group: DistributedGroup
@@ -50,31 +42,42 @@ final class DistributedTensorSession: @unchecked Sendable {
          "strategy": "linear-output-sharding", "sharded_layers": layers.count,
          "original_linear_bytes": originalLinearBytes, "local_linear_bytes": localLinearBytes,
          "coordinator_replicated_bytes": replicatedBytes, "kv_cache_location": "rank0",
+         "specialized_operations": "rank0", "direct_weight_access": "lazy-full-weight-on-rank0",
          "weight_loading": "direct-row-read", "hardware_validation": "experimental"]
     }
 
     /// 必須在模型首次 eval 前執行，避免先將整份大模型搬入裝置記憶體。
     func prepareModel(_ model: BaseLanguageModel) throws -> Bool {
-        guard model is DistributedLinearCompatible else {
-            throw DistributedError.invalid("此架構尚未宣告線性層分散式契約；目前支援 Llama／Mistral、Qwen2、Qwen3 的純文字模型。")
-        }
         try install(on: model)
-        return group.rank == 0
+        // 已只求值本地分片與主節點的常駐參數。完整 Linear 權重維持 lazy，
+        // 供架構直接讀取 weight 的特殊運算使用，不能再由載入器 eval(model)。
+        return false
+    }
+
+    private func shardableLinear(_ module: Module) -> Linear? {
+        guard let linear = module as? Linear,
+            type(of: linear) == Linear.self || type(of: linear) == QuantizedLinear.self,
+            linear.weight.ndim == 2, linear.shape.0 >= group.size,
+            // sanitize 可能產生轉置／合併後的 lazy 權重；無法直接按列讀取時
+            // 留在主節點，不能為了切分先在每個 worker 實體化完整矩陣。
+            linear.parameters().flattened().allSatisfy({ tanpopo_distributed_can_copy_rows($0.1.ctx) })
+            else { return nil }
+        return linear
     }
 
     func install(on model: Module) throws {
         guard layers.isEmpty else { throw DistributedError.invalid("同一群組不能重複載入模型。") }
-        let totalBytes = model.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
+        let parameters = model.parameters().flattened()
+        let totalBytes = parameters.reduce(0) { $0 + $1.1.nbytes }
         let candidates = model.leafModules().flattened().sorted { $0.0 < $1.0 }
         let eligibleBytes = candidates.reduce(0) { total, item in
-            guard let linear = item.1 as? Linear,
-                linear.shape.0 >= group.size else { return total }
+            guard let linear = shardableLinear(item.1) else { return total }
             return total + linear.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
         }
         let physical = Int(ProcessInfo.processInfo.physicalMemory)
         let budget = min(Memory.memoryLimit, physical - max(2 * 1024 * 1024 * 1024, physical / 10))
         let shardBytes = candidates.reduce(0) { total, item in
-            guard let linear = item.1 as? Linear, linear.shape.0 >= group.size else { return total }
+            guard let linear = shardableLinear(item.1) else { return total }
             let bytes = linear.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
             return total + bytes / linear.shape.0 * Self.rowRange(output: linear.shape.0, rank: group.rank, size: group.size).count
         }
@@ -84,11 +87,10 @@ final class DistributedTensorSession: @unchecked Sendable {
         }
         var updates: [(String, Module)] = []
         var signatures: [String] = []
+        var shardedPaths: [String] = []
         for (path, module) in candidates {
-            guard let linear = module as? Linear else { continue }
-            guard type(of: linear) == Linear.self || type(of: linear) == QuantizedLinear.self else {
-                throw DistributedError.invalid("\(path) 使用尚未支援的 Linear 子類別。")
-            }
+            // 自訂子類別可能更改運算語意，保留在主節點，不假定其等同矩陣乘法。
+            guard let linear = shardableLinear(module) else { continue }
             let (output, _) = linear.shape
             // 沿輸出列分攤餘數，不切斷列內的量化分組；通訊時才補齊長度。
             guard output >= group.size else { continue }
@@ -111,9 +113,15 @@ final class DistributedTensorSession: @unchecked Sendable {
             originalLinearBytes += linear.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
             localLinearBytes += local.parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
             signatures.append("\(path):\(linear.shape):\(linear.weight.dtype):\(String(describing: type(of: linear)))")
+            shardedPaths.append(path + ".")
             if group.rank == 0 {
-                updates.append((path, DistributedLinear(local: local, shape: linear.shape,
-                    identifier: identifier, session: self)))
+                let replacement: Linear
+                if let quantized = linear as? QuantizedLinear {
+                    replacement = DistributedQuantizedLinear(original: quantized, identifier: identifier, session: self)
+                } else {
+                    replacement = DistributedLinear(original: linear, identifier: identifier, session: self)
+                }
+                updates.append((path, replacement))
             }
         }
         guard !layers.isEmpty else { throw DistributedError.invalid("模型沒有可切分的線性層。") }
@@ -123,6 +131,10 @@ final class DistributedTensorSession: @unchecked Sendable {
         try group.verifyDigest(Array(SHA256.hash(data: Data(signatures.joined(separator: "\n").utf8))), label: "模型切分計畫")
         if group.rank == 0 {
             try model.update(modules: ModuleChildren.unflattened(updates), verify: [.all])
+            // 保留完整形狀、量化型別與 lazy 參數，讓融合運算直接讀 weight 時仍正確。
+            // 一般 forward 僅使用 session 的分片；特殊讀取才在主節點實體化完整權重。
+            let resident = parameters.filter { item in !shardedPaths.contains(where: item.0.hasPrefix) }.map(\.1)
+            try withError { eval(resident) }
         }
         fputs("TANPOPO_DISTRIBUTED rank=\(group.rank) backend=\(configuration.backend) layers=\(layers.count) local_linear_bytes=\(localLinearBytes)\n", stderr)
     }
@@ -252,7 +264,7 @@ final class DistributedTensorSession: @unchecked Sendable {
 
     static func modelDigest(directory: URL) throws -> [UInt8] {
         var hash = SHA256()
-        hash.update(data: Data("\(ServerConfiguration.version):linear-output-sharding-v2".utf8))
+        hash.update(data: Data("\(ServerConfiguration.version):linear-output-sharding-v3".utf8))
         func appendFile(_ file: URL) throws {
             let handle = try FileHandle(forReadingFrom: file)
             defer { try? handle.close() }
@@ -285,13 +297,24 @@ final class DistributedTensorSession: @unchecked Sendable {
 private final class DistributedLinear: Linear {
     private let identifier: Int
     private let session: DistributedTensorSession
-    private let originalShape: (Int, Int)
-    override var shape: (Int, Int) { originalShape }
-    init(local: Linear, shape: (Int, Int), identifier: Int, session: DistributedTensorSession) {
+    init(original: Linear, identifier: Int, session: DistributedTensorSession) {
         self.identifier = identifier
         self.session = session
-        self.originalShape = shape
-        super.init(weight: local.weight, bias: local.bias)
+        super.init(weight: original.weight, bias: original.bias)
+    }
+    override func callAsFunction(_ input: MLXArray) -> MLXArray {
+        session.execute(layer: identifier, input: input)
+    }
+}
+
+private final class DistributedQuantizedLinear: QuantizedLinear {
+    private let identifier: Int
+    private let session: DistributedTensorSession
+    init(original: QuantizedLinear, identifier: Int, session: DistributedTensorSession) {
+        self.identifier = identifier
+        self.session = session
+        super.init(weight: original.weight, bias: original.bias, scales: original.scales,
+            biases: original.biases, groupSize: original.groupSize, bits: original.bits, mode: original.mode)
     }
     override func callAsFunction(_ input: MLXArray) -> MLXArray {
         session.execute(layer: identifier, input: input)

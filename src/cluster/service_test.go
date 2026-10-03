@@ -57,6 +57,15 @@ func (b *fakeBackend) StartRing(owner, model string, rank int, addresses []strin
 	if owner != b.owner || addresses[0] == addresses[1] || b.failStart {
 		return b.status, errors.New("啟動失敗")
 	}
+	// 模擬 MLX 一啟動便連線的行為。fake 不會監聽原生埠，所以任何成功
+	// 連線都代表仍有 Go 保留 listener，會讓真實 Ring 誤接後停在 accept。
+	for _, address := range addresses {
+		conn, err := net.DialTimeout("tcp4", address, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return b.status, errors.New("啟動前尚未釋放所有節點的 Ring 保留埠")
+		}
+	}
 	b.rank = rank
 	b.status = domain.LlamaStatus{Running: true, Ready: rank == 0, Model: model}
 	return b.status, nil

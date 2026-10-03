@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,10 +30,12 @@ type RingModel struct {
 const MaxRingNodes = 8
 
 type RingCapabilities struct {
-	MaxNodes           int    `json:"max_ring_nodes"`
-	Version            string `json:"version"`
-	Available          bool   `json:"ring_available"`
-	ManagedParentStdin bool   `json:"managed_parent_stdin"`
+	MaxNodes              int      `json:"max_ring_nodes"`
+	Version               string   `json:"version"`
+	Available             bool     `json:"ring_available"`
+	ManagedParentStdin    bool     `json:"managed_parent_stdin"`
+	GenericLinearSharding bool     `json:"generic_linear_sharding,omitempty"`
+	TextModelTypes        []string `json:"text_model_types,omitempty"`
 }
 
 func (m *Manager) RingCapabilities(ctx context.Context) (RingCapabilities, error) {
@@ -82,20 +85,34 @@ func (m *Manager) InspectRingModel(model string) (RingModel, error) {
 	if err != nil {
 		return RingModel{}, err
 	}
-	var config struct {
-		ModelType string          `json:"model_type"`
-		Vision    json.RawMessage `json:"vision_config"`
-	}
-	if err = json.Unmarshal(data, &config); err != nil {
+	capability, err := m.RingCapabilities(context.Background())
+	if err != nil {
 		return RingModel{}, err
 	}
-	if (config.ModelType != "llama" && config.ModelType != "mistral" && config.ModelType != "qwen2" && config.ModelType != "qwen3") ||
-		(len(config.Vision) > 0 && string(config.Vision) != "null") {
-		return RingModel{}, errors.New("TCP Ring 僅支援 Llama／Mistral／Qwen2／Qwen3 的 safetensors 文字模型")
+	architecture, err := inspectRingArchitecture(data, capability)
+	if err != nil {
+		return RingModel{}, err
 	}
 	digest := sha256.Sum256(data)
-	return RingModel{Path: filepath.ToSlash(filepath.Clean(model)), Architecture: config.ModelType,
+	return RingModel{Path: filepath.ToSlash(filepath.Clean(model)), Architecture: architecture,
 		Fingerprint: hex.EncodeToString(digest[:])}, nil
+}
+
+// 架構能力由原生 Runtime 的文字模型註冊表提供，不在 Go 重複維護模型名單。
+func inspectRingArchitecture(data []byte, capability RingCapabilities) (string, error) {
+	var config struct {
+		ModelType string `json:"model_type"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", err
+	}
+	if !capability.GenericLinearSharding || len(capability.TextModelTypes) == 0 {
+		return "", errors.New("請更新原生 Runtime，才能檢查通用 TCP Ring 模型能力")
+	}
+	if config.ModelType == "" || !slices.Contains(capability.TextModelTypes, config.ModelType) {
+		return "", errors.New("目前 Runtime 不支援此模型的文字分散推論，請更新 Runtime 或選擇已支援的文字模型")
+	}
+	return config.ModelType, nil
 }
 
 // 保留與啟動共用 Manager 的鎖，避免一般載入、同時互邀或校準搶用 GPU。
