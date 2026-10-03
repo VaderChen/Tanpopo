@@ -136,13 +136,13 @@ The MLX runtime specification requires multi-user support, with a current limit 
 
 Non-streaming context or estimated-memory violations return HTTP 413, and memory-pressure violations during inference return HTTP 503. Errors after SSE starts are reported through SSE error events rather than successful completion. See the [MLX runtime specification](docs/MLX-RUNTIME-SPEC.md) and [API latency and cancellation troubleshooting](docs/MLX-RUNTIME-TROUBLESHOOTING.md), both in Traditional Chinese. These request-time checks are separate from the optional pre-launch memory pressure protection described below.
 
-## Experimental MLX distributed inference
+## MLX 分散推論（實驗功能）
 
-On Apple Silicon, **Runtime → TCP Ring cluster → Search nodes** discovers Servers on a trusted LAN without a shared pairing key. Open discovery on every Server, select the same supported MLX model and a standard launch profile on the coordinator, then choose one or more peers in the dialog and select **Pair and start**. The local Mac joins automatically. Busy peers can be selected, with startup waiting until the selected members are idle; incompatible peers cannot be selected. Stopping any member stops the group.
+在各台 Apple Silicon Mac 開啟「執行狀態 → TCP Ring 叢集 → 搜尋節點」，由發起端選擇模型與一般 MLX 參數，勾選節點後按「配對並啟用」。系統會切換各台單機服務、核對完整模型內容，缺少或內容不同時自動向發起端下載獨立副本；相同內容可使用不同資料夾名稱。卡片顯示核對／下載進度，任一端停止會取消並清理整組。原有模型不會被覆寫。
 
-TCP Ring supports 2–8 nodes, while the JACCL RDMA path remains limited to two. Update the Server and identical native Runtime (currently suffix `rdma7`) on every node, with matching model contents and relative paths. Text model capabilities come from the native registry, including Qwen3.5. Standard dense and quantized linear layers are sharded by structure; custom layers, expert operations, attention and recurrent state stay on the coordinator. Direct weight access retains full weights on demand, so memory savings depend on the architecture. This mode requires safetensors and does not support GGUF, image input, DFlash or MTP. The coordinator retains four concurrent generation slots.
+TCP Ring 支援 2–8 台，JACCL RDMA 維持兩台。各台需更新支援模型同步的 Server，並使用同一份原生 Runtime（本次原始碼版本尾碼 `rdma8`）。文字與影像模型共用原生註冊表及通用線性層分片；Qwen3.5 真實影像模型已通過同機雙 Server 的單機／叢集回答、Token 數與串流一致性檢查。註冊不代表所有 checkpoint 都已驗證，模型仍須通過切分計畫與記憶體檢查。
 
-Discovery protocol v2 is incompatible with the earlier shared-key protocol. Update every node together. Discovery and tensor traffic are unencrypted and do not authenticate peers cryptographically; use a trusted LAN. Restarting restores discovery, but a group must be selected and paired again. Qwen3 has passed a two-Mac LAN smoke test; Qwen3.5-4B has passed single-versus-two-node output checks using two independent Servers on one Mac. The new Qwen3.5 path still needs a two-Mac check after both nodes are updated; large-model performance and Thunderbolt RDMA remain unverified. See the [setup, API and Smoke guide](docs/MLX-RDMA.md) (Traditional Chinese).
+目前接受 safetensors，GGUF／Fast GGUF、DFlash 與 MTP 尚不適用。特殊層、專家運算、Attention、KV Cache 及直接權重存取仍由主節點負擔，不能把多機記憶體視為完整加總。探索與傳輸適用信任的區域網路；不同實體 Mac 的 Wi-Fi 長請求問題仍待驗證，亦尚未驗收 Thunderbolt RDMA。詳見[設定、協定與 Smoke 指南](docs/MLX-RDMA.md)。
 
 ## Settings and model management
 

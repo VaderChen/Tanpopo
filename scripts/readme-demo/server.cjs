@@ -123,7 +123,7 @@ async function startDemoServer() {
           const peers = clusterStatus().peers.filter((peer) => request.peer_ids?.includes(peer.id));
           const model = state.models.find((model) => model.path === request.model && model.architecture === "qwen3");
           const command = fixtures.commands.find((command) => command.id === request.startup_command_id && command.runtime === "mlx-server");
-          if (state.runtime.running || state.cluster.session || !peers.length || peers.some((peer) => peer.busy) || peers.length !== request.peer_ids.length || !model || !command) {
+          if (state.cluster.session || !peers.length || peers.some((peer) => peer.clustered) || peers.length !== request.peer_ids.length || !model || !command) {
             return json(res, { error: "請選擇可用節點、Qwen3 示範模型與 MLX 啟動參數" }, 400);
           }
           state.cluster.session = {

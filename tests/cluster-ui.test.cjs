@@ -24,9 +24,9 @@ function page() {
     generic_linear_sharding: true, text_model_types: ["llama", "qwen3", "qwen3_5"] };
   const calls = [], messages = [];
   let failure = "";
-  let status = { enabled: false, discovery_port: 10083, interface: "", local: { name: "本機", capabilities: capability }, peers: [
-    { id: "peer-a", name: "<script>不能執行</script>", ip: "192.168.1.2", port: 10082, capabilities: capability },
-    { id: "peer-b", name: "Mac B", ip: "192.168.1.3", port: 10082, capabilities: capability }
+  let status = { enabled: false, discovery_port: 10083, interface: "", local: { name: "本機", capabilities: capability, model_sync_version: 1 }, peers: [
+    { id: "peer-a", name: "<script>不能執行</script>", ip: "192.168.1.2", port: 10082, capabilities: capability, model_sync_version: 1 },
+    { id: "peer-b", name: "Mac B", ip: "192.168.1.3", port: 10082, capabilities: capability, model_sync_version: 1 }
   ] };
   const api = async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
@@ -76,7 +76,7 @@ test("搜尋免金鑰開啟對話框，複選後一次配對並啟用全部節�
   assert.equal(ui.byId("clusterSearch").disabled, false);
 });
 
-test("忙碌節點保留勾選並阻擋啟動，恢復空閒後可啟動；版本不符與離線仍移除選取", async () => {
+test("單機服務可由配對切換；版本不符與離線仍移除選取", async () => {
   const ui = page();
   await ui.feature.refresh();
   selectModel(ui);
@@ -93,8 +93,8 @@ test("忙碌節點保留勾選並阻擋啟動，恢復空閒後可啟動；版�
   assert.equal(ui.checkbox(0).checked, true);
   assert.equal(ui.checkbox(1).disabled, true);
   assert.equal(ui.checkbox(1).checked, false);
-  assert.equal(ui.byId("clusterStart").disabled, true);
-  assert.match(ui.byId("clusterSelectionHint").textContent, /<script>不能執行<\/script> 使用中/);
+  assert.equal(ui.byId("clusterStart").disabled, false);
+  assert.match(ui.byId("clusterSelectionHint").textContent, /會切換為此模型/);
   ui.setStatus({ ...ui.getStatus(), peers: [{ ...peers[0], busy: false }] });
   await ui.feature.refresh();
   assert.equal(ui.checkbox(0), checkbox);
@@ -118,7 +118,6 @@ test("搜尋到的忙碌節點可直接勾選與全選，同時顯示本機、�
   await ui.byId("clusterSearch").click();
   ui.checkbox(1).change(true);
   assert.equal(ui.checkbox(1).checked, true);
-  assert.match(ui.byId("clusterSelectionHint").textContent, /本機、Mac B 使用中/);
   assert.match(ui.byId("clusterSelectionHint").textContent, /尚未支援所選模型/);
   assert.equal(ui.byId("clusterStart").disabled, true);
   assert.equal(ui.calls.some(call => call.url.endsWith("/start") || call.url.endsWith("/stop")), false);
@@ -134,7 +133,7 @@ test("搜尋到的忙碌節點可直接勾選與全選，同時顯示本機、�
   await ui.feature.refresh();
   ui.feature.update({ runtime: "mlx-server", model: { path: "models/current", architecture: "not_registered" },
     command: { id: "profile" }, status: { running: false } });
-  assert.equal(ui.byId("clusterStart").disabled, true, "停止模型後仍需檢查架構");
+  assert.equal(ui.byId("clusterStart").disabled, true, "仍需檢查架構");
   ui.feature.update({ runtime: "mlx-server", model: { path: "models/current", architecture: "qwen3_5" },
     command: { id: "profile" }, status: { running: false } });
   assert.equal(ui.checkbox(1).checked, true);
@@ -175,4 +174,20 @@ test("被另一台 Server 邀請時關閉選取清單，顯示工作節點狀態
   assert.equal(ui.byId("clusterDialog").open, false);
   assert.match(ui.byId("clusterStatus").textContent, /工作節點/);
   assert.equal(ui.byId("clusterStop").disabled, false);
+});
+
+test("模型下載顯示各節點進度且仍可停止，舊版 Server 不可被邀請", async () => {
+	const ui = page();
+	ui.setStatus({ ...ui.getStatus(), session: { role: "coordinator", phase: "synchronizing", model: "模型", members: [{ name: "本機" }, { name: "Mac B" }],
+		preparation: [{ name: "Mac B", phase: "downloading", bytes_done: 1048576, bytes_total: 2097152 }] } });
+	await ui.feature.refresh();
+	assert.equal(ui.byId("clusterPreparation").hidden, false);
+	assert.match(ui.byId("clusterPreparation").textContent, /Mac B：下載模型 · 50%/);
+	assert.equal(ui.byId("clusterStop").disabled, false);
+	await ui.byId("clusterStop").click();
+	assert.equal(ui.byId("clusterPreparation").hidden, true);
+	ui.setStatus({ ...ui.getStatus(), peers: ui.getStatus().peers.map(peer => ({ ...peer, model_sync_version: 0 })) });
+	await ui.feature.refresh();
+	assert.equal(ui.checkbox(0).disabled, true);
+	assert.equal(ui.byId("clusterPeerList").children[0].children[3].textContent, "需更新 Tanpopo");
 });

@@ -269,6 +269,13 @@ final class DistributedTensorSession: @unchecked Sendable {
     }
 
     static func modelDigest(directory: URL) throws -> [UInt8] {
+        // FileManager 列舉會展開 /var → /private/var；先正規化根目錄，
+        // 才不會把模型資料夾名稱的一部分誤算進相對檔名摘要。
+        guard let canonical = realpath(directory.path, nil) else {
+            throw DistributedError.invalid("無法解析模型目錄的實際位置。")
+        }
+        let directory = URL(fileURLWithPath: String(cString: canonical), isDirectory: true)
+        free(canonical)
         var hash = SHA256()
         hash.update(data: Data("\(ServerConfiguration.version):linear-output-sharding-v3".utf8))
         func appendFile(_ file: URL) throws {
@@ -285,8 +292,10 @@ final class DistributedTensorSession: @unchecked Sendable {
         guard let iterator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]) else {
             throw DistributedError.invalid("無法讀取模型目錄。")
         }
-        let files = iterator.compactMap { $0 as? URL }.filter {
-            ["safetensors", "json", "model", "jinja", "txt", "tiktoken"].contains($0.pathExtension)
+        let files = iterator.compactMap { $0 as? URL }.filter { file in
+            let relative = String(file.path.dropFirst(directory.path.count + 1))
+            return !relative.split(separator: "/").contains(where: { $0.hasPrefix(".") })
+                && ["safetensors", "json", "model", "jinja", "txt", "tiktoken"].contains(file.pathExtension)
         }.sorted { $0.path < $1.path }
         guard files.contains(where: { $0.pathExtension == "safetensors" }) else {
             throw DistributedError.invalid("模型目錄中沒有 safetensors。")

@@ -67,7 +67,7 @@ func (s *Server) handleClusterStart(w http.ResponseWriter, r *http.Request) {
 	if !request.KVCacheQuantizationEnabled {
 		profile.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
-	status, err := s.cluster.Start(r.Context(), request.PeerIDs, request.Model, profile)
+	status, err := s.cluster.Begin(r.Context(), request.PeerIDs, request.Model, profile)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return

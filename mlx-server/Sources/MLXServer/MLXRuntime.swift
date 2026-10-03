@@ -55,7 +55,7 @@ actor MLXRuntime {
         kind = try Self.resolveModelKind(
             // 分散式文字模式由 LLM registry 載入語言部分；模型附帶 vision_config
             // 不代表必須啟用視覺。未知或只有 VLM 的架構仍由 registry 拒絕。
-            requested: configuration.distributed == nil ? configuration.modelKind : .text,
+            requested: configuration.modelKind,
             directory: resolvedModelDirectory,
             isGGUF: isGGUF,
             hasMMProj: ggufMMProjURL != nil
@@ -65,7 +65,6 @@ actor MLXRuntime {
     func prepare() async throws {
         guard container == nil else { return }
         if let distributedSession {
-            guard kind != .vision else { throw DistributedError.invalid("分散式模式目前僅接受純文字模型。") }
             memoryMapPlan?.applyBeforeLoading()
             // MLX Core 的 safetensors Load 是 lazy；C++ bridge 直接調整讀取範圍，
             // 只實體化本地列，未對齊檔案也不會先複製整份權重。

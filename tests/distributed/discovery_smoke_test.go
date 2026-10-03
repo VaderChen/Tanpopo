@@ -142,10 +142,24 @@ func TestTanpopoDiscoveredRingSmoke(t *testing.T) {
 	a.startModel(t, "shared-model", profile.ID)
 	expected := a.chat(t, "hello")
 	a.stopModel(t)
+	// 模型設定相同、權重不同；另一路徑已存在相同內容。
+	weightPath := filepath.Join(b.directory, "models/shared-model/model.safetensors")
+	changedWeights, err := os.ReadFile(weightPath)
+	must(t, err)
+	changedWeights[len(changedWeights)-1] ^= 1
+	must(t, os.WriteFile(weightPath, changedWeights, 0600))
+	must(t, os.Rename(filepath.Join(c.directory, "models/shared-model"), filepath.Join(c.directory, "models/renamed-model")))
 	awaitDiscovered()
 	start := func() (int, int, int) {
 		awaitDiscovered()
 		a.request(t, "POST", "/api/cluster/start", map[string]any{"peer_ids": peerIDs, "model": "shared-model", "startup_command_id": profile.ID}, 202, false)
+		waitFor(t, 90*time.Second, "背景同步完成並啟動主節點", func() bool {
+			status := a.clusterStatus(t)
+			if status.Session == nil {
+				t.Fatalf("背景同步失敗：%s", status.LastError)
+			}
+			return a.status(t).Running
+		})
 		root := a.ready(t)
 		worker := b.status(t)
 		if !worker.Running || worker.PID == root.PID || worker.Ready || worker.URL != "" {
@@ -170,6 +184,14 @@ func TestTanpopoDiscoveredRingSmoke(t *testing.T) {
 		return root.PID, worker.PID, third.PID
 	}
 	rootPID, workerPID, thirdPID := start()
+	if !strings.HasPrefix(b.status(t).Model, "cluster-models/") || c.status(t).Model != "renamed-model" {
+		t.Fatal("不同內容未下載、或同內容不同路徑未重用")
+	}
+	preserved, err := os.ReadFile(weightPath)
+	must(t, err)
+	if !bytes.Equal(preserved, changedWeights) {
+		t.Fatal("原模型被覆寫")
+	}
 	stream, cancelStream := a.stream(t, "hello", 8)
 	verifyStream(t, stream)
 	cancelStream()
@@ -182,17 +204,9 @@ func TestTanpopoDiscoveredRingSmoke(t *testing.T) {
 		t.Fatal("一般停止 API 未清理對端")
 	}
 	t.Log("真實 UDP 免金鑰探索、複選三節點交握、單／三機推論一致、SSE 與整組停止通過")
-	// 初步握手失敗不能留下保留或程序。
+	// 缺少整份模型時也須自動下載，不要求使用者手動安裝。
+	must(t, os.RemoveAll(filepath.Join(c.directory, "models/renamed-model")))
 	awaitDiscovered()
-	configPath := filepath.Join(b.directory, "models/shared-model/config.json")
-	original, err := os.ReadFile(configPath)
-	must(t, err)
-	must(t, os.WriteFile(configPath, append(append([]byte{}, original...), '\n'), 0600))
-	a.request(t, "POST", "/api/cluster/start", map[string]any{"peer_ids": peerIDs, "model": "shared-model", "startup_command_id": profile.ID}, 409, false)
-	if a.clusterStatus(t).Session != nil || b.clusterStatus(t).Session != nil || b.status(t).Running {
-		t.Fatal("握手失敗未回滾")
-	}
-	must(t, os.WriteFile(configPath, original, 0600))
 	rootPID, workerPID, thirdPID = start()
 	// 強制關閉工作 Server，其 stdin EOF 必須終止原生 worker，租約再回收主節點。
 	must(t, b.process.command.Process.Kill())
@@ -236,7 +250,7 @@ func TestTanpopoDiscoveredRingSmoke(t *testing.T) {
 			t.Fatal("狀態 API 不應包含配對金鑰")
 		}
 	}
-	t.Log("模型不符回滾、獨立 Server 強制結束、父端 EOF、租約回收、重啟重新探索與 worker 停止通過")
+	t.Log("模型內容同步、缺少時下載、獨立 Server 強制結束、父端 EOF、租約回收、重啟重新探索與 worker 停止通過")
 }
 
 func (s *smokeServer) clusterStatus(t *testing.T) cluster.Status {

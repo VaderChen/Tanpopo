@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,8 +23,51 @@ const (
 )
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string            `json:"role"`
+	Content string            `json:"-"`
+	Parts   []chatContentPart `json:"-"`
+}
+
+type chatContentPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL *struct {
+		URL    string `json:"url"`
+		Detail string `json:"detail,omitempty"`
+	} `json:"image_url,omitempty"`
+}
+
+func (m *chatMessage) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+	*m = chatMessage{Role: raw.Role}
+	if err := json.Unmarshal(raw.Content, &m.Content); err == nil {
+		return nil
+	}
+	decoder = json.NewDecoder(bytes.NewReader(raw.Content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&m.Parts); err != nil {
+		return errors.New("content 必須是文字或文字／圖片陣列")
+	}
+	return nil
+}
+
+func (m chatMessage) MarshalJSON() ([]byte, error) {
+	var content any = m.Content
+	if len(m.Parts) > 0 {
+		content = m.Parts
+	}
+	return json.Marshal(struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	}{m.Role, content})
 }
 
 type chatCompletionRequest struct {
@@ -90,7 +134,7 @@ func isRuntimeLoadingMessage(message string) bool {
 
 func (s *Server) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	var request chatCompletionRequest
-	if err := decodeJSON(r, &request); err != nil {
+	if err := decodeJSONLimit(r, &request, 32<<20); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -358,13 +402,36 @@ func validateChatMessages(messages []chatMessage) error {
 		return fmt.Errorf("單次對話最多包含 %d 則訊息", maxChatMessages)
 	}
 	totalRunes := 0
+	imageCount := 0
 	for index, message := range messages {
 		role := message.Role
 		if role != "system" && role != "user" && role != "assistant" {
 			return fmt.Errorf("第 %d 則訊息的角色不支援", index+1)
 		}
 		contentRunes := len([]rune(message.Content))
-		if strings.TrimSpace(message.Content) == "" {
+		if len(message.Parts) > 64 {
+			return errors.New("單則訊息的內容片段過多")
+		}
+		for _, part := range message.Parts {
+			switch part.Type {
+			case "text":
+				if part.ImageURL != nil || strings.TrimSpace(part.Text) == "" {
+					return errors.New("文字片段格式無效")
+				}
+				contentRunes += len([]rune(part.Text))
+			case "image_url":
+				imageCount++
+				if role != "user" || part.ImageURL == nil || part.Text != "" || imageCount > 8 {
+					return errors.New("圖片只能放在使用者訊息，且單次最多 8 張")
+				}
+				if err := validateChatImage(part.ImageURL.URL); err != nil {
+					return err
+				}
+			default:
+				return errors.New("對話片段只支援 text 與 image_url")
+			}
+		}
+		if len(message.Parts) == 0 && strings.TrimSpace(message.Content) == "" {
 			return fmt.Errorf("第 %d 則訊息不可為空", index+1)
 		}
 		if contentRunes > maxChatMessageRunes {
@@ -377,6 +444,18 @@ func validateChatMessages(messages []chatMessage) error {
 	}
 	if messages[len(messages)-1].Role != "user" {
 		return errors.New("最後一則訊息必須由使用者送出")
+	}
+	return nil
+}
+
+func validateChatImage(value string) error {
+	header, payload, ok := strings.Cut(value, ",")
+	if !ok || (header != "data:image/png;base64" && header != "data:image/jpeg;base64" && header != "data:image/webp;base64" && header != "data:image/gif;base64") {
+		return errors.New("圖片需使用 PNG／JPEG／WebP／GIF 的 base64 data URL")
+	}
+	count, err := io.Copy(io.Discard, io.LimitReader(base64.NewDecoder(base64.StdEncoding, strings.NewReader(payload)), (25<<20)+1))
+	if err != nil || count == 0 || count > 25<<20 {
+		return errors.New("圖片 base64 無效或超過 25 MiB")
 	}
 	return nil
 }

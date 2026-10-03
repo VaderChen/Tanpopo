@@ -1,5 +1,6 @@
 import Foundation
 import MLXLLM
+import MLXVLM
 
 @main
 enum MLXServerMain {
@@ -16,6 +17,7 @@ enum MLXServerMain {
                 "max_ring_nodes": 8,
                 "generic_linear_sharding": true,
                 "text_model_types": await LLMTypeRegistry.shared.registeredModelTypes.sorted(),
+                "vision_model_types": await VLMTypeRegistry.shared.registeredModelTypes.sorted(),
                 "jaccl_library_available": DistributedGroup.available("jaccl"),
                 "hardware_verified": false,
                 "note": "後端可用不代表 Thunderbolt 線路或雙機推論已通過驗證。"]
@@ -41,7 +43,7 @@ enum MLXServerMain {
                 distributedDirectory = try distributed.configureEnvironment(rank: configuration.distributedRank)
                 if configuration.distributedRank == 0, distributed.nodes[1].launchMode != .manual {
                     worker = try DistributedWorkerProcess(configuration: distributed,
-                        modelPath: configuration.modelPath, smoke: configuration.distributedSmoke)
+                        modelPath: configuration.modelPath, modelKind: configuration.modelKind, smoke: configuration.distributedSmoke)
                 }
                 if configuration.distributedParentStdin { DistributedWorkerProcess.monitorParentInput() }
                 let group = try DistributedGroup(configuration: distributed, rank: configuration.distributedRank)

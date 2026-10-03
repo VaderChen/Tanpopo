@@ -32,116 +32,10 @@ type controlRequest struct {
 }
 
 type controlResponse struct {
-	Address string `json:"address,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (s *Service) Start(ctx context.Context, peerIDs []string, model string, profile domain.StartupCommand) (Status, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-	s.mu.Lock()
-	enabled, busy, closed, capability := s.config.Enabled, s.active != nil, s.closed, s.capability
-	local := s.nodeLocked()
-	peers := make([]Peer, 0, len(peerIDs))
-	seen := make(map[string]bool)
-	for _, id := range peerIDs {
-		peer, exists := s.peers[id]
-		if !exists || seen[id] || time.Since(peer.LastSeen) >= peerLifetime {
-			continue
-		}
-		seen[id] = true
-		peers = append(peers, peer)
-	}
-	s.mu.Unlock()
-	if !enabled || closed || busy || len(peers) != len(peerIDs) || len(peers) < 1 ||
-		len(peers)+1 > llamacpp.MaxRingNodes || len(peers)+1 > capability.MaxNodes {
-		return s.Status(), errors.New("請啟用探索、選擇 1–7 個不同的在線節點，並先停止目前叢集服務")
-	}
-	for _, peer := range peers {
-		if peer.Busy || !peer.Capabilities.Available || !peer.Capabilities.ManagedParentStdin ||
-			peer.Capabilities.Version != capability.Version || peer.Capabilities.MaxNodes < len(peers)+1 {
-			return s.Status(), fmt.Errorf("%s 忙碌、未支援此節點數，或 mlx-server 版本不同", peer.Name)
-		}
-	}
-	if profile.Runtime != domain.RuntimeMLXServer || profile.ContextSize < 128 || profile.ContextSize > 1048576 {
-		return s.Status(), errors.New("請選擇有效的 mlx-server 啟動參數")
-	}
-	descriptor, err := s.backend.InspectRingModel(model)
-	if err != nil {
-		return s.Status(), err
-	}
-	owner := randomID()
-	if err = s.backend.ReserveRing(owner); err != nil {
-		return s.Status(), err
-	}
-	listener, err := reserveAddress(peers[0].IP)
-	if err != nil {
-		s.backend.ReleaseRing(owner)
-		return s.Status(), err
-	}
-	localIP, _, _ := net.SplitHostPort(listener.Addr().String())
-	members := []Member{{ID: local.ID, Name: local.Name, IP: localIP, Port: local.Port}}
-	for _, peer := range peers {
-		members = append(members, Member{ID: peer.ID, Name: peer.Name, IP: peer.IP, Port: peer.Port})
-	}
-	addresses := make([]string, len(members))
-	addresses[0] = listener.Addr().String()
-	s.mu.Lock()
-	s.active = &activeSession{Session: Session{ID: owner, Members: members, Rank: 0, Role: "coordinator", Phase: "preparing",
-		Model: model, StartedAt: time.Now(), Addresses: append([]string(nil), addresses...)},
-		peers: peers, listener: listener, lastLease: time.Now()}
-	s.lastError = ""
-	s.mu.Unlock()
-	// 任一節點失敗就回收整組；即使回覆遺失或瀏覽器中斷，保留也會由租約清理。
-	defer func() {
-		if err != nil {
-			cleanup, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-			_ = s.stopLocked(cleanup, err.Error(), true)
-			cancel()
-		}
-	}()
-	request := controlRequest{SessionID: owner, Model: descriptor, Version: capability.Version, Members: members, ContextSize: profile.ContextSize}
-	prepared, prepareErr := s.callPeers(ctx, peers, "prepare", request)
-	err = prepareErr
-	if err != nil {
-		return s.Status(), err
-	}
-	for i, reply := range prepared {
-		if !endpointAt(reply.Address, peers[i].IP) {
-			err = fmt.Errorf("%s 回傳不符來源 IP 的 Ring 位址", peers[i].Name)
-			return s.Status(), err
-		}
-		addresses[i+1] = reply.Address
-	}
-	request.Addresses = addresses
-	s.mu.Lock()
-	s.active.Addresses, s.active.Phase = append([]string(nil), addresses...), "starting"
-	s.mu.Unlock()
-	// 所有節點先釋放保留埠，再允許任何原生程序連線。否則較早啟動的
-	// worker 可能連上 Go 的保留 listener，造成 MLX 等不到真正的對端。
-	_, err = s.callPeers(ctx, peers, "arm", request)
-	if err != nil {
-		return s.Status(), err
-	}
-	_ = listener.Close()
-	s.mu.Lock()
-	s.active.listener = nil
-	s.mu.Unlock()
-	_, err = s.callPeers(ctx, peers, "commit", request)
-	if err != nil {
-		return s.Status(), err
-	}
-	if err = ctx.Err(); err != nil {
-		return s.Status(), err
-	}
-	_, err = s.backend.StartRing(owner, model, 0, addresses, profile)
-	if err != nil {
-		return s.Status(), err
-	}
-	s.mu.Lock()
-	s.active.listener, s.active.Phase, s.active.lastLease = nil, "loading", time.Now()
-	s.mu.Unlock()
-	return s.Status(), nil
+	Address     string             `json:"address,omitempty"`
+	Error       string             `json:"error,omitempty"`
+	Phase       string             `json:"phase,omitempty"`
+	Preparation []ModelPreparation `json:"preparation,omitempty"`
 }
 
 func reserveAddress(peerIP string) (net.Listener, error) {
@@ -320,37 +214,24 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		if err != nil {
 			return controlResponse{}, err
 		}
-		model, err := s.backend.InspectRingModel(request.Model.Path)
-		if err != nil {
-			return controlResponse{}, err
-		}
-		if model.Fingerprint != request.Model.Fingerprint || model.Architecture != request.Model.Architecture {
-			return controlResponse{}, errors.New("節點模型設定不一致；請安裝相同模型版本與量化格式")
+		if peer.ModelSyncVersion != 1 || len(request.Model.Fingerprint) != 64 || request.Model.Path == "" {
+			return controlResponse{}, errors.New("模型同步協定或摘要無效，請更新 Tanpopo")
 		}
 		if err = s.backend.ReserveRing(request.SessionID); err != nil {
 			return controlResponse{}, err
 		}
-		listener, err := reserveAddress(sourceIP)
-		if err != nil {
-			s.backend.ReleaseRing(request.SessionID)
-			return controlResponse{}, err
-		}
-		if !endpointAt(listener.Addr().String(), request.Members[rank].IP) {
-			_ = listener.Close()
-			s.backend.ReleaseRing(request.SessionID)
-			return controlResponse{}, errors.New("節點使用不同網路路徑，請選擇各端共同可達的網路介面")
-		}
-		addresses := make([]string, len(request.Members))
-		addresses[rank] = listener.Addr().String()
-		s.mu.Lock()
-		s.active = &activeSession{Session: Session{ID: request.SessionID, Members: append([]Member(nil), request.Members...), Rank: rank,
-			Role: "worker", Phase: "prepared", Model: model.Path, StartedAt: time.Now(), Addresses: addresses},
-			peers: []Peer{peer}, listener: listener, lastLease: time.Now(),
+		jobCtx, cancel := context.WithCancel(s.ctx)
+		active = &activeSession{Session: Session{ID: request.SessionID, Members: append([]Member(nil), request.Members...), Rank: rank,
+			Role: "worker", Phase: "synchronizing", Model: request.Model.Path, StartedAt: time.Now(), Addresses: make([]string, len(request.Members)),
+			Preparation: []ModelPreparation{{NodeID: request.Members[rank].ID, Name: s.name}}},
+			peers: []Peer{peer}, lastLease: time.Now(), ctx: jobCtx, cancel: cancel, descriptor: request.Model, done: make(chan struct{}),
 			profile: domain.StartupCommand{Runtime: domain.RuntimeMLXServer, Name: "TCP Ring 工作節點", ContextSize: request.ContextSize,
 				ServerHost: "127.0.0.1", ServerPort: 10084, KVCacheQuantization: domain.KVCacheQuantizationNone}}
-		s.lastError = ""
+		s.mu.Lock()
+		s.active, s.lastError = active, ""
 		s.mu.Unlock()
-		return controlResponse{Address: listener.Addr().String()}, nil
+		go s.prepareWorker(active, peer)
+		return controlResponse{Phase: "synchronizing"}, nil
 	}
 	if active == nil && p.Kind == "stop" {
 		return controlResponse{}, nil
@@ -394,15 +275,29 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 		s.active.Addresses, s.active.listener, s.active.Phase, s.active.lastLease = append([]string(nil), request.Addresses...), nil, "loading", time.Now()
 		s.mu.Unlock()
 	case "lease":
-		if active.Role != "worker" || active.Phase == "prepared" || !s.backend.Status().Running {
+		if active.Role != "worker" {
+			return controlResponse{}, errors.New("此節點不是工作節點")
+		}
+		s.mu.Lock()
+		phase, failure := active.Phase, active.prepareError
+		s.mu.Unlock()
+		if failure != "" {
+			return controlResponse{}, errors.New(failure)
+		}
+		if phase != "synchronizing" && phase != "prepared" && phase != "armed" && !s.backend.Status().Running {
 			return controlResponse{}, errors.New("工作節點程序已結束")
 		}
 		s.mu.Lock()
-		s.active.lastLease = time.Now()
-		if request.Ready {
-			s.active.Phase = "running"
+		active.lastLease = time.Now()
+		if request.Ready && (phase == "loading" || phase == "running") {
+			active.Phase = "running"
+		}
+		result := controlResponse{Phase: active.Phase, Preparation: append([]ModelPreparation(nil), active.Preparation...)}
+		if phase == "prepared" {
+			result.Address = active.Addresses[active.Rank]
 		}
 		s.mu.Unlock()
+		return result, nil
 	case "stop":
 		if len(request.StopReason) > 1024 {
 			return controlResponse{}, errors.New("TCP Ring 停止原因過長")
@@ -417,8 +312,24 @@ func (s *Service) control(ctx context.Context, p packet, sourceIP string, reques
 
 func (s *Service) Stop(ctx context.Context) error {
 	s.opMu.Lock()
-	defer s.opMu.Unlock()
-	return s.stopLocked(ctx, "", true)
+	s.mu.Lock()
+	active := s.active
+	s.mu.Unlock()
+	err := s.stopLocked(ctx, "", true)
+	s.opMu.Unlock()
+	return errors.Join(err, waitPreparation(ctx, active))
+}
+
+func waitPreparation(ctx context.Context, active *activeSession) error {
+	if active == nil || active.done == nil {
+		return nil
+	}
+	select {
+	case <-active.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Service) stopLocked(ctx context.Context, reason string, notify bool, except ...string) error {
@@ -430,6 +341,9 @@ func (s *Service) stopLocked(ctx context.Context, reason string, notify bool, ex
 	s.mu.Unlock()
 	if active == nil {
 		return nil
+	}
+	if active.cancel != nil {
+		active.cancel()
 	}
 	if active.listener != nil {
 		_ = active.listener.Close()
@@ -461,15 +375,22 @@ func (s *Service) maintain() {
 	defer s.opMu.Unlock()
 	s.mu.Lock()
 	active := s.active
+	phase, starting, lastLease := "", false, time.Time{}
+	if active != nil {
+		phase, starting, lastLease = active.Phase, active.starting, active.lastLease
+	}
 	s.mu.Unlock()
 	if active == nil {
 		return
 	}
 	status := s.backend.Status()
 	reason := ""
-	if active.Phase != "prepared" && active.Phase != "armed" && active.Phase != "preparing" && active.Phase != "starting" && !status.Running {
+	if active.Role == "coordinator" && starting {
+		return
+	}
+	if phase != "synchronizing" && phase != "verifying" && phase != "prepared" && phase != "armed" && phase != "preparing" && phase != "starting" && !status.Running {
 		reason = fmt.Sprintf("節點 %s 的 TCP Ring 程序已結束：%s", s.name, status.LastError)
-	} else if active.Role == "worker" && time.Since(active.lastLease) > leaseLifetime {
+	} else if active.Role == "worker" && time.Since(lastLease) > leaseLifetime {
 		reason = "主節點租約逾時，已停止工作節點"
 	} else if active.Role == "coordinator" {
 		ctx, cancel := context.WithTimeout(s.ctx, 3*time.Second)
@@ -482,7 +403,7 @@ func (s *Service) maintain() {
 				s.active.Phase = "running"
 			}
 			s.mu.Unlock()
-		} else if time.Since(active.lastLease) > leaseLifetime {
+		} else if time.Since(lastLease) > leaseLifetime {
 			reason = "工作節點租約逾時：" + err.Error()
 		}
 	}

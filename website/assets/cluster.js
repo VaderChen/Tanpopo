@@ -11,9 +11,11 @@
   const selected = new Set();
   const rows = new Map();
   const dialog = byId("clusterDialog");
-  const phases = { preparing: "交握配對中", prepared: "等待主節點", armed: "等待啟動", starting: "啟動節點中", loading: "載入模型", running: "推論就緒" };
+  const phases = { verifying: "核對模型內容", synchronizing: "同步模型", downloading: "下載模型", waiting: "等待準備", preparing: "交握配對中", prepared: "等待主節點", armed: "等待啟動", starting: "啟動節點中", loading: "載入模型", running: "推論就緒" };
 
   function peerIssue(peer) {
+    if (peer.clustered) return "已加入其他叢集";
+    if (peer.model_sync_version !== 1) return "需更新 Tanpopo";
     if (!peer.capabilities?.ring_available || !peer.capabilities?.managed_parent_stdin || (peer.capabilities?.max_ring_nodes || 0) < 2) return "需更新 Runtime";
     if (peer.capabilities.version !== cluster?.local?.capabilities?.version) return "Runtime 版本不同";
     return "";
@@ -22,15 +24,15 @@
   function modelIssue() {
     if (selection.calibrating) return "請先等待效能校準完成。";
     if (selection.runtime !== "mlx-server" || !selection.model || String(selection.model.path).startsWith("gguf:") || !selection.command) {
-      return "請先在上方選擇 MLX 文字模型與啟動參數。";
+      return "請先在上方選擇 safetensors 模型與 MLX 啟動參數；GGUF 尚不適用。";
     }
     // 使用模型清單提供的架構，不從資料夾名稱猜測；啟動時仍由 Server 完整核對。
     const capability = cluster?.local?.capabilities;
-    if (!capability?.generic_linear_sharding || !capability.text_model_types?.length) {
+    if (!capability?.generic_linear_sharding || !((capability.text_model_types?.length || 0) + (capability.vision_model_types?.length || 0))) {
       return "請更新原生 Runtime，以取得通用 TCP Ring 的模型支援資訊。";
     }
-    if (selection.model.architecture && !capability.text_model_types.includes(selection.model.architecture)) {
-      return "目前 Runtime 尚未支援所選模型的文字分散推論；請更新 Runtime 或更換模型。";
+    if (selection.model.architecture && ![...(capability.text_model_types || []), ...(capability.vision_model_types || [])].includes(selection.model.architecture)) {
+      return "目前 Runtime 尚未支援所選模型的分散推論；請更新 Runtime 或更換模型。";
     }
     const profile = selection.command;
     if (profile.runtime_variant || profile.draft_model || (profile.extra_args || []).some((arg) => /^--(distributed-|mtp-|dflash-|mmproj|model-type)/.test(arg))) {
@@ -44,12 +46,6 @@
   function startIssue(peers) {
     if (connectionError) return connectionError;
     const issues = [];
-    const busyNames = [];
-    if (selection.status?.running || cluster?.local?.busy) busyNames.push("本機");
-    for (const peer of peers) {
-      if (selected.has(peer.id) && peer.busy) busyNames.push(peer.name || peer.ip);
-    }
-    if (busyNames.length) issues.push(`${busyNames.join("、")} 使用中；請先在各台 Server 停止目前服務。`);
     const model = modelIssue();
     if (model) issues.push(model);
     if (peers.some((peer) => selected.has(peer.id) && peer.capabilities.max_ring_nodes < selected.size + 1)) {
@@ -104,7 +100,7 @@
       row.name.textContent = peer.name || "未命名 Server";
       row.address.textContent = `${peer.ip}:${peer.port} · ${peer.platform || "Mac"}`;
       row.hint.hidden = !peer.busy || !!issue;
-      row.hint.textContent = "可先選取；配對前請在此節點停止目前服務。";
+      row.hint.textContent = "配對時會停止單機服務，切換為發起端指定的模型。";
       row.badge.textContent = issue || (peer.busy ? "使用中" : row.checkbox.checked ? "已選取" : "可連線");
       row.label.dataset.state = issue ? "unavailable" : row.checkbox.checked ? "selected" : "available";
       row.checkbox.setAttribute("aria-label", `${peer.name || "Server"}，${peer.ip}，${issue || (peer.busy ? "使用中，可先選取" : "可連線")}`);
@@ -136,6 +132,12 @@
       ? `${active.model} · ${active.role === "worker" ? "已加入運算，請至主節點進行對話。" : active.phase === "running" ? "叢集已就緒，可以開始對話。" : "正在準備模型，載入完成後即可對話。"}`
       : "不需輸入金鑰。各台 Server 開啟探索後，即可在清單中選取。");
     byId("clusterDetail").dataset.state = detail ? "error" : "normal";
+    const progress = (active?.preparation || []).filter(item => item.phase !== "prepared" || active?.phase === "synchronizing");
+    byId("clusterPreparation").hidden = !progress.length || active?.phase === "running" || active?.phase === "loading";
+    byId("clusterPreparation").textContent = progress.map(item => {
+      const ratio = item.bytes_total > 0 ? ` · ${Math.min(100, Math.floor(item.bytes_done * 100 / item.bytes_total))}%（${(item.bytes_done / 1048576).toFixed(1)} / ${(item.bytes_total / 1048576).toFixed(1)} MiB）` : "";
+      return `${item.name}：${phases[item.phase] || "等待準備"}${ratio}`;
+    }).join("\n");
 
     byId("clusterLocalName").textContent = cluster?.local?.name || "這台 Mac";
     byId("clusterDiscoveryState").textContent = connectionError ? "探索暫時無法更新" : activity === "starting" ? (phase || "正在核對模型與節點…")
@@ -150,7 +152,7 @@
     byId("clusterSelectionCount").textContent = `已選 ${selected.size} 個節點${selected.size ? ` · 共 ${selected.size + 1} 台 Mac` : ""}`;
     const issue = startIssue(peers);
     byId("clusterSelectionHint").textContent = activity === "starting" ? "正在交握與啟動，請稍候…"
-      : issue || (!selected.size ? "請至少選擇一個節點。" : "啟用後，從這台 Mac 進行對話。");
+      : issue || (!selected.size ? "請至少選擇一個節點。" : "各台會切換為此模型；缺少或內容不同時，會從這台 Mac 下載副本。");
     byId("clusterStart").disabled = !!activity || !!active || !cluster?.enabled || !!issue || !selected.size;
     byId("clusterStart").textContent = activity === "starting" ? "交握配對中…" : "配對並啟用";
     for (const id of ["clusterDialogClose", "clusterCancel"]) byId(id).disabled = !!activity;
@@ -235,7 +237,7 @@
     }) });
     selected.clear();
     dialog.close();
-    showMessage(`${ids.length + 1} 台節點配對完成，正在載入模型`);
+    showMessage(`${ids.length + 1} 台節點開始核對模型，缺少的副本會自動下載`);
   }));
   byId("clusterStop").addEventListener("click", () => action("stopping", async () => {
     cluster = await api("/api/cluster/stop", { method: "POST", body: "{}" });

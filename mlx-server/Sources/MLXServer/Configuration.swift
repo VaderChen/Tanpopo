@@ -15,7 +15,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma7"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -303,9 +303,9 @@ struct ServerConfiguration: Sendable {
             throw ConfigurationError.invalidModelPath(result.modelPath)
         }
         if result.distributed != nil {
-            guard !isGGUF, result.modelKind != .vision, result.mmprojPath == nil,
+            guard !isGGUF, result.mmprojPath == nil,
                 result.dflashDraftPath == nil, !result.mtpEnabled, !result.inspectGGUFCache else {
-                throw DistributedError.invalid("分散式模式使用 safetensors 文字推論；GGUF、影像輸入與推測解碼尚未支援。")
+                throw DistributedError.invalid("分散式模式使用已註冊的 safetensors 文字／影像模型；GGUF、mmproj 與推測解碼尚未支援。")
             }
         }
         if let mmprojPath = result.mmprojPath {

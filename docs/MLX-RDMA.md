@@ -1,6 +1,6 @@
 # MLX 分散推論與 RDMA 使用指南
 
-狀態：實驗功能；2026-10-03。Runtime 版本尾碼為 `rdma7`。
+狀態：實驗功能；2026-10-03。本次原始碼與測試 Runtime 版本尾碼為 `rdma8`。
 
 本功能讓多台 Mac 共同執行同一個模型。正式程式仍是 Go、Swift 與 C++，不需要 Python、pip 或 `mlx_lm.server`。
 
@@ -8,12 +8,12 @@
 
 - TCP Ring 支援 2–8 個節點；JACCL RDMA 維持雙節點。Rank 0 提供 API、請求排程、Tokenizer、Attention、KV Cache 與抽樣；其餘 Rank 執行權重分片的線性層運算。
 - 後端 `jaccl` 使用 MLX Core 的 Thunderbolt RDMA；`ring` 使用 TCP，兩者共用相同推論協定。Ring 測試成功不代表 RDMA 硬體已驗證。
-- 模型能力直接取自原生 Runtime 的文字模型註冊表，Server 與網頁不另維護架構白名單。包含 Qwen3.5／Qwen3.5 Text 的文字路徑；輸入必須是完整 safetensors 模型目錄。註冊不代表每種 checkpoint 都已驗證，啟動仍會檢查權重、切分計畫與記憶體預算。
+- 模型能力直接取自原生 Runtime 的文字與影像模型註冊表，Server 與網頁不另維護架構白名單。兩類模型共用同一個載入前掛鉤與線性層分片；輸入必須是完整 safetensors 模型目錄。註冊不代表每種 checkpoint 都已驗證，啟動仍會檢查權重、切分計畫與記憶體預算。
 - 通用演算法切分 `Linear`／`QuantizedLinear` 的輸出列，量化權重、scales、biases 與偏置使用相同列範圍。列數有餘數時，分片最多相差一列；通訊先補齊長度再移除暫存列，支援三台等無法整除的組合。輸出列數小於節點數的線性層留在主節點。
 - 切分依據實際模組型別、形狀與可按列讀取的權重，不辨識模型檔名。只替換標準 `Linear`／`QuantizedLinear`；自訂子類別、載入時轉換而無法直接按列讀取的權重、專家層、卷積、Attention 及循環狀態保留在主節點。Qwen3.5 的 Gated Delta Net 與 MambaCache 沿用原本實作。
 - 包裝後保留完整權重形狀與量化型別；一般 forward 使用分片，直接存取權重的融合運算則在主節點按需載入完整權重。這類操作會增加主節點記憶體需求，不能將分片層數或 `local_linear_bytes` 當作整個模型的實際記憶體占用。
 - 主節點保留四個生成名額與每個請求獨立的取消、KV Cache、Prefill 及記憶體預算。單次遠端線性運算共用鎖，避免不同請求混用 collective 的順序與資料。
-- 此模式只接受文字輸入，不支援 GGUF／Fast GGUF、影像輸入、DFlash、MTP 或管線平行。具有 Vision 設定但也登錄於文字註冊表的模型會載入語言部分。MoE 等特殊架構僅分散其中的一般線性層，不會切分專家權重；若模型沒有可分散的線性層，會明確拒絕啟動。
+- 支援文字與影像模型；已註冊影像架構且附有 processor 設定時，自動選擇影像載入器，文字 checkpoint 仍走文字載入器。Server 的 `/api/chat/completions` 接受文字或 OpenAI 格式的 `text`／`image_url` 內容陣列；圖片使用 base64 data URL，單次最多 8 張，請求上限 32 MiB。GGUF／Fast GGUF、DFlash、MTP 與管線平行仍不適用。MoE 等特殊架構僅分散其中的一般線性層，不會切分專家權重；若模型沒有可分散的線性層，會明確拒絕啟動。
 
 此版本採每層輸入廣播與輸出匯集，通訊頻率較高。目的先建立可驗證的權重分攤與原生服務路徑，尚未對大型模型做效能調校，不能承諾雙機加速。
 
@@ -42,17 +42,19 @@ TCP 連線診斷可用 `./scripts/smoke-mlx-distributed-sockets.sh` 驗證。此
 
 ## 在 Tanpopo Server 一鍵啟動 TCP Ring
 
-此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma7` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types` 及足夠的 `max_ring_nodes`。
+此模式由 2–8 台 Tanpopo Server 各自管理一個原生 Runtime，不需要配對金鑰、SSH、Python 或手寫 Ring 設定檔。使用通用模型支援時，所有節點須一起更新 Server 與同一份 `rdma8` Runtime；舊版 Server 的模型檢查不會因只更新網頁而改變。`--distributed-capabilities` 必須回報 `ring_available: true`、`managed_parent_stdin: true`、`generic_linear_sharding: true`、`text_model_types`／`vision_model_types` 及足夠的 `max_ring_nodes`。
 
-版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma7` 不可與 `rdma6` 或更早版本混用。
+版本字串相同還不夠：自行編譯與正式簽署的 Runtime 執行檔可能不同，必須使用同一份完整成品。`rdma8` 不可與 `rdma7` 或更早版本混用。節點還須公布 `model_sync_version: 1`；只更新網頁不會加入模型同步能力。
 
-1. 各台在「系統設定」指定 MLX 模型目錄，下載相同版本、相同量化格式的支援模型。根目錄可以不同，模型相對路徑必須一致，例如各台都是 `Qwen3-8B-4bit`。
-2. 各台到「執行狀態 → TCP Ring 叢集」，按卡片右側的「搜尋節點」。這會開啟區網探索及節點清單對話框；工作節點可關閉對話框，探索仍保持開啟。
-3. 主節點先選擇 `mlx-server`、文字模型與一般啟動參數，再在搜尋對話框勾選 1–7 個節點。本機自動加入，可逐台勾選或全選節點。忙碌節點也能先勾選，狀態更新時會保留選取；Runtime 版本不同與不支援的節點不可選取，失聯節點會移出清單。
-4. 依對話框提示，在本機與已選的忙碌節點停止目前服務，確認使用支援的模型，再按「配對並啟用」。勾選不會停止或啟動任何服務。系統先保留所有成員、核對版本與模型設定、協商埠，再等所有端點釋放保留 listener 後啟動各 Rank，避免工作程序誤連保留埠而卡住。原生 Runtime 接著核對完整模型及執行檔 SHA-256，載入分片。
-5. 推論就緒後，從主節點進行對話或呼叫 API。任一成員按「停止叢集」或既有「停止服務」，都會清理整組。
+1. 各台在「系統設定」指定可寫入的 MLX 模型目錄；只需先在發起端準備要使用的完整模型。
+2. 各台開啟「執行狀態 → TCP Ring 叢集 → 搜尋節點」，保持探索開啟。
+3. 發起端選擇 safetensors 模型與一般 MLX 啟動參數，在對話框勾選 1–7 個節點，再按「配對並啟用」。勾選本身不改變服務；配對後會停止各台原有的單機服務，切換成此次模型。已加入另一叢集、版本不同或不支援同步的節點不可加入。
+4. 發起端建立包含設定、Tokenizer、聊天範本、Processor 與權重的完整 SHA-256 清單。遠端先核對指定位置、同步快取與其他模型資料夾；內容一致即可使用，不要求資料夾名稱相同。
+5. 找不到相同內容時，遠端透過管理 HTTP 向發起端下載到隱藏暫存目錄。逐檔比對大小與 SHA-256 後，才搬入 `cluster-models/<內容摘要>`。舊模型、不同量化版本及不一致的原檔一律保留；已驗證副本可供下次直接重用。這條路徑也適用手動匯入或自行量化模型，不猜測 Hugging Face repository，也不交換下載 Token。
+6. 卡片顯示各台的核對／下載進度。背景工作不依附瀏覽器連線，可關閉對話框；按「停止叢集」會取消傳輸與回收租約。下載失敗不會發布半份模型。
+7. 全部節點完成內容準備後，才協商並釋放 Ring 保留埠、啟動各 Rank。原生 Runtime 再核對執行檔、模型內容及切分計畫；就緒後從主節點對話。任一成員停止會清理整組。
 
-主節點沿用選定參數的服務埠、Context、一般推論參數與 KV Cache 量化開關。工作節點只接收模型相對路徑、Context、成員名單與 Ring 端點，不接受遠端指定任意命令、執行檔路徑或額外 CLI 參數。DFlash、MTP、多模態、GGUF 及自訂分散式 CLI 參數不適用；此模式使用 Runtime 預設的非 mmap 載入。
+主節點沿用選定參數的服務埠、Context、一般推論參數與 KV Cache 開關。工作節點收到模型識別、內容摘要、Context、成員及 Ring 端點；不接受對端指定任意命令、任意下載 URL 或執行檔路徑。DFlash、MTP、GGUF、mmproj 及自訂分散式 CLI 參數不適用；載入使用非 mmap 路徑。
 
 探索設定儲存在管理設定檔同層的 `data/cluster.json`，權限 `0600`，包含穩定節點 ID、探索開關、埠與網路介面，不再需要金鑰。舊版金鑰會忽略，重新儲存設定時移除。重開 Server 會恢復已啟用的探索，但推論需重新選取成員與配對，不會使用舊端點自動恢復。
 
@@ -66,16 +68,16 @@ TCP 連線診斷可用 `./scripts/smoke-mlx-distributed-sockets.sh` 驗證。此
 - 預設探索可用 IPv4 介面，可在「網路設定」指定 `en0` 等介面並套用。同機測試可用 `lo0`；多網卡環境應選各端共同可達的介面。跨 VLAN、用戶端隔離 Wi-Fi 或封鎖 multicast 的網路不在自動探索範圍。
 - 各台管理 HTTP 埠（預設 `10082`）必須互通；跨機時不能只監聽 `127.0.0.1`。Ring 自動配置各端非特權 TCP 埠，請允許 Tanpopo Server 與 mlx-server 區網連入。
 - 探索協定升為 version 2，以 hello／challenge 回應核對往返可達性，控制連線只採實際來源 IP、已探索成員與固定管理路徑；時間戳、目的節點與 nonce 防止誤投與重放。新舊探索協定不互通，所有 Server 需一起更新。
-- 此模式不使用共享金鑰或 HMAC，HTTP 握手及原生張量通道亦未加密；來源 IP 與 nonce 並非密碼學身分驗證。**僅適用信任的區域網路**；開啟探索即允許該區網已探索的 Server 邀請本機執行支援模型，關閉探索後不再接受邀請。
+- 此模式不使用共享金鑰或 HMAC，HTTP 握手及原生張量通道亦未加密；來源 IP 與 nonce 並非密碼學身分驗證。**僅適用信任的區域網路**；開啟探索即允許該區網已探索的 Server 邀請本機切換單機服務、下載指定模型副本並執行支援模型，關閉探索後不再接受邀請。
 - 系統時間需相差不超過 30 秒。管理登入未啟用時，探索設定與啟動只接受本機操作；啟用管理登入後才能遠端管理。管理 API 仍有登入與跨來源檢查；節點控制 API 拒絕瀏覽器 Origin 與非 JSON 請求。
-- 所有節點共用各自 Manager 的 GPU 保留，防止覆蓋單機推論或另一群組。任一成員啟動失敗會整組回滾；每兩秒更新租約，任一端失聯超過 20 秒開始清理，正常停止預留最多八秒再強制結束。Server 意外退出時，原生程序會透過 stdin EOF 結束。此模式不會啟用 Thunderbolt RDMA。
+- 所有節點共用各自 Manager 的 GPU 保留，先保留再停止單機服務，阻止同時啟動或被另一群組搶用。任一成員啟動失敗會整組回滾；模型同步期間每 0.5 秒輪詢，啟動後每兩秒更新租約，任一端失聯超過 20 秒開始清理，正常停止預留最多八秒再強制結束。Server 意外退出時，原生程序會透過 stdin EOF 結束。此模式不會啟用 Thunderbolt RDMA。
 - `rdma6` 修正 MLX socket 收送佇列的執行緒競爭；斷線或不可恢復的 I/O 錯誤會立即結束 Rank，交由 Server 回收整組。連線失敗保留原始系統錯誤碼並釋放 socket；張量逾時會標示 Rank、層、形狀、資料型別與通訊階段。Server 會將失敗節點與原因傳給其餘成員。若只看到叢集結束，請檢查兩端 Server 是否皆已更新，並參考 [TCP Ring 連線排查](MLX-RUNTIME-TROUBLESHOOTING.md#tcp-ring-配對後隨即結束)。
 
 `rdma7` 在 socket 暫時無法收送時使用短暫 `poll` 等待事件，並在等待及 I/O 前釋放佇列鎖，避免持續呼叫 `recv(EAGAIN)` 耗用 CPU。poll 的等待期限設為 1 ms，以便及時處理新增的相反方向工作；不修改模型協定、權重校驗或故障期限。
 
 ### API 與同機三 Server Smoke
 
-管理 API：`GET /api/cluster/status`、`PUT /api/cluster/config`、`POST /api/cluster/start`、`POST /api/cluster/stop`。探索設定只需 `enabled`、`discovery_port` 與 `interface`。啟動 JSON 使用 `peer_ids` 陣列（不含本機）、`model`、`startup_command_id` 及可選 `kv_cache_quantization_enabled`；空白、重複、失聯或超出上限的選取會遭拒絕。`POST /api/cluster/control` 是已探索節點間的協定。
+管理 API：`GET /api/cluster/status`、`PUT /api/cluster/config`、`POST /api/cluster/start`、`POST /api/cluster/stop`。探索設定只需 `enabled`、`discovery_port` 與 `interface`。啟動 JSON 使用 `peer_ids` 陣列（不含本機）、`model`、`startup_command_id` 及可選 `kv_cache_quantization_enabled`；空白、重複、失聯或超出上限的選取會遭拒絕。`POST /api/cluster/start` 回傳 HTTP 202 表示已接受背景工作，不表示已載入模型。輪詢狀態中的 `session.phase` 與 `session.preparation`，同步失敗會清除 session 並保留 `last_error`。`POST /api/cluster/control` 是已探索節點間的控制協定；`POST /api/cluster/model` 只接受目前被選成員、符合來源 IP／nonce／session 的清單或檔案索引請求，不能讀取任意路徑。
 
 ```bash
 TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
@@ -83,11 +85,18 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
   -count=1 -v -timeout 5m
 ```
 
-此測試建立三個獨立 Go Server、各自設定／模型目錄與三個 Swift Runtime，使用真實 UDP multicast、免金鑰交握與正式管理 API。驗證單／三節點輸出及 Token 數一致、SSE、保留衝突、整組停止、模型不符回滾、Server 強制結束、父端 EOF、租約回收與重啟探索。另一項原生 Smoke 驗證三份無法平均分割的 FP32／FP16／BF16 一般與 Q4 線性層、完整權重直接存取、自訂線性子類別保留、四路交錯運算及 collective。
+此測試建立三個獨立 Go Server、各自設定／模型目錄與三個 Swift Runtime，使用真實 UDP multicast、免金鑰交握與正式管理 API。驗證單／三節點輸出及 Token 數一致、SSE、保留衝突、整組停止、同設定但不同權重的隔離下載、同內容不同目錄的重用、缺少整份模型時下載、Server 強制結束、父端 EOF、租約回收與重啟探索。另一項原生 Smoke 驗證三份無法平均分割的 FP32／FP16／BF16 一般與 Q4 線性層、完整權重直接存取、自訂線性子類別保留、四路交錯運算及 collective。
 
 微型 safetensors fixture 由 Go 產生；測試的獨立設定關閉啟動前系統記憶體保留檢查，不改使用者設定。這可驗證同機完整流程；不同實體 Mac 的網路、防火牆、效能及 Thunderbolt RDMA 仍需設備到位後驗收。一般 Profile 的 `launch: "local"`／SSH 自動帶起 worker 仍限定雙節點，三個以上由各 Server 管理，或各 Rank 使用 `manual` 啟動。
 
-### 2026-10-03 驗證紀錄
+### rdma8 模型同步與影像路徑
+
+- 修正 macOS 將 `/var` 列舉為 `/private/var` 時，原生內容校驗錯把部分目錄名稱算入摘要的問題；摘要與模型資料夾名稱無關。
+- Go Smoke 覆蓋完整內容核對、原檔保留、快取重用、錯誤下載、取消清理、路徑越界與未選成員拒絕；叢集生命週期使用 race detector 檢查。
+- Qwen3.5-4B 真實影像模型在同一台 Mac 的兩個獨立 Server，透過圖片請求得到相同回答「這張圖片的主要顏色是紅色。」；單機與叢集皆為 28 個輸入、7 個輸出 Token，SSE 與整組停止通過。切分 346 層，每個 Rank 的線性權重為 1,333,287,424 bytes，主節點另有 367,572,480 bytes 常駐參數。這是功能 Smoke，不是雙實體機效能基準。
+- 模型註冊表是可嘗試範圍，不是逐款認證。無可切分線性層、特殊算子或記憶體不足仍會明確拒絕；GGUF／Fast GGUF 要先解決轉換期間完整權重的常駐與分片讀取，不能只移除格式檢查便宣稱通用。
+
+### 2026-10-03 較早版本驗證紀錄
 
 - 兩台實體 Mac 使用同一份已發布的 `rdma4` Runtime，透過 Tanpopo Server 探索及交握，執行 `mlx-community/Qwen3-0.6B-4bit`（revision `73e3e38d981303bc594367cd910ea6eb48349da8`）。單機與雙機均回覆 `TCP Ring ready`，輸入 19、輸出 3 Token；健康資訊確認 `world_size: 2`。此項證明既有區網路徑可用。
 - `rdma5` 以同機兩個獨立 Tanpopo Server 載入 `Qwen3.5-4B-MLX-4bit` 真實權重，經 UDP 探索及管理 API 啟動。切分 248 個線性層，每個 Rank 的線性權重為 1,003,806,720 bytes（原始總計 2,007,613,440 bytes）。兩組中英文回答及輸入／輸出 Token 數與單機一致，SSE、整組停止與租約清理通過。

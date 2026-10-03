@@ -7,10 +7,10 @@
   <link rel="icon" type="image/png" href="/assets/tanpopo-icon.png">
   <script src="/assets/theme-init.js?v=20260829-1"></script>
   <link rel="stylesheet" href="/assets/app.css?v=20260902-57">
-  <link rel="stylesheet" href="/assets/cluster.css?v=20261002-3">
+  <link rel="stylesheet" href="/assets/cluster.css?v=20261003-4">
   <script src="/assets/common.js?v=20260902-84" defer></script>
   <script src="/assets/runtime-variants.js?v=20260909-4" defer></script>
-  <script src="/assets/cluster.js?v=20261002-3" defer></script>
+  <script src="/assets/cluster.js?v=20261003-4" defer></script>
   <script src="/assets/runtime.js?v=20261002-1" defer></script>
 </head>
 <body>
@@ -205,6 +205,7 @@
             </div>
           </div>
           <p id="clusterDetail" class="cluster-detail">不需輸入金鑰。各台 Server 開啟探索後，即可在清單中選取。</p>
+          <p id="clusterPreparation" class="cluster-detail cluster-progress" role="status" aria-live="polite" hidden></p>
         </div>
         <details id="clusterNetwork" class="cluster-pairing">
           <summary><span class="cluster-settings-title">網路設定<span>自動探索，通常不需調整</span></span><span class="cluster-chevron" aria-hidden="true"></span></summary>
@@ -213,15 +214,15 @@
               <label class="cluster-field"><span>網路介面 <small>選填</small></span><input id="clusterInterface" type="text" spellcheck="false" placeholder="自動選擇 IPv4 介面"></label>
               <label class="cluster-field"><span>UDP 探索埠</span><input id="clusterPort" type="number" min="1024" max="65535" value="10083"></label>
             </div>
-            <div class="cluster-network-actions"><p class="cluster-hint">所有節點需使用相同探索埠，並能互相連線。</p><button id="clusterApply" class="button secondary compact" type="button">套用設定</button><button id="clusterDisable" class="button quiet compact" type="button" hidden>關閉探索</button></div>
+            <div class="cluster-network-actions"><p class="cluster-hint">開啟探索後，區網節點可邀請本機切換服務與同步模型。所有節點需使用相同探索埠。</p><button id="clusterApply" class="button secondary compact" type="button">套用設定</button><button id="clusterDisable" class="button quiet compact" type="button" hidden>關閉探索</button></div>
           </div>
         </details>
-        <p class="cluster-footnote">免金鑰配對適用信任的區域網路 · 最多 8 台 Mac · 各台需準備相同 Runtime 與 MLX 文字模型</p>
+        <p class="cluster-footnote">免金鑰配對適用信任的區域網路 · 最多 8 台 Mac · 各台需使用相同 Runtime · 模型會自動核對與下載</p>
       </article>
 
       <dialog id="clusterDialog" class="cluster-dialog" aria-labelledby="clusterDialogTitle" aria-describedby="clusterDialogDescription">
         <header class="cluster-dialog-heading">
-          <div><p class="cluster-eyebrow">TCP RING</p><h3 id="clusterDialogTitle">選擇一起運算的節點</h3><p id="clusterDialogDescription">勾選區網中的 Server，再一次完成交握、配對與啟用。</p></div>
+          <div><p class="cluster-eyebrow">TCP RING</p><h3 id="clusterDialogTitle">選擇一起運算的節點</h3><p id="clusterDialogDescription">勾選 Server，自動核對模型、下載缺少的副本，再切換服務並啟用。</p></div>
           <button id="clusterDialogClose" class="cluster-close" type="button" aria-label="關閉節點清單">×</button>
         </header>
         <div class="cluster-dialog-body">

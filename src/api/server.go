@@ -167,6 +167,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cluster/stop", s.requireClusterAdmin(s.handleClusterStop))
 	if s.cluster != nil {
 		mux.HandleFunc("POST /api/cluster/control", s.cluster.Control)
+		mux.HandleFunc("POST /api/cluster/model", s.cluster.ModelTransfer)
 	}
 	mux.HandleFunc("GET /api/netpass/status", s.requireAPI(s.handleNetPassStatus))
 	mux.HandleFunc("PUT /api/netpass/config", s.requireAPI(s.handleNetPassConfigUpdate))
@@ -1266,8 +1267,12 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 }
 
 func decodeJSON(r *http.Request, destination any) error {
+	return decodeJSONLimit(r, destination, 1024*1024)
+}
+
+func decodeJSONLimit(r *http.Request, destination any, maximum int64) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1024*1024))
+	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maximum))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return fmt.Errorf("JSON 格式錯誤: %w", err)

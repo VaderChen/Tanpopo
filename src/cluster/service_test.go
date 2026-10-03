@@ -1,8 +1,11 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,21 +27,24 @@ type fakeBackend struct {
 	status    domain.LlamaStatus
 	failStart bool
 	rank      int
+	root      string
 }
+
+func (b *fakeBackend) RingModelDirectory() string { return b.root }
 
 func (b *fakeBackend) RingCapabilities(context.Context) (llamacpp.RingCapabilities, error) {
 	return llamacpp.RingCapabilities{Version: "smoke-v1", Available: true, ManagedParentStdin: true, MaxNodes: 8}, nil
 }
 func (b *fakeBackend) InspectRingModel(model string) (llamacpp.RingModel, error) {
-	if model != "fixture" {
+	if _, err := os.Stat(filepath.Join(b.root, model, "config.json")); err != nil {
 		return llamacpp.RingModel{}, errors.New("找不到模型")
 	}
-	return llamacpp.RingModel{Path: model, Architecture: "llama", Fingerprint: "fixture-config"}, nil
+	return llamacpp.RingModel{Path: model, Architecture: "llama", Kind: "text", Fingerprint: strings.Repeat("a", 64)}, nil
 }
 func (b *fakeBackend) ReserveRing(owner string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.owner != "" || b.status.Running {
+	if b.owner != "" {
 		return errors.New("busy")
 	}
 	b.owner = owner
@@ -99,9 +105,23 @@ func loopbackInterface(t *testing.T) string {
 
 func testNode(t *testing.T, port int) (*Service, *fakeBackend) {
 	t.Helper()
-	backend := &fakeBackend{}
+	backend := &fakeBackend{root: t.TempDir()}
+	if err := os.MkdirAll(filepath.Join(backend.root, "fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"config.json": `{"model_type":"llama"}`, "model.safetensors": "fixture weights"} {
+		if err := os.WriteFile(filepath.Join(backend.root, "fixture", name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var service *Service
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { service.Control(w, r) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == modelTransferPath {
+			service.ModelTransfer(w, r)
+		} else {
+			service.Control(w, r)
+		}
+	}))
 	_, httpPort, _ := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
 	n, _ := strconv.Atoi(httpPort)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -321,5 +341,138 @@ func TestControlRejectsUnknownSourceReplayAndForeignSession(t *testing.T) {
 	}
 	if err := a.Stop(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestModelSyncSwitchesRunningServiceAndUsesMatchingCopy(t *testing.T) {
+	port := discoveryPort(t)
+	a, _ := testNode(t, port)
+	b, bb := testNode(t, port)
+	c, cb := testNode(t, port)
+	if err := os.WriteFile(filepath.Join(bb.root, "fixture/model.safetensors"), []byte("different data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(cb.root, "fixture"), filepath.Join(cb.root, "renamed")); err != nil {
+		t.Fatal(err)
+	}
+	awaitPeers(t, a, b, c)
+	bb.mu.Lock()
+	bb.status = domain.LlamaStatus{Running: true, Model: "another-model"}
+	bb.mu.Unlock()
+	b.announce()
+	profile := domain.StartupCommand{Runtime: domain.RuntimeMLXServer, ContextSize: 512}
+	if _, err := a.Start(context.Background(), []string{b.Status().Local.ID, c.Status().Local.ID}, "fixture", profile); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(bb.Status().Model, "cluster-models/") || cb.Status().Model != "renamed" {
+		t.Fatalf("未協調各端載入：%+v %+v", bb.Status(), cb.Status())
+	}
+	data, _ := os.ReadFile(filepath.Join(bb.root, "fixture/model.safetensors"))
+	if string(data) != "different data" {
+		t.Fatal("覆寫了遠端原有模型")
+	}
+	if err := a.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestModelDownloadCanBeCancelledWithoutBlockingControl(t *testing.T) {
+	port := discoveryPort(t)
+	a, _ := testNode(t, port)
+	b, bb := testNode(t, port)
+	if err := os.RemoveAll(filepath.Join(bb.root, "fixture")); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	transport := b.transferClient.Transport
+	b.transferClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var p packet
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		if p.Kind == "model-file" {
+			close(entered)
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
+		return transport.RoundTrip(r)
+	})
+	awaitPeers(t, a, b)
+	profile := domain.StartupCommand{Runtime: domain.RuntimeMLXServer, ContextSize: 512}
+	if _, err := a.Begin(context.Background(), []string{b.Status().Local.ID}, "fixture", profile); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("未進入下載")
+	}
+	b.mu.Lock()
+	worker := b.active
+	b.mu.Unlock()
+	if worker == nil {
+		t.Fatal("下載未保留租約")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitPreparation(ctx, worker); err != nil {
+		t.Fatal(err)
+	}
+	if a.Status().Session != nil || b.Status().Session != nil || bb.Status().Running {
+		t.Fatal("取消未釋放叢集")
+	}
+	entries, _ := os.ReadDir(bb.root)
+	if len(entries) > 0 {
+		t.Fatalf("取消留下暫存檔：%v", entries)
+	}
+}
+
+func TestModelTransferRejectsNonMemberWrongSourceAndInvalidIndex(t *testing.T) {
+	port := discoveryPort(t)
+	a, _ := testNode(t, port)
+	b, _ := testNode(t, port)
+	c, _ := testNode(t, port)
+	awaitPeers(t, a, b, c)
+	if _, err := a.Start(context.Background(), []string{b.Status().Local.ID}, "fixture", domain.StartupCommand{Runtime: domain.RuntimeMLXServer, ContextSize: 512}); err != nil {
+		t.Fatal(err)
+	}
+	owner := a.Status().Session.ID
+	for _, test := range []struct {
+		sender                 *Service
+		address, session, kind string
+		index, want            int
+	}{
+		{c, "127.0.0.1", owner, "model-manifest", 0, 403},
+		{b, "127.0.0.2", owner, "model-manifest", 0, 403},
+		{b, "127.0.0.1", randomID(), "model-manifest", 0, 403},
+		{b, "127.0.0.1", owner, "model-file", -1, 409},
+		{b, "127.0.0.1", owner, "model-manifest", 0, 200},
+	} {
+		test.sender.mu.Lock()
+		p := test.sender.packetLocked(test.kind, a.Status().Local.ID, "", modelRequest{owner, test.index})
+		test.sender.mu.Unlock()
+		p.Payload, _ = json.Marshal(modelRequest{test.session, test.index})
+		body, _ := json.Marshal(p)
+		r := httptest.NewRequest("POST", modelTransferPath, bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.RemoteAddr = test.address + ":12345"
+		w := httptest.NewRecorder()
+		a.ModelTransfer(w, r)
+		if w.Code != test.want {
+			t.Fatalf("status=%d want=%d", w.Code, test.want)
+		}
 	}
 }

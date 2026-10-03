@@ -9,7 +9,7 @@ final class DistributedWorkerProcess: @unchecked Sendable {
     private var stopping = false
     private var signals: [DispatchSourceSignal] = []
 
-    init(configuration: DistributedConfiguration, modelPath: String, smoke: Bool) throws {
+    init(configuration: DistributedConfiguration, modelPath: String, modelKind: ModelKind = .auto, smoke: Bool) throws {
         let node = configuration.nodes[1]
         guard let executable = node.runtimePath ?? Bundle.main.executableURL?.path else {
             throw DistributedError.invalid("無法取得 worker Runtime 執行檔。")
@@ -17,7 +17,7 @@ final class DistributedWorkerProcess: @unchecked Sendable {
         let model = node.modelPath ?? modelPath
         let data = try JSONEncoder().encode(configuration)
         var command = [executable, "--model", model, "--distributed-config-base64", data.base64EncodedString(),
-            "--distributed-rank", "1", "--distributed-parent-stdin"]
+            "--distributed-rank", "1", "--distributed-parent-stdin", "--model-type", modelKind.rawValue]
         if smoke { command.append("--distributed-smoke") }
         switch node.launchMode {
         case .local:

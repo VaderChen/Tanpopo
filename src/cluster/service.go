@@ -18,6 +18,7 @@ import (
 
 	"LlamaLoader/src/domain"
 	"LlamaLoader/src/llamacpp"
+	"LlamaLoader/src/modelbundle"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 type Backend interface {
 	RingCapabilities(context.Context) (llamacpp.RingCapabilities, error)
 	InspectRingModel(string) (llamacpp.RingModel, error)
+	RingModelDirectory() string
 	ReserveRing(string) error
 	ReleaseRing(string)
 	StartRing(string, string, int, []string, domain.StartupCommand) (domain.LlamaStatus, error)
@@ -52,12 +54,14 @@ type ConfigUpdate struct {
 }
 
 type Node struct {
-	ID           string                    `json:"id"`
-	Name         string                    `json:"name"`
-	Platform     string                    `json:"platform"`
-	Port         int                       `json:"port"`
-	Capabilities llamacpp.RingCapabilities `json:"capabilities"`
-	Busy         bool                      `json:"busy"`
+	ID               string                    `json:"id"`
+	Name             string                    `json:"name"`
+	Platform         string                    `json:"platform"`
+	Port             int                       `json:"port"`
+	Capabilities     llamacpp.RingCapabilities `json:"capabilities"`
+	Busy             bool                      `json:"busy"`
+	Clustered        bool                      `json:"clustered"`
+	ModelSyncVersion int                       `json:"model_sync_version"`
 }
 
 type Peer struct {
@@ -74,14 +78,22 @@ type Member struct {
 }
 
 type Session struct {
-	ID        string    `json:"id"`
-	Members   []Member  `json:"members"`
-	Rank      int       `json:"rank"`
-	Role      string    `json:"role"`
-	Phase     string    `json:"phase"`
-	Model     string    `json:"model"`
-	Addresses []string  `json:"addresses"`
-	StartedAt time.Time `json:"started_at"`
+	ID          string             `json:"id"`
+	Members     []Member           `json:"members"`
+	Rank        int                `json:"rank"`
+	Role        string             `json:"role"`
+	Phase       string             `json:"phase"`
+	Model       string             `json:"model"`
+	Addresses   []string           `json:"addresses"`
+	StartedAt   time.Time          `json:"started_at"`
+	Preparation []ModelPreparation `json:"preparation,omitempty"`
+}
+
+type ModelPreparation struct {
+	NodeID string `json:"node_id"`
+	Name   string `json:"name"`
+	Model  string `json:"model,omitempty"`
+	modelbundle.Progress
 }
 
 type Status struct {
@@ -96,10 +108,17 @@ type Status struct {
 
 type activeSession struct {
 	Session
-	peers     []Peer
-	listener  net.Listener
-	lastLease time.Time
-	profile   domain.StartupCommand
+	peers        []Peer
+	listener     net.Listener
+	lastLease    time.Time
+	profile      domain.StartupCommand
+	ctx          context.Context
+	cancel       context.CancelFunc
+	snapshot     *modelbundle.Snapshot
+	descriptor   llamacpp.RingModel
+	prepareError string
+	starting     bool
+	done         chan struct{}
 }
 
 type discoverySocket struct {
@@ -109,24 +128,25 @@ type discoverySocket struct {
 }
 
 type Service struct {
-	ctx        context.Context
-	backend    Backend
-	configPath string
-	port       int
-	name       string
-	client     *http.Client
-	opMu       sync.Mutex
-	mu         sync.Mutex
-	config     Config
-	capability llamacpp.RingCapabilities
-	peers      map[string]Peer
-	seen       map[string]time.Time
-	challenges map[string]time.Time
-	sockets    []discoverySocket
-	active     *activeSession
-	lastError  string
-	closed     bool
-	done       chan struct{}
+	ctx            context.Context
+	backend        Backend
+	configPath     string
+	port           int
+	name           string
+	client         *http.Client
+	transferClient *http.Client
+	opMu           sync.Mutex
+	mu             sync.Mutex
+	config         Config
+	capability     llamacpp.RingCapabilities
+	peers          map[string]Peer
+	seen           map[string]time.Time
+	challenges     map[string]time.Time
+	sockets        []discoverySocket
+	active         *activeSession
+	lastError      string
+	closed         bool
+	done           chan struct{}
 }
 
 func New(ctx context.Context, configPath string, port int, backend Backend) *Service {
@@ -135,6 +155,8 @@ func New(ctx context.Context, configPath string, port int, backend Backend) *Ser
 		peers: make(map[string]Peer), seen: make(map[string]time.Time), challenges: make(map[string]time.Time), done: make(chan struct{}),
 		client: &http.Client{Timeout: 8 * time.Second, Transport: &http.Transport{Proxy: nil},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	s.transferClient = &http.Client{Transport: &http.Transport{Proxy: nil, ResponseHeaderTimeout: 8 * time.Second},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	s.config = Config{NodeID: randomID(), DiscoveryPort: DefaultDiscoveryPort}
 	data, err := os.ReadFile(configPath)
 	if err == nil {
@@ -166,7 +188,7 @@ func validID(value string) bool {
 
 func (s *Service) nodeLocked() Node {
 	return Node{ID: s.config.NodeID, Name: s.name, Platform: runtime.GOOS + "/" + runtime.GOARCH,
-		Port: s.port, Capabilities: s.capability, Busy: s.active != nil}
+		Port: s.port, Capabilities: s.capability, Busy: s.active != nil, Clustered: s.active != nil, ModelSyncVersion: 1}
 }
 
 func (s *Service) Status() Status {
@@ -184,6 +206,7 @@ func (s *Service) Status() Status {
 	sort.Slice(status.Peers, func(i, j int) bool { return status.Peers[i].ID < status.Peers[j].ID })
 	if s.active != nil {
 		copy := s.active.Session
+		copy.Preparation = append([]ModelPreparation(nil), copy.Preparation...)
 		copy.Members = append([]Member(nil), copy.Members...)
 		copy.Addresses = append([]string(nil), copy.Addresses...)
 		status.Session = &copy
@@ -265,13 +288,16 @@ func (s *Service) closeSocketsLocked() {
 
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.opMu.Lock()
-	defer s.opMu.Unlock()
 	s.mu.Lock()
+	active := s.active
 	s.closed = true
 	s.closeSocketsLocked()
 	s.mu.Unlock()
 	err := s.stopLocked(ctx, "", true)
+	s.opMu.Unlock()
+	err = errors.Join(err, waitPreparation(ctx, active))
 	s.client.CloseIdleConnections()
+	s.transferClient.CloseIdleConnections()
 	return err
 }
 

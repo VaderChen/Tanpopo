@@ -25,6 +25,7 @@ type RingModel struct {
 	Path         string `json:"path"`
 	Architecture string `json:"architecture"`
 	Fingerprint  string `json:"fingerprint"`
+	Kind         string `json:"kind,omitempty"`
 }
 
 const MaxRingNodes = 8
@@ -36,7 +37,10 @@ type RingCapabilities struct {
 	ManagedParentStdin    bool     `json:"managed_parent_stdin"`
 	GenericLinearSharding bool     `json:"generic_linear_sharding,omitempty"`
 	TextModelTypes        []string `json:"text_model_types,omitempty"`
+	VisionModelTypes      []string `json:"vision_model_types,omitempty"`
 }
+
+func (m *Manager) RingModelDirectory() string { return m.settings().MLXModelDirectory }
 
 func (m *Manager) RingCapabilities(ctx context.Context) (RingCapabilities, error) {
 	var result RingCapabilities
@@ -94,11 +98,21 @@ func (m *Manager) InspectRingModel(model string) (RingModel, error) {
 		return RingModel{}, err
 	}
 	digest := sha256.Sum256(data)
-	return RingModel{Path: filepath.ToSlash(filepath.Clean(model)), Architecture: architecture,
+	kind := "text"
+	hasProcessor := false
+	for _, name := range []string{"processor_config.json", "preprocessor_config.json"} {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && info.Mode().IsRegular() {
+			hasProcessor = true
+		}
+	}
+	if !slices.Contains(capability.TextModelTypes, architecture) || (hasProcessor && slices.Contains(capability.VisionModelTypes, architecture)) {
+		kind = "vision"
+	}
+	return RingModel{Path: filepath.ToSlash(filepath.Clean(strings.TrimSpace(model))), Architecture: architecture, Kind: kind,
 		Fingerprint: hex.EncodeToString(digest[:])}, nil
 }
 
-// 架構能力由原生 Runtime 的文字模型註冊表提供，不在 Go 重複維護模型名單。
+// 架構能力由原生 Runtime 的文字／影像模型註冊表提供，不在 Go 重複維護模型名單。
 func inspectRingArchitecture(data []byte, capability RingCapabilities) (string, error) {
 	var config struct {
 		ModelType string `json:"model_type"`
@@ -106,11 +120,11 @@ func inspectRingArchitecture(data []byte, capability RingCapabilities) (string, 
 	if err := json.Unmarshal(data, &config); err != nil {
 		return "", err
 	}
-	if !capability.GenericLinearSharding || len(capability.TextModelTypes) == 0 {
+	if !capability.GenericLinearSharding || len(capability.TextModelTypes)+len(capability.VisionModelTypes) == 0 {
 		return "", errors.New("請更新原生 Runtime，才能檢查通用 TCP Ring 模型能力")
 	}
-	if config.ModelType == "" || !slices.Contains(capability.TextModelTypes, config.ModelType) {
-		return "", errors.New("目前 Runtime 不支援此模型的文字分散推論，請更新 Runtime 或選擇已支援的文字模型")
+	if config.ModelType == "" || (!slices.Contains(capability.TextModelTypes, config.ModelType) && !slices.Contains(capability.VisionModelTypes, config.ModelType)) {
+		return "", errors.New("目前 Runtime 尚未註冊此模型架構；請更新 Runtime 或使用已註冊的模型")
 	}
 	return config.ModelType, nil
 }
@@ -119,8 +133,8 @@ func inspectRingArchitecture(data []byte, capability RingCapabilities) (string, 
 func (m *Manager) ReserveRing(owner string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if owner == "" || m.distributedOwner != "" || m.status.Running {
-		return errors.New("此 Server 正在執行模型或已保留給另一組 TCP Ring")
+	if owner == "" || m.distributedOwner != "" {
+		return errors.New("此 Server 已保留給另一組 TCP Ring")
 	}
 	m.distributedOwner = owner
 	return nil
@@ -134,22 +148,30 @@ func (m *Manager) ReleaseRing(owner string) {
 	}
 }
 
+func ValidateRingProfile(profile domain.StartupCommand) error {
+	if profile.Runtime != domain.RuntimeMLXServer || profile.RuntimeVariant != "" || profile.DraftModel != "" {
+		return errors.New("TCP Ring 需要標準 mlx-server 啟動參數，不能搭配 Draft")
+	}
+	for _, arg := range profile.ExtraArgs {
+		if strings.HasPrefix(arg, "--distributed-") || strings.HasPrefix(arg, "--mtp-") || strings.HasPrefix(arg, "--dflash-") ||
+			strings.HasPrefix(arg, "--mmproj") || strings.HasPrefix(arg, "--model-type") {
+			return errors.New("TCP Ring 自動設定模型模式與節點，請移除手動分散式、mmproj 與 Draft 參數")
+		}
+	}
+	return nil
+}
+
 func (m *Manager) StartRing(owner, model string, rank int, addresses []string, profile domain.StartupCommand) (domain.LlamaStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if owner == "" || m.distributedOwner != owner || rank < 0 || rank >= len(addresses) || len(addresses) < 2 || len(addresses) > MaxRingNodes {
 		return m.status, errors.New("TCP Ring 保留已失效")
 	}
-	if profile.Runtime != domain.RuntimeMLXServer || profile.RuntimeVariant != "" || profile.DraftModel != "" {
-		return m.status, errors.New("TCP Ring 需要標準 mlx-server 啟動參數，不能搭配 Draft")
+	if err := ValidateRingProfile(profile); err != nil {
+		return m.status, err
 	}
-	for _, arg := range profile.ExtraArgs {
-		if strings.HasPrefix(arg, "--distributed-") || strings.HasPrefix(arg, "--mtp-") || strings.HasPrefix(arg, "--dflash-") ||
-			strings.HasPrefix(arg, "--mmproj") || strings.HasPrefix(arg, "--model-type") {
-			return m.status, errors.New("TCP Ring 會自動設定節點，請移除既有分散式、多模態或 Draft 參數")
-		}
-	}
-	if _, err := m.InspectRingModel(model); err != nil {
+	descriptor, err := m.InspectRingModel(model)
+	if err != nil {
 		return m.status, err
 	}
 	nodes := make([]map[string]string, len(addresses))
@@ -172,7 +194,7 @@ func (m *Manager) StartRing(owner, model string, rank int, addresses []string, p
 		return m.status, err
 	}
 	profile.ExtraArgs = append(append([]string(nil), profile.ExtraArgs...),
-		"--distributed-config-base64", base64.StdEncoding.EncodeToString(data), "--distributed-parent-stdin")
+		"--distributed-config-base64", base64.StdEncoding.EncodeToString(data), "--distributed-parent-stdin", "--model-type", descriptor.Kind)
 	if rank != 0 {
 		profile.ExtraArgs = append(profile.ExtraArgs, "--distributed-rank", strconv.Itoa(rank))
 	}

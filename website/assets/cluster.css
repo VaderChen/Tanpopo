@@ -25,6 +25,7 @@
 .cluster-actions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .cluster-detail, .cluster-hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .cluster-detail[data-state="error"] { color: var(--danger); }
+.cluster-progress { white-space: pre-line; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-variant-numeric: tabular-nums; }
 .cluster-pairing { margin: 0 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-glass); }
 .cluster-panel summary { list-style: none; cursor: pointer; }
 .cluster-panel summary::-webkit-details-marker { display: none; }
