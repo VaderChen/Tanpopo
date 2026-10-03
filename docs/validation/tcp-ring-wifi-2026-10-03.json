@@ -1,0 +1,297 @@
+{
+  "schema": 1,
+  "description": "實體雙 Mac 與一般 HTTP 的 Wi-Fi 傳輸對照；部分 Token 不代表完整推論通過。",
+  "date": "2026-10-03",
+  "app_release": "v1.26.1003-build-1300",
+  "release_commit": "cc26c9b9d02ca98da0694a90ec8acbcacb4bd55b",
+  "native_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma7",
+  "native_sha256": "45339860b07927ab7b55f533b78e3696daf2c08011d91adb9cbdc0b5a30a128b",
+  "network": "使用者確認為 5 GHz Wi-Fi；TCP Ring，不是 Thunderbolt RDMA。",
+  "hardware": [
+    {
+      "role": "coordinator",
+      "chip": "Apple M4 Pro",
+      "memory_gib": 64,
+      "macos": "27.0 (26A428)"
+    },
+    {
+      "role": "worker",
+      "chip": "Apple M4",
+      "memory_gib": 16,
+      "macos": "27.0.1 (26A434)"
+    }
+  ],
+  "models": [
+    {
+      "repository": "mlx-community/Qwen3-0.6B-4bit",
+      "revision": "73e3e38d981303bc594367cd910ea6eb48349da8"
+    },
+    {
+      "repository": "lmstudio-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "c43ee1d65576a5d98de1e8405cac93c371a655c1"
+    }
+  ],
+  "qwen35_stream_runs": [
+    {
+      "label": "原始雙機 SSE",
+      "started_at": "2026-10-03T05:18:28.800Z",
+      "deadline_ms": 180000,
+      "completed": false,
+      "content": "Q",
+      "first_content_ms": 12512,
+      "error": "The operation was aborted due to timeout"
+    },
+    {
+      "label": "遠端視窗保持前景",
+      "started_at": "2026-10-03T05:23:52.351Z",
+      "deadline_ms": 180000,
+      "completed": false,
+      "content": "",
+      "first_content_ms": null,
+      "error": "The operation was aborted due to timeout",
+      "intervention": "第 171 秒曾對本機測試用 mlx-server 執行 taskpolicy -B；最後 9 秒不作單一前景變因比較，完整請求仍逾時。"
+    },
+    {
+      "label": "一般 HTTP 完整通過後再次推論",
+      "started_at": "2026-10-03T05:35:53.234Z",
+      "deadline_ms": 180000,
+      "completed": false,
+      "content": "Qwen3",
+      "first_content_ms": 23540,
+      "error": "The operation was aborted due to timeout"
+    }
+  ],
+  "qwen3_nonstream": {
+    "completed": false,
+    "deadline_ms": 240000,
+    "error": "The operation was aborted due to timeout"
+  },
+  "remote_single": [
+    {
+      "model": "mlx-community/Qwen3-0.6B-4bit",
+      "completed": true,
+      "duration_ms": 515,
+      "content": "Ring ready",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 18,
+        "tokens_per_second": 223.36563219768075,
+        "total_tokens": 20
+      }
+    },
+    {
+      "model": "lmstudio-community/Qwen3.5-4B-MLX-4bit",
+      "completed": true,
+      "duration_ms": 1544,
+      "content": "Ring ready",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 18,
+        "tokens_per_second": 31.39272870160732,
+        "total_tokens": 20
+      }
+    }
+  ],
+  "http_runs": [
+    {
+      "label": "單一持續連線",
+      "completed": false,
+      "complete_response_bytes": 89500716,
+      "duration_ms": 32748,
+      "complete_responses": 86,
+      "error": "逾時"
+    },
+    {
+      "label": "持續連線與新連線同時對照",
+      "completed": false,
+      "persistent_complete_responses": 58,
+      "persistent_failure": [
+        {
+          "i": 58,
+          "at_ms": 11232,
+          "ms": 15001,
+          "headers_ms": 23,
+          "bytes": 149612,
+          "reused": true,
+          "error": "整筆傳輸超過 15 秒",
+          "chunks": [
+            {
+              "ms": 1016,
+              "gap_ms": 992,
+              "bytes": 1188
+            },
+            {
+              "ms": 2053,
+              "gap_ms": 1037,
+              "bytes": 1188
+            },
+            {
+              "ms": 6100,
+              "gap_ms": 4047,
+              "bytes": 1188
+            },
+            {
+              "ms": 7360,
+              "gap_ms": 1260,
+              "bytes": 500
+            },
+            {
+              "ms": 8193,
+              "gap_ms": 833,
+              "bytes": 500
+            },
+            {
+              "ms": 9177,
+              "gap_ms": 984,
+              "bytes": 500
+            },
+            {
+              "ms": 11430,
+              "gap_ms": 2253,
+              "bytes": 1188
+            },
+            {
+              "ms": 12290,
+              "gap_ms": 860,
+              "bytes": 500
+            },
+            {
+              "ms": 14425,
+              "gap_ms": 2135,
+              "bytes": 500
+            }
+          ]
+        }
+      ],
+      "fresh": [
+        {
+          "i": 0,
+          "at_ms": 4041,
+          "ms": 187,
+          "headers_ms": 50,
+          "bytes": 1040706,
+          "reused": false,
+          "chunks": []
+        },
+        {
+          "i": 1,
+          "at_ms": 8042,
+          "ms": 102,
+          "headers_ms": 20,
+          "bytes": 1040706,
+          "reused": false,
+          "chunks": []
+        },
+        {
+          "i": 2,
+          "at_ms": 12043,
+          "ms": 14999,
+          "headers_ms": 23,
+          "bytes": 186264,
+          "reused": false,
+          "error": "整筆傳輸超過 15 秒",
+          "chunks": [
+            {
+              "ms": 2039,
+              "gap_ms": 1976,
+              "bytes": 1448
+            },
+            {
+              "ms": 3987,
+              "gap_ms": 1948,
+              "bytes": 1188
+            },
+            {
+              "ms": 6308,
+              "gap_ms": 2321,
+              "bytes": 1448
+            },
+            {
+              "ms": 6544,
+              "gap_ms": 236,
+              "bytes": 1448
+            },
+            {
+              "ms": 7824,
+              "gap_ms": 1280,
+              "bytes": 1188
+            },
+            {
+              "ms": 8730,
+              "gap_ms": 906,
+              "bytes": 1188
+            },
+            {
+              "ms": 10670,
+              "gap_ms": 1940,
+              "bytes": 1448
+            },
+            {
+              "ms": 13784,
+              "gap_ms": 3114,
+              "bytes": 1448
+            },
+            {
+              "ms": 14769,
+              "gap_ms": 985,
+              "bytes": 1188
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "版本化工具：本機 Smoke",
+      "completed": true,
+      "duration_ms": 214,
+      "received_bytes": 5203530,
+      "persistent_count": 3,
+      "fresh_count": 2,
+      "persistent_reused": 2,
+      "failures": []
+    },
+    {
+      "label": "版本化工具：實體 Wi-Fi",
+      "completed": true,
+      "duration_ms": 22534,
+      "received_bytes": 138413898,
+      "persistent_count": 128,
+      "fresh_count": 5,
+      "persistent_reused": 127,
+      "failures": []
+    }
+  ],
+  "ping_runs": [
+    {
+      "label": "較早的雙機推論",
+      "payload_bytes": 56,
+      "sent": 20,
+      "received": 20,
+      "loss_percent": 0,
+      "rtt_min_ms": 3.753,
+      "rtt_mean_ms": 4.983,
+      "rtt_max_ms": 6.96
+    },
+    {
+      "label": "HTTP 完整通過後的雙機推論",
+      "payload_bytes": 56,
+      "sent": 20,
+      "received": 19,
+      "loss_percent": 5,
+      "rtt_min_ms": 4.027,
+      "rtt_mean_ms": 102.646,
+      "rtt_max_ms": 386.649
+    },
+    {
+      "label": "同次推論，IPv4 不分片",
+      "payload_bytes": 1472,
+      "sent": 20,
+      "received": 19,
+      "loss_percent": 5,
+      "rtt_min_ms": 3.985,
+      "rtt_mean_ms": 106.047,
+      "rtt_max_ms": 386.284
+    }
+  ],
+  "conclusion": "一般 HTTP 也出現間歇性降速，後續亦有完整通過；尚未確認根因或完成實體雙機推論驗收。需要以相同工具對照不同網路路徑。"
+}
