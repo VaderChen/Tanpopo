@@ -98,7 +98,7 @@
        }
  
        if (!recvs_.empty()) {
-@@ -237,31 +256,29 @@
+@@ -237,32 +256,30 @@
            task.buffer = static_cast<char*>(task.buffer) + r;
            task.size -= r;
            delete_recv = task.size == 0;
@@ -142,3 +142,4 @@
      }
    }
  
+   int fd_;
