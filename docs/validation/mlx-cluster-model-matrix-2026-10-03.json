@@ -1,0 +1,1579 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "timezone": "Asia/Taipei",
+  "scope": "同一台 Mac 的兩個獨立 Tanpopo Server；不是實體雙機效能驗收。",
+  "environment": {
+    "cpu": "Apple M4 Pro",
+    "memory_bytes": 68719476736,
+    "os": "macOS 27.0 (26A428)",
+    "go": "go1.27.0",
+    "node": "26.6.0"
+  },
+  "runtime": {
+    "release": "v1.26.1003-build-1405",
+    "source_commit": "7f2f05ed089cccd8fb5416426b67461c58b83d48",
+    "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma8",
+    "sha256": "309b49313c6c184d5e51835f4e10c9dfbfc56a008f2a26421b8f75b67232a23d"
+  },
+  "settings": {
+    "temperature": 0,
+    "context_size": 4096,
+    "prefill_step_size": 128,
+    "kv_quantization": false
+  },
+  "started_at": "2026-10-03T07:00:20.679Z",
+  "completed_at": "2026-10-03T07:07:35.187Z",
+  "summary": {
+    "model_directories": 8,
+    "config_model_types": [
+      "gemma4",
+      "qwen3",
+      "qwen3_5"
+    ],
+    "comparison_pairs": 29,
+    "sse_requests": 8,
+    "total_generation_requests": 66,
+    "all_passed": true
+  },
+  "models": [
+    {
+      "name": "Qwen3-0.6B Q4",
+      "model_directory": "mlx-community-qwen3-0-6b-4bit-73e3e38d981303bc594367cd910ea6eb48349da8-b67ec7b2",
+      "model_type": "qwen3",
+      "mode": "text",
+      "config_sha256": "15d3ac26c043ae477273ed5802ee0f0b33bb14f18c9d3dd70910c02d906e3f1f",
+      "manifest": {
+        "files": [
+          {
+            "path": "added_tokens.json",
+            "size": 707,
+            "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+          },
+          {
+            "path": "config.json",
+            "size": 937,
+            "sha256": "15d3ac26c043ae477273ed5802ee0f0b33bb14f18c9d3dd70910c02d906e3f1f"
+          },
+          {
+            "path": "merges.txt",
+            "size": 1671853,
+            "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 335450584,
+            "sha256": "392e8d466d56100ada00eb82031fb854297fc9e389b7d303eba3af114e87bce2"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 49731,
+            "sha256": "7b294141456f6904936db03c00bca50fb5f6198f652fe8483f9cd2a1018accfb"
+          },
+          {
+            "path": "special_tokens_map.json",
+            "size": 613,
+            "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 11422654,
+            "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 9706,
+            "sha256": "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0"
+          },
+          {
+            "path": "vocab.json",
+            "size": 2776833,
+            "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+          }
+        ],
+        "digest": "8ed5b4d6bfab5c2ac4bf759f794fa5fd5067eae2df2e1f9bbaaf5a769a00c33d",
+        "bytes": 351383618
+      },
+      "weight_bytes": 335450584,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4
+      },
+      "distributed": {
+        "strategy": "linear-output-sharding",
+        "kv_cache_location": "rank0",
+        "coordinator_replicated_bytes": 87646208,
+        "specialized_operations": "rank0",
+        "local_linear_bytes": 123863040,
+        "weight_loading": "direct-row-read",
+        "world_size": 2,
+        "sharded_layers": 196,
+        "original_linear_bytes": 247726080,
+        "hardware_validation": "experimental",
+        "backend": "ring",
+        "rank": 0,
+        "direct_weight_access": "lazy-full-weight-on-rank0"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 51,
+              "completion_tokens": 4,
+              "total_tokens": 55
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 51,
+              "completion_tokens": 4,
+              "total_tokens": 55
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 688,
+              "completion_tokens": 1,
+              "total_tokens": 689
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 688,
+              "completion_tokens": 1,
+              "total_tokens": 689
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "Ring ready",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 2,
+          "total_tokens": 23
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Gemma4-E2B Q4",
+      "model_directory": "mlx-community-gemma-4-e2b-it-4bit-main-c4e8df18",
+      "model_type": "gemma4",
+      "mode": "vision",
+      "config_sha256": "6397cb6eca41b911d1dcab74e17941351057bd759284052a2331918ff6f9246c",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 17336,
+            "sha256": "2f1b4d75d067bae3fe44e676721c7f077d243bc007156cb9c2f8b5836613d082"
+          },
+          {
+            "path": "config.json",
+            "size": 6395,
+            "sha256": "6397cb6eca41b911d1dcab74e17941351057bd759284052a2331918ff6f9246c"
+          },
+          {
+            "path": "generation_config.json",
+            "size": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 3550670554,
+            "sha256": "038e39a37a7667373d2c3991375446b10c96ae1d717a68674870343db376b76e"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 218323,
+            "sha256": "edb157dbf495e23f37377af4a628a9ad13c4ee7937f93ccb36ec9e9a19940f16"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ],
+        "digest": "db3efa6ef12768b2be40e999458b813cab36d52ef861c3348f182407611157d5",
+        "bytes": 3583086498
+      },
+      "weight_bytes": 3550670554,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "rank": 0,
+        "weight_loading": "direct-row-read",
+        "kv_cache_location": "rank0",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "coordinator_replicated_bytes": 1579830726,
+        "strategy": "linear-output-sharding",
+        "hardware_validation": "experimental",
+        "world_size": 2,
+        "original_linear_bytes": 1359544320,
+        "backend": "ring",
+        "sharded_layers": 390,
+        "local_linear_bytes": 679772160,
+        "specialized_operations": "rank0"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 19,
+              "completion_tokens": 2,
+              "total_tokens": 21
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 19,
+              "completion_tokens": 2,
+              "total_tokens": 21
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 47,
+              "completion_tokens": 4,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 47,
+              "completion_tokens": 4,
+              "total_tokens": 51
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 782,
+              "completion_tokens": 1,
+              "total_tokens": 783
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 782,
+              "completion_tokens": 1,
+              "total_tokens": 783
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "圖片",
+          "single": {
+            "content": "這張圖片的主要顏色是**紅色**。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 303,
+              "completion_tokens": 10,
+              "total_tokens": 313
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是**紅色**。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 303,
+              "completion_tokens": 10,
+              "total_tokens": 313
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "這張圖片的主要顏色是**紅色**。",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 303,
+          "completion_tokens": 10,
+          "total_tokens": 313
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Ornith-1.5-9B Q4",
+      "model_directory": "ornith-ai-ornith-1-5-9b-mlx-4bit-main-01a2dc6f",
+      "model_type": "qwen3_5",
+      "mode": "text",
+      "config_sha256": "7ddc5bb8c3057edaa0a3337c1721312a8f3d28ad587b77dd6ac075876929d95d",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 7593,
+            "sha256": "9dd2fbd270feaa1fbef2d4f634d7887c9c506e3bde140f8e7351c8944e8fd235"
+          },
+          {
+            "path": "config.json",
+            "size": 3084,
+            "sha256": "7ddc5bb8c3057edaa0a3337c1721312a8f3d28ad587b77dd6ac075876929d95d"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 5038161163,
+            "sha256": "c022a4c4b8de62c75306e2442fd78161ff49bce85fe7abb308c5ad5d04454a26"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 81194,
+            "sha256": "215f9abadc1cea4d465b01c036dffcac5a84c2fb2386777863eff6928b91ed0b"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 1160,
+            "sha256": "386ba246ba3dfa4d3a21d8bc8712eba38de558e5ac94c2c90436d8f94d519d5e"
+          }
+        ],
+        "digest": "d6457c2c79160f07ee303580bc94d7913b1eadd9671b1efb83be1d1653d4cf6f",
+        "bytes": 5058243519
+      },
+      "weight_bytes": 5038161163,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "kv_cache_location": "rank0",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "specialized_operations": "rank0",
+        "local_linear_bytes": 2231894016,
+        "coordinator_replicated_bytes": 574252032,
+        "sharded_layers": 249,
+        "original_linear_bytes": 4463788032,
+        "strategy": "linear-output-sharding",
+        "world_size": 2,
+        "backend": "ring",
+        "rank": 0,
+        "weight_loading": "direct-row-read",
+        "hardware_validation": "experimental"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "Ring ready",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 2,
+          "total_tokens": 23
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Qwen3.5-4B Q4 影像",
+      "model_directory": "Qwen3.5-4B-MLX-4bit",
+      "model_type": "qwen3_5",
+      "mode": "vision",
+      "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3366,
+            "sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa"
+          },
+          {
+            "path": "genimage-model.json",
+            "size": 2894,
+            "sha256": "6f6e8ec3797e75390dbc01e97b0a2b09ec203b7759cc41f10700ee9625c82f54"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 3034301037,
+            "sha256": "52dc943eaf6093a2313271a7a0abc36d127b2a16609a0a7c54ee1b4e4ed06cb8"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 101944,
+            "sha256": "52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 991,
+            "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 9187,
+            "sha256": "fa71760892f5c601d345e626ebd602055825a50beed7ee160709c95fffa475f0"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "976bc00a5386ee6215f4d5362d5c4f9b34db368e7d51af7190db11effe7a02f8",
+        "bytes": 3061140034
+      },
+      "weight_bytes": 3034301037,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "original_linear_bytes": 2666574848,
+        "coordinator_replicated_bytes": 367572480,
+        "world_size": 2,
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "weight_loading": "direct-row-read",
+        "kv_cache_location": "rank0",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "rank": 0,
+        "strategy": "linear-output-sharding",
+        "sharded_layers": 346,
+        "hardware_validation": "experimental",
+        "local_linear_bytes": 1333287424
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "圖片",
+          "single": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "這張圖片的主要顏色是紅色。",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 7,
+          "total_tokens": 35
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Qwen3.5-4B Q4 aligned 文字",
+      "model_directory": "Qwen3.5-4B-MLX-4bit-aligned",
+      "model_type": "qwen3_5",
+      "mode": "text",
+      "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3366,
+            "sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 3034311168,
+            "sha256": "66de7605cac7bd74304804a87d9e6adbff0336cecbd092ce6d871bea8ba4cd93"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 101944,
+            "sha256": "52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989343,
+            "sha256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 1139,
+            "sha256": "e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "f848df76034eca6b7e8226a232a828120608b792fb209f3ed26d6719e067c8b8",
+        "bytes": 3061137475
+      },
+      "weight_bytes": 3034311168,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "sharded_layers": 248,
+        "local_linear_bytes": 1003806720,
+        "original_linear_bytes": 2007613440,
+        "rank": 0,
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "coordinator_replicated_bytes": 359505408,
+        "strategy": "linear-output-sharding",
+        "kv_cache_location": "rank0",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "weight_loading": "direct-row-read",
+        "hardware_validation": "experimental",
+        "world_size": 2
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "Ring ready",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 2,
+          "total_tokens": 23
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "LM Studio Qwen3.5-4B Q4",
+      "model_directory": "lmstudio-community-qwen3-5-4b-mlx-4bit-c43ee1d65576a5d98de1e8405cac93c371a655c1-35dbb3b8",
+      "model_type": "qwen3_5",
+      "mode": "vision",
+      "config_sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 7756,
+            "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          },
+          {
+            "path": "config.json",
+            "size": 3366,
+            "sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa"
+          },
+          {
+            "path": "model.safetensors",
+            "size": 3034301037,
+            "sha256": "52dc943eaf6093a2313271a7a0abc36d127b2a16609a0a7c54ee1b4e4ed06cb8"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 101944,
+            "sha256": "52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 991,
+            "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 9187,
+            "sha256": "fa71760892f5c601d345e626ebd602055825a50beed7ee160709c95fffa475f0"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "450721f441c3a580f0174df84128efc45e803ab9d25f9ffb12172b6f9149263a",
+        "bytes": 3061137140
+      },
+      "weight_bytes": 3034301037,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "hardware_validation": "experimental",
+        "rank": 0,
+        "strategy": "linear-output-sharding",
+        "sharded_layers": 346,
+        "original_linear_bytes": 2666574848,
+        "local_linear_bytes": 1333287424,
+        "kv_cache_location": "rank0",
+        "weight_loading": "direct-row-read",
+        "specialized_operations": "rank0",
+        "backend": "ring",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "world_size": 2,
+        "coordinator_replicated_bytes": 367572480
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 45,
+              "completion_tokens": 2,
+              "total_tokens": 47
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "圖片",
+          "single": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "這張圖片的主要顏色是紅色。",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 7,
+          "total_tokens": 35
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Qwen3.8-27B Q4",
+      "model_directory": "Qwen3.8-27B-MLX-4bit",
+      "model_type": "qwen3_5",
+      "mode": "vision",
+      "config_sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 8952,
+            "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+          },
+          {
+            "path": "config.json",
+            "size": 4932,
+            "sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85"
+          },
+          {
+            "path": "generation_config.json",
+            "size": 202,
+            "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+          },
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "size": 5343268752,
+            "sha256": "471a9a81b54dddbfef43e8a71960ca24ad3c727891c6b0750a9db9a214aab504"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "size": 5354185100,
+            "sha256": "e7474b8f968f4078dfd4889925961c5b0da9939219b614dba08eb63c46590de7"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "size": 5357087747,
+            "sha256": "1038989bed1346ecdb541a45c078df2aae99a9509f35bfd51e7a04802a5d8402"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 218281,
+            "sha256": "13b840162b4cb35c66fef7df072f7dbb4717908204364f5e5d9f9655a2758fa8"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 991,
+            "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 10404,
+            "sha256": "47a7a8371379b07650b22f3c8a78c32fed85c4e35ea88e3da0c4b7a7611e8082"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "8ce612c71239209de74f6b875478c35e68d92a83a278c5d5c4818250660a5a6f",
+        "bytes": 16081498220
+      },
+      "weight_bytes": 16054541599,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "coordinator_replicated_bytes": 729555712,
+        "world_size": 2,
+        "original_linear_bytes": 15324706528,
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "specialized_operations": "rank0",
+        "local_linear_bytes": 7662353264,
+        "sharded_layers": 607,
+        "strategy": "linear-output-sharding",
+        "hardware_validation": "experimental",
+        "backend": "ring",
+        "kv_cache_location": "rank0",
+        "rank": 0,
+        "weight_loading": "direct-row-read"
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "圖片",
+          "single": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "這張圖片的主要顏色是紅色。",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 7,
+          "total_tokens": 35
+        }
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "name": "Qwen3.8-27B Q4 aligned",
+      "model_directory": "Qwen3.8-27B-MLX-4bit-aligned",
+      "model_type": "qwen3_5",
+      "mode": "vision",
+      "config_sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85",
+      "manifest": {
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "size": 8952,
+            "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+          },
+          {
+            "path": "config.json",
+            "size": 4932,
+            "sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85"
+          },
+          {
+            "path": "generation_config.json",
+            "size": 202,
+            "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+          },
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "size": 5343278688,
+            "sha256": "e3d4664b1f561795220dcadae95234b85cefc57a73c4adbadee8653b3948f6d2"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "size": 5354189120,
+            "sha256": "68e27864cc60486579dfd02d84b8e33f9216838e1b03700b654d7934e1844293"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "size": 5357089344,
+            "sha256": "1c9d0560a39b98cc5eb35960cd4edcdb98cbb3d65b792593230578c9a75fc52b"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "size": 218281,
+            "sha256": "13b840162b4cb35c66fef7df072f7dbb4717908204364f5e5d9f9655a2758fa8"
+          },
+          {
+            "path": "preprocessor_config.json",
+            "size": 390,
+            "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          },
+          {
+            "path": "processor_config.json",
+            "size": 991,
+            "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+          },
+          {
+            "path": "tokenizer.json",
+            "size": 19989325,
+            "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "size": 10404,
+            "sha256": "47a7a8371379b07650b22f3c8a78c32fed85c4e35ea88e3da0c4b7a7611e8082"
+          },
+          {
+            "path": "video_preprocessor_config.json",
+            "size": 385,
+            "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          },
+          {
+            "path": "vocab.json",
+            "size": 6722759,
+            "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+          }
+        ],
+        "digest": "a26e3bce7551302832b9afe9304cd5a5345b77fe618790c848c5a197990ca667",
+        "bytes": 16081513773
+      },
+      "weight_bytes": 16054557152,
+      "quantization": {
+        "group_size": 64,
+        "bits": 4,
+        "mode": "affine"
+      },
+      "distributed": {
+        "world_size": 2,
+        "local_linear_bytes": 7662353264,
+        "rank": 0,
+        "weight_loading": "direct-row-read",
+        "coordinator_replicated_bytes": 729555712,
+        "specialized_operations": "rank0",
+        "sharded_layers": 607,
+        "kv_cache_location": "rank0",
+        "backend": "ring",
+        "strategy": "linear-output-sharding",
+        "direct_weight_access": "lazy-full-weight-on-rank0",
+        "hardware_validation": "experimental",
+        "original_linear_bytes": 15324706528
+      },
+      "checks": [
+        {
+          "name": "英文短句",
+          "single": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "cluster": {
+            "content": "Ring ready",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 21,
+              "completion_tokens": 2,
+              "total_tokens": 23
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "中文多輪",
+          "single": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "cluster": {
+            "content": "藍色松鼠",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 49,
+              "completion_tokens": 2,
+              "total_tokens": 51
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "跨區塊 Prefill",
+          "single": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "cluster": {
+            "content": "Blue",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 784,
+              "completion_tokens": 1,
+              "total_tokens": 785
+            }
+          },
+          "matched": true
+        },
+        {
+          "name": "圖片",
+          "single": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "cluster": {
+            "content": "這張圖片的主要顏色是紅色。",
+            "reasoning": "",
+            "finish_reason": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 7,
+              "total_tokens": 35
+            }
+          },
+          "matched": true
+        }
+      ],
+      "sse": {
+        "content": "這張圖片的主要顏色是紅色。",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 7,
+          "total_tokens": 35
+        }
+      },
+      "passed": true,
+      "stopped": true
+    }
+  ],
+  "fixtures": {
+    "kind": "Go 產生的固定數值微型 safetensors，非訓練完成的真實模型",
+    "cases": [
+      {
+        "case": "llama",
+        "passed": true,
+        "seconds": 20.16
+      },
+      {
+        "case": "llama_q4",
+        "passed": true,
+        "seconds": 1.79
+      },
+      {
+        "case": "llama_q8",
+        "passed": true,
+        "seconds": 1.79
+      },
+      {
+        "case": "mistral",
+        "passed": true,
+        "seconds": 1.51
+      },
+      {
+        "case": "phi3",
+        "passed": true,
+        "seconds": 1.38
+      },
+      {
+        "case": "gemma2",
+        "passed": true,
+        "seconds": 1.9
+      },
+      {
+        "case": "starcoder2",
+        "passed": true,
+        "seconds": 1.78
+      },
+      {
+        "case": "qwen2",
+        "passed": true,
+        "seconds": 1.49
+      },
+      {
+        "case": "qwen3",
+        "passed": true,
+        "seconds": 1.58
+      },
+      {
+        "case": "qwen3_moe",
+        "passed": true,
+        "seconds": 2.16
+      },
+      {
+        "case": "qwen3_5",
+        "passed": true,
+        "seconds": 1.58
+      },
+      {
+        "case": "qwen3_5_text",
+        "passed": true,
+        "seconds": 1.5
+      }
+    ],
+    "all_passed": true,
+    "concurrency_and_lifecycle_passed": true
+  },
+  "tool_sigterm_cleanup_passed": true,
+  "limitations": [
+    "8 份目錄涵蓋 3 個真實 model_type，不是 8 個不同架構。",
+    "真實權重皆 Q4；Q8、F32、MoE 等另有微型案例。",
+    "GGUF／Fast GGUF、DFlash、MTP 尚不適用。",
+    "實體 Wi-Fi 長請求與 Thunderbolt RDMA 尚未完成驗收。"
+  ]
+}

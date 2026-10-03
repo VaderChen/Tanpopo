@@ -96,6 +96,35 @@ TANPOPO_DISTRIBUTED_SMOKE=1 go test ./tests/distributed \
 - Qwen3.5-4B 真實影像模型在同一台 Mac 的兩個獨立 Server，透過圖片請求得到相同回答「這張圖片的主要顏色是紅色。」；單機與叢集皆為 28 個輸入、7 個輸出 Token，SSE 與整組停止通過。切分 346 層，每個 Rank 的線性權重為 1,333,287,424 bytes，主節點另有 367,572,480 bytes 常駐參數。這是功能 Smoke，不是雙實體機效能基準。
 - 模型註冊表是可嘗試範圍，不是逐款認證。無可切分線性層、特殊算子或記憶體不足仍會明確拒絕；GGUF／Fast GGUF 要先解決轉換期間完整權重的常駐與分片讀取，不能只移除格式檢查便宣稱通用。
 
+### 重複執行本機多模型驗證
+
+[模型驗證報告](MLX-CLUSTER-MODEL-VALIDATION.md) 記錄真實權重、架構微型案例與驗收界線。使用 [多模型 Smoke 工具](../scripts/smoke-mlx-model-matrix.mjs)，可讓同一套案例逐一比對單機與兩個獨立 Tanpopo Server。需要 Go、Node.js 與原生 MLX Runtime，無須 Python。
+
+準備案例 JSON；`model` 是 `model_root` 內的相對目錄，圖片案例加上 `image: true`：
+
+```json
+{
+  "model_root": "/path/to/models",
+  "runtime": "/path/to/mlx-runtime/prebuilt/darwin-arm64/bin/mlx-server",
+  "cases": [
+    { "name": "文字模型", "model": "my-text-model" },
+    { "name": "影像模型", "model": "my-vision-model", "image": true }
+  ]
+}
+```
+
+```bash
+node scripts/smoke-mlx-model-matrix.mjs cases.json .cache/model-matrix-run
+
+TANPOPO_DISTRIBUTED_SMOKE=1 \
+TANPOPO_MLX_SERVER="$PWD/bin/mlx-runtime/prebuilt/darwin-arm64/bin/mlx-server" \
+go test ./tests/distributed -run '^TestTanpopoDistributedSmoke$' -count=1 -v -timeout 5m
+```
+
+每輪須使用新的結果目錄。工具建立獨立設定、隨機埠與 `lo0` 探索，使用既有完整模型依序生成英文短句、中文多輪、跨 Prefill 區塊的長提示及選用的圖片。圖片預設為隨附的 56 × 56 純紅 PNG，也可用頂層 `image` 欄位指定另一張 PNG。固定 temperature 0、Context 4096、Prefill 128，逐項比對回答、推理內容、Token 數及結束原因；另比對 SSE 結果，並檢查兩端停止及 session 回收。錯誤與載入紀錄寫入結果目錄的 `result.json`，有任一失敗時以非零狀態結束。
+
+Go 原生 Smoke 另使用固定數值的微型模型，涵蓋 Llama（F32／Q4／Q8）、Mistral、Phi3、Gemma2、Starcoder2、Qwen2、Qwen3、Qwen3 MoE 與 Qwen3.5 兩種設定格式。這些 fixture 可檢查合併投影、偏置、不同 Norm、混合精度及專家層保留；不是訓練完成的模型，不能當作對應所有真實 checkpoint 的認證。
+
 ### 2026-10-03 較早版本驗證紀錄
 
 - 兩台實體 Mac 使用同一份已發布的 `rdma4` Runtime，透過 Tanpopo Server 探索及交握，執行 `mlx-community/Qwen3-0.6B-4bit`（revision `73e3e38d981303bc594367cd910ea6eb48349da8`）。單機與雙機均回覆 `TCP Ring ready`，輸入 19、輸出 3 Token；健康資訊確認 `world_size: 2`。此項證明既有區網路徑可用。

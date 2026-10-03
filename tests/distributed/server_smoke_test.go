@@ -132,7 +132,7 @@ func TestTanpopoDistributedSmoke(t *testing.T) {
 	}
 	t.Log("原生程序自動啟停、collective、FP32／FP16／BF16、一般／Q4 線性層通過")
 
-	for _, architecture := range []string{"llama", "qwen2", "qwen3", "qwen3_5", "qwen3_5_text"} {
+	for _, architecture := range []string{"llama", "llama_q4", "llama_q8", "mistral", "phi3", "gemma2", "starcoder2", "qwen2", "qwen3", "qwen3_moe", "qwen3_5", "qwen3_5_text"} {
 		if !t.Run(architecture, func(t *testing.T) {
 			writeFixture(t, filepath.Join(models, architecture), architecture)
 			writeFixture(t, filepath.Join(workers, architecture), architecture)
@@ -159,11 +159,15 @@ func TestTanpopoDistributedSmoke(t *testing.T) {
 					Layers        int   `json:"sharded_layers"`
 					LocalBytes    int64 `json:"local_linear_bytes"`
 					OriginalBytes int64 `json:"original_linear_bytes"`
+					ResidentBytes int64 `json:"coordinator_replicated_bytes"`
 				}
 			}
 			getJSON(t, status.URL+"/health", &health)
 			if health.Distributed.WorldSize != 2 || health.Distributed.Layers == 0 || health.Distributed.LocalBytes >= health.Distributed.OriginalBytes {
 				t.Fatalf("未建立權重分片雙節點：%+v", health)
+			}
+			if architecture == "qwen3_moe" && health.Distributed.ResidentBytes < 4*3*128*64*4 {
+				t.Fatal("MoE 專家權重未保留在主節點")
 			}
 			for _, stream := range []bool{false, true} {
 				server.request(t, "POST", "/api/chat/completions", chatBody("hello", 4, stream), 401, false)
