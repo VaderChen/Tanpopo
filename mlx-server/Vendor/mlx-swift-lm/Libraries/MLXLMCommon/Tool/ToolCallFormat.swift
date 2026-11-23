@@ -101,6 +101,7 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Llama 3 inline JSON format.
     /// Example: `<|python_tag|>{ "name": "func", "parameters": {...} }`
     case llama3
+    case inkling
 
     // MARK: - Factory Methods
 
@@ -108,6 +109,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// - Returns: A parser instance configured for this format
     public func createParser() -> any ToolCallParser {
         switch self {
+        case .inkling:
+            return JSONToolCallParser(startTag: "<|content_invoke_tool_json|>", endTag: "<|end_message|>")
         case .json:
             return JSONToolCallParser(startTag: "<tool_call>", endTag: "</tool_call>")
         case .lfm2:
@@ -158,6 +161,7 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// - Returns: The appropriate `ToolCallFormat`, or `nil` to use the default format
     public static func infer(from modelType: String, configData: Data? = nil) -> ToolCallFormat? {
         let type = modelType.lowercased()
+        if type == "inkling2_loop" { return .inkling }
 
         // Llama family (need secondary signal for Llama 3 vs 1/2)
         if type == "llama" {

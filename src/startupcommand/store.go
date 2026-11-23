@@ -21,7 +21,7 @@ type fileData struct {
 }
 
 const (
-	currentFileVersion = 15
+	currentFileVersion = 17
 	defaultContextSize = 256 * 1024
 )
 
@@ -81,7 +81,7 @@ func NewStore(path string, fallback domain.StartupCommand) (*Store, error) {
 	if data.Version < currentFileVersion {
 		now := time.Now()
 		for index := range data.Commands {
-			if data.Commands[index].ID == "default" {
+			if data.Version < 15 && data.Commands[index].ID == "default" {
 				data.Commands[index].ContextSize = defaultContextSize
 				data.Commands[index].UpdatedAt = now
 			}
@@ -199,6 +199,24 @@ func builtinCommands(fallback domain.StartupCommand, now time.Time) []domain.Sta
 
 	presets := []domain.StartupCommand{
 		base,
+		{
+			ID: "inkling2-mini", Name: "Inkling-2-Mini（GGUF，8K）", Runtime: domain.RuntimeLlamaServer,
+			ServerHost: base.ServerHost, ServerPort: base.ServerPort, ContextSize: 8192, GPULayers: -1,
+			ExtraArgs: []string{"--parallel", "1", "--batch-size", "128", "--ubatch-size", "64", "--jinja"},
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ID: "mlx-disk-offload", Name: "MLX 磁碟輔助（1 GiB 快取，8K）", Runtime: domain.RuntimeMLXServer,
+			ServerHost: base.ServerHost, ServerPort: base.ServerPort, ContextSize: 8192, GPULayers: -1,
+			ExtraArgs: []string{"--disk-cache-mb", "1024", "--disk-tile-mb", "32", "--prefill-step-size", "128"},
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ID: "llama-disk-offload", Name: "GGUF 磁碟輔助（GPU 自動配置，8K）", Runtime: domain.RuntimeLlamaServer,
+			ServerHost: base.ServerHost, ServerPort: base.ServerPort, ContextSize: 8192, GPULayers: -1, MMapReserveGB: 4,
+			ExtraArgs: []string{"--tanpopo-disk-offload", "--parallel", "1", "--batch-size", "128", "--ubatch-size", "128"},
+			CreatedAt: now, UpdatedAt: now,
+		},
 		{
 			ID: "amd-vulkan", Name: "LLaMA Server（AMD Vulkan）四人", Runtime: domain.RuntimeLlamaServer,
 			RuntimeVariant: domain.RuntimeVariantAMDVulkan, ServerHost: base.ServerHost,

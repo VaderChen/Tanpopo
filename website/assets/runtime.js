@@ -38,9 +38,10 @@
   }
 
   function commandUsesMTP(command = selectedCommand()) {
-    return command?.runtime === MLX_RUNTIME && (command.extra_args || []).some((argument) =>
-      /^--mtp-(?:draft|block-size)(?:=|$)/.test(String(argument || "").trim())
-    );
+    const args = command?.extra_args || [];
+    return command?.runtime === MLX_RUNTIME
+      ? args.some((argument) => /^--mtp-(?:draft|block-size)(?:=|$)/.test(String(argument || "").trim()))
+      : args.some((argument, index) => argument === "--spec-type=draft-mtp" || (argument === "--spec-type" && args[index + 1] === "draft-mtp"));
   }
 
   function selectedRuntime() {
@@ -241,6 +242,11 @@
     let best = null;
     let bestScore = -1;
     candidates.forEach((draft) => {
+      if (wantsMTP) {
+        const family = (name) => String(name || "").toLowerCase()
+          .replace(/(?:[_-](?:text|mtp|assistant|moe))+$/, "").replace(/[_-]/g, "").replace(/moe$/, "");
+        if (target.architecture && draft.architecture && family(target.architecture) !== family(draft.architecture)) return;
+      }
       let score = 0;
       const draftDirectory = pathDirectory(draft.path);
       if (targetDirectory && draftDirectory === targetDirectory) score += 100;
@@ -253,7 +259,7 @@
         bestScore = score;
       }
     });
-    if (bestScore > 0 || candidates.length === 1) return best;
+    if (best && (bestScore > 0 || candidates.length === 1)) return best;
     return null;
   }
 
@@ -293,10 +299,10 @@
     state.models = payload.models || [];
     state.mmprojModels = state.models.filter(isMMProjModel).sort(compareModelsByDisplayName);
     state.draftModels = runtimeName === LLAMA_RUNTIME
-      ? state.models.filter(isDFlashDraftModel)
+      ? state.models.filter((model) => isDFlashDraftModel(model) || isMTPDraftModel(model))
       : (draftPayload.models || []);
     state.mainModels = state.models
-      .filter((model) => !isMMProjModel(model) && !isDFlashDraftModel(model))
+      .filter((model) => !isMMProjModel(model) && !isDFlashDraftModel(model) && !isMTPDraftModel(model))
       .sort(compareModelsByDisplayName);
     const registeredModels = registeredMainModels();
     const untestedModels = untestedMainModels();
@@ -1576,7 +1582,7 @@
   byId("startButton").addEventListener("click", async () => {
     const button = byId("startButton");
     const runtimeName = selectedRuntime();
-    const mtpEnabled = runtimeName === MLX_RUNTIME && commandUsesMTP();
+    const mtpEnabled = commandUsesMTP();
     const dflashEnabled = !mtpEnabled && byId("dflashToggle").checked;
     const mmapEnabled = byId("mmapToggle").checked;
     const fastGGUFEnabled = byId("fastGGUFToggle").checked;

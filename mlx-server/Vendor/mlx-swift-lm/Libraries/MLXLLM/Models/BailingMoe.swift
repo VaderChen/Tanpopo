@@ -176,7 +176,7 @@ class BailingMoeMLP: Module, UnaryLayer {
         _up.wrappedValue = Linear(args.hiddenSize, inter, bias: args.useBias)
     }
 
-    func callAsFunction(_ x: MLXArray) -> MLXArray { down(silu(gate(x)) * up(x)) }
+    func callAsFunction(_ x: MLXArray) -> MLXArray { down(compiledSiluProduct(gate(x), up(x))) }
 }
 
 class BailingMoeGate: Module, UnaryLayer {

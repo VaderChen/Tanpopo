@@ -21,6 +21,11 @@ void* tanpopo_distributed_open_weights(const char* path);
 void tanpopo_distributed_close_weights(void* reader);
 int tanpopo_distributed_load_weights(void* reader, mlx_array* result, mlx_array descriptor, size_t offset);
 int tanpopo_distributed_linear(mlx_array* result, mlx_array input, mlx_array weight, const mlx_array* bias, int original_output_size);
+// 磁碟卸載只接受尚未求值的檔案來源，不以已常駐的完整 tensor 假裝串流。
+bool tanpopo_disk_is_file_tensor(mlx_array input);
+int tanpopo_disk_read_rows(mlx_array* result, mlx_array input, size_t start, int count);
+int tanpopo_disk_guard(mlx_array* result, mlx_array input);
+int tanpopo_disk_resident_graph_bytes(mlx_array input, size_t* result);
 #ifdef __cplusplus
 }
 #endif

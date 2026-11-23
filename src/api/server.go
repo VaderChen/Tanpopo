@@ -783,7 +783,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if runtimeName == domain.RuntimeMLXServer {
 		if strings.TrimSpace(r.URL.Query().Get("role")) == "draft" {
-			models, err = llamacpp.ListMLXDraftModels(settings.MLXModelDirectory)
+			models, err = llamacpp.ListMLXRuntimeDraftModels(settings.MLXModelDirectory, settings.ModelDirectory)
 		} else {
 			models, err = llamacpp.ListMLXRuntimeModels(
 				settings.MLXModelDirectory,

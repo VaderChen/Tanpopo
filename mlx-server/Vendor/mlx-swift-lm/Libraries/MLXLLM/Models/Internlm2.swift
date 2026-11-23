@@ -150,7 +150,7 @@ class Internlm2MLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        return w2(silu(w1(x)) * w3(x))
+        return w2(compiledSiluProduct(w1(x), w3(x)))
     }
 }
 

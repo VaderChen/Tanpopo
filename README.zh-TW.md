@@ -2,13 +2,17 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[最新發行：1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049)：通用格式叢集與函式級最佳化，內附 `rdma11` Runtime。
+[最新發行 · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+
+在「模型下載 → 常用模型 → 30B 級」選取 **Inkling-2-Mini**。使用 llama-server 時可選 **UD-Q4_K_XL** 或 **UD-Q8_K_XL**。Apple Silicon 可選 **4-bit MLX** 或 **8-bit MLX** 進行原生文字與圖片推論。兩種 MLX 權重均已在 M4 Pro 通過文字、圖片及串流測試。[安裝與驗證](docs/INKLING2-MINI.md)
 
 `Tanpopo` 是一個以 Go 實作的本機模型服務管理器；名稱取自日語「蒲公英（たんぽぽ）」，象徵模型把生成的 Token 像種子般向外散發。管理介面提供簡單登入、模型服務管理與暫存式簡易對話；`llama-server` 維持跨平台與 GGUF 高相容性，Apple Silicon 另提供原生 Swift／MLX 的 `mlx-server`，支援文生文與多模態模型。
 
 ![Tanpopo TCP Ring 搜尋、複選配對與串流對話展示](images/tanpopo-demo.gif)
 
 DEMO 使用真實介面與模擬節點、模型、回答；不代表推論效能或實體 RDMA 驗證。[分散推論使用指南](docs/MLX-RDMA.md) · [重製展示](scripts/readme-demo/README.md)
+
+本版提供「MLX 磁碟輔助」與「GGUF 磁碟輔助」啟動預設：MLX 以有上限的權重快取分塊讀取，llama-server 使用 mmap 與 GPU 自動配置。已通過小型合成 Smoke，尚未驗證真實超大型模型；格式與叢集限制見[磁碟輔助大模型推論](docs/DISK-ASSISTED-INFERENCE.md)。
 
 ## 主要功能
 
@@ -383,7 +387,7 @@ https://huggingface.co/{owner}/{model}/resolve/{revision}/{filename}
 
 ### `data/startup_commands.json`
 
-由「啟動參數」頁保存多組模型 Runtime 啟動參數。每組 Profile 都可選擇 KV Cache Q8 或 Q4，以及 MMap 記憶體保留目標；是否實際套用量化由執行狀態頁的 Switch 控制。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1／2、MLX MTP Profile；Context 均預設 256K。舊版設定檔會自動遷移到目前參數格式。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
+由「啟動參數」頁保存多組模型 Runtime 啟動參數。每組 Profile 都可選擇 KV Cache Q8 或 Q4，以及 MMap 記憶體保留目標；是否實際套用量化由執行狀態頁的 Switch 控制。首次建立時會建立 llama-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、MTP、DFlash，以及 mlx-server 的一般、KV Cache Q8、KV Cache Q4、強制關閉思考、DFlash 1／2、MLX MTP Profile；一般預設的 Context 為 256K；新增的磁碟輔助預設使用較保守的 8K。舊版設定檔會自動遷移到目前參數格式。修改 Profile 不會影響正在執行的程序，下次啟動時才會套用。
 
 ### `data/access_control.json`
 

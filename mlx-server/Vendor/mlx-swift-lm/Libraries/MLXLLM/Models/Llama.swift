@@ -87,8 +87,7 @@ class LlamaMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let activation = silu(gate(x))
-        return down(activation * up(x))
+        return down(compiledSiluProduct(gate(x), up(x)))
     }
 }
 

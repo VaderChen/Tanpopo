@@ -126,8 +126,8 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
             .maximumNativeTargetCacheRewind ?? 0
         let supportsNativeHybridRewind =
             nativeRewindDepth >= effectiveBlockSize - 1
-            && self.mainCache.contains { $0 is MambaCache }
-            && self.mainCache.allSatisfy { $0.isTrimmable || $0 is MambaCache }
+            && self.mainCache.contains { $0 is any SpeculativeCheckpointCache }
+            && self.mainCache.allSatisfy { $0.isTrimmable || $0 is any SpeculativeCheckpointCache }
         guard canTrimPromptCache(self.mainCache) || supportsNativeHybridRewind else {
             throw KVCacheError(
                 message: "MTP speculative decoding requires a rewindable main KV cache.")
@@ -317,8 +317,8 @@ public struct MTPSpeculativeTokenIterator: TokenIteratorProtocol {
             .maximumNativeTargetCacheRewind ?? 0
         let nativeHybridRewind =
             nativeRewindDepth >= numDraft
-            && mainCache.contains { $0 is MambaCache }
-            && mainCache.allSatisfy { $0.isTrimmable || $0 is MambaCache }
+            && mainCache.contains { $0 is any SpeculativeCheckpointCache }
+            && mainCache.allSatisfy { $0.isTrimmable || $0 is any SpeculativeCheckpointCache }
 
         // Slice the hidden at the slot that produced the newly-accepted
         // bonus's prediction. Round 1: last (and only) position. Round 2+:

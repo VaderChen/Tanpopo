@@ -178,6 +178,7 @@ final class Qwen35GatedDeltaNet: Module {
     let valueDim: Int
     let convKernelSize: Int
     let convDim: Int
+    let l2NormalizeQK: Bool
 
     @ModuleInfo(key: "conv1d") var conv1d: Conv1d
     @ModuleInfo(key: "in_proj_qkv") var inProjQKV: Linear
@@ -191,7 +192,8 @@ final class Qwen35GatedDeltaNet: Module {
     @ModuleInfo(key: "norm") var norm: Qwen3NextRMSNormGated
     @ModuleInfo(key: "out_proj") var outProj: Linear
 
-    init(_ args: Qwen35TextConfiguration) {
+    init(_ args: Qwen35TextConfiguration, l2NormalizeQK: Bool = false, sigmoidGate: Bool = false) {
+        self.l2NormalizeQK = l2NormalizeQK
         self.hiddenSize = args.hiddenSize
         self.numVHeads = args.linearNumValueHeads
         self.numKHeads = args.linearNumKeyHeads
@@ -227,7 +229,7 @@ final class Qwen35GatedDeltaNet: Module {
         let a = MLXRandom.uniform(low: 0, high: 16, [numVHeads])
         _aLog.wrappedValue = log(a)
 
-        _norm.wrappedValue = Qwen3NextRMSNormGated(dimensions: headVDim, eps: args.rmsNormEps)
+        _norm.wrappedValue = Qwen3NextRMSNormGated(dimensions: headVDim, eps: args.rmsNormEps, sigmoidGate: sigmoidGate)
         _outProj.wrappedValue = Linear(valueDim, hiddenSize, bias: false)
 
         super.init()
@@ -290,10 +292,14 @@ final class Qwen35GatedDeltaNet: Module {
         var state = priorDeltaState
         let dtype = q.dtype
         let invScale = pow(Float(headKDim), -0.5)
-        let qNormed =
+        let qNormed = l2NormalizeQK
+            ? q * rsqrt((q * q).sum(axis: -1, keepDims: true) + 1e-6) * invScale
+            :
             MLXArray(pow(invScale, 2)).asType(dtype)
             * MLXFast.rmsNorm(q, weight: MLXArray.mlxNone, eps: 1e-6)
-        let kNormed =
+        let kNormed = l2NormalizeQK
+            ? k * rsqrt((k * k).sum(axis: -1, keepDims: true) + 1e-6)
+            :
             MLXArray(invScale).asType(dtype)
             * MLXFast.rmsNorm(k, weight: MLXArray.mlxNone, eps: 1e-6)
 

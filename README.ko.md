@@ -2,7 +2,9 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[최신 릴리스: 1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049) — 클러스터 형식 지원 확장과 함수 단위 최적화, `rdma11` Runtime 포함.
+[최신 릴리스 · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+
+모델 다운로드 화면의 자주 사용하는 모델 목록에서 30B급 **Inkling-2-Mini**를 선택할 수 있습니다. llama-server에서는 **UD-Q4_K_XL** 또는 **UD-Q8_K_XL**을, Apple Silicon에서는 **4-bit MLX** 또는 **8-bit MLX**를 선택하세요. 두 MLX 모델 모두 M4 Pro에서 텍스트 생성, 이미지 인식, 스트리밍을 확인했습니다. [설치 및 검증 가이드(번체 중국어)](docs/INKLING2-MINI.md)
 
 Tanpopo는 Go로 작성된 로컬 모델 서비스 관리자입니다. 이름은 일본어로 민들레를 뜻하는 ‘たんぽぽ’에서 왔으며, 생성된 Token이 민들레 씨앗처럼 퍼져 나간다는 의미를 담고 있습니다. GGUF용 크로스 플랫폼 `llama-server`와 Apple Silicon용 네이티브 Swift/MLX `mlx-server`를 관리합니다.
 

@@ -256,6 +256,7 @@ struct GenerationOptions: Sendable {
 
 struct GenerationResult: Sendable {
     var text: String
+    var reasoning: String = ""
     var promptTokens: Int
     var completionTokens: Int
     var tokensPerSecond: Double

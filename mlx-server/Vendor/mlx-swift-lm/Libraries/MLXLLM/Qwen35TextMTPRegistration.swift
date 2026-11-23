@@ -9,6 +9,11 @@ import MLXLMCommon
 /// `MTPDrafterModelFactory`.
 public enum Qwen35TextMTPRegistration {
     public static func register() async {
+        await MTPDrafterTypeRegistry.shared.registerModelType("qwen4_exp_mtp", creator: { data in
+            let config = try JSONDecoder.json5().decode(Qwen4ExpConfiguration.self, from: data)
+            try config.validateModelConfiguration()
+            return Qwen4ExpMTPDraftModel(config)
+        })
         await MTPDrafterTypeRegistry.shared.registerModelType(
             "qwen3_5_text",
             creator: { data in

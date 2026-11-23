@@ -86,7 +86,7 @@ class GLM4MLP: Module, UnaryLayer {
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
         let x = gateUp(x)
         let chunks = split(x, parts: 2, axis: -1)
-        return down(silu(chunks[0]) * chunks[1])
+        return down(compiledSiluProduct(chunks[0], chunks[1]))
     }
 }
 

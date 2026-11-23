@@ -286,33 +286,11 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
             )
         }
 
-        var residual = targetProbabilities[0, accepted, 0...]
-        if let draftIndices {
-            let indices = draftIndices[0, accepted, 0...]
-            let existing = takeAlong(
-                residual[.newAxis],
-                indices[.newAxis],
-                axis: -1
-            )
-            let adjusted = existing
-                - draftProbabilities[0, accepted, 0...][.newAxis]
-            residual = putAlong(
-                residual[.newAxis],
-                indices[.newAxis],
-                values: adjusted,
-                axis: -1
-            )[0]
-        } else {
-            residual = residual - draftProbabilities[0, accepted, 0...]
-        }
-        residual = maximum(residual, MLXArray(0))
-        let total = residual.sum()
-        eval(total)
-        if total.item(Float.self) > 0 {
-            residual = residual / total
-        } else {
-            residual = targetProbabilities[0, accepted, 0...]
-        }
+        let residual = dflashResidualDistribution(
+            target: targetProbabilities[0, accepted, 0...],
+            draft: draftProbabilities[0, accepted, 0...],
+            indices: draftIndices.map { $0[0, accepted, 0...] }
+        )
         return (
             accepted,
             dflashSample(
@@ -356,9 +334,10 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
             captureRollback: true
         )
 
-        let proposedList = proposed.asArray(Int.self)
+        let proposedList: [Int]
         let accepted: Int
         let correction: MLXArray
+        let correctionToken: Int
         if sampling.isGreedy {
             let targetTokens = greedyTargetTokens(
                 logits: verified.logits,
@@ -366,6 +345,7 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
                 draftCount: draftCount
             )
             eval(targetTokens, proposed, verified.hiddenStates)
+            proposedList = proposed.asArray(Int.self)
             let targetList = targetTokens.asArray(Int.self)
             var matched = 0
             while matched < draftCount && targetList[matched] == proposedList[matched] {
@@ -373,6 +353,7 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
             }
             accepted = matched
             correction = targetTokens[accepted ..< (accepted + 1)]
+            correctionToken = targetList[accepted]
         } else {
             guard let draftProbabilities = proposal.probabilities else {
                 throw DFlashError.invalidDraftConfiguration(
@@ -390,6 +371,8 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
                 draftIndices: proposal.probabilityIndices
             )
             eval(correction, proposed, verified.hiddenStates)
+            proposedList = proposed.asArray(Int.self)
+            correctionToken = correction.item(Int.self)
         }
 
         for index in 0 ..< accepted {
@@ -399,7 +382,7 @@ public struct DFlashSpeculativeTokenIterator: TokenIteratorProtocol {
         }
 
         processor?.didSample(token: correction)
-        pendingTokens.append(correction.item(Int.self))
+        pendingTokens.append(correctionToken)
 
         let rejected = draftCount - accepted
         if rejected > 0, let rollback = verified.rollback {

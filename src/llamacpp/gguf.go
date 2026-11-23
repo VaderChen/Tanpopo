@@ -96,6 +96,8 @@ type ggufModelProfile struct {
 	HasTokenizer       bool
 	HasPoolingType     bool
 	NextNPredictLayers int
+	MTPDraft           bool
+	Dimensions         map[string]int64
 }
 
 // encoderOnlyGGUFArchitectures 是只能產生向量、不能生成文字的架構。
@@ -124,7 +126,7 @@ func (profile ggufModelProfile) isLanguageModel() bool {
 // readGGUFModelProfile 一次掃過 metadata 取得判斷所需的欄位。
 // 與 readGGUFStringMetadata 一樣只讀 metadata 區，成本與模型大小無關。
 func readGGUFModelProfile(path string) (ggufModelProfile, error) {
-	var profile ggufModelProfile
+	profile := ggufModelProfile{Dimensions: make(map[string]int64)}
 	file, err := os.Open(path)
 	if err != nil {
 		return profile, err
@@ -146,8 +148,12 @@ func readGGUFModelProfile(path string) (ggufModelProfile, error) {
 	if version < 2 || version > 3 {
 		return profile, fmt.Errorf("不支援的 GGUF 版本：%d", version)
 	}
-	if _, err := readGGUFUint64(reader); err != nil { // tensor count
+	tensorCount, err := readGGUFUint64(reader)
+	if err != nil {
 		return profile, err
+	}
+	if tensorCount > 1000000 {
+		return profile, errors.New("GGUF tensor 數量異常")
 	}
 	metadataCount, err := readGGUFUint64(reader)
 	if err != nil {
@@ -176,6 +182,14 @@ func readGGUFModelProfile(path string) (ggufModelProfile, error) {
 			continue
 		case strings.HasSuffix(key, ".block_count"):
 			profile.HasBlockCount = true
+			value, supported, err := readGGUFIntegerMetadata(reader, valueType)
+			if err != nil {
+				return profile, err
+			}
+			if supported {
+				profile.Dimensions[key] = value
+				continue
+			}
 		case key == "tokenizer.ggml.tokens":
 			profile.HasTokenizer = true
 		case strings.HasSuffix(key, ".pooling_type"):
@@ -192,9 +206,45 @@ func readGGUFModelProfile(path string) (ggufModelProfile, error) {
 				continue
 			}
 		}
+		if strings.HasPrefix(key, "qwen4exp.") {
+			value, supported, err := readGGUFIntegerMetadata(reader, valueType)
+			if err != nil {
+				return profile, err
+			}
+			if supported {
+				profile.Dimensions[key] = value
+				continue
+			}
+		}
 		if err := skipGGUFValue(reader, valueType, 0); err != nil {
 			return profile, err
 		}
+	}
+	if profile.Architecture == "qwen4exp" && profile.NextNPredictLayers > 0 {
+		trunk, draft := false, false
+		for i := uint64(0); i < tensorCount; i++ {
+			name, err := readGGUFString(reader, maxGGUFStringBytes)
+			if err != nil {
+				return profile, err
+			}
+			if name == "blk.0.hc_attn_norm.weight" {
+				trunk = true
+			}
+			if strings.Contains(name, ".nextn.eh_proj.") {
+				draft = true
+			}
+			dims, err := readGGUFUint32(reader)
+			if err != nil {
+				return profile, err
+			}
+			if dims > 4 {
+				return profile, errors.New("GGUF tensor 維度異常")
+			}
+			if _, err := io.CopyN(io.Discard, reader, int64(dims)*8+12); err != nil {
+				return profile, err
+			}
+		}
+		profile.MTPDraft = draft && !trunk
 	}
 	return profile, nil
 }

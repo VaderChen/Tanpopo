@@ -1,0 +1,306 @@
+{
+  "schema": 1,
+  "description": "build 2049 正式成品的實體雙 Mac 回歸；兩組 MLX 首筆完成，連續請求及 GGUF 同步仍未通過。",
+  "date": "2026-10-03",
+  "app_release": "v1.26.1003-build-2049",
+  "release_commit": "8380f02261ba4b4f444136a739626d58b3280f94",
+  "native_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
+  "native_sha256": "d571423e94e2b79a1e6d485f292777d4496c9c04ce729af5def8291ac912152e",
+  "network": "既有區網路徑；使用者前次確認經過 5 GHz Wi-Fi，本輪尚未完成其他路徑對照。",
+  "hardware": [
+    {
+      "role": "coordinator",
+      "chip": "Apple M4 Pro",
+      "memory_gib": 64
+    },
+    {
+      "role": "worker",
+      "chip": "Apple M4",
+      "memory_gib": 16
+    }
+  ],
+  "launch_observation": {
+    "before_manual_restart": "HTTP／探索正常，原生 TCP error 65 No route to host。",
+    "after_manual_restart": "完整結束並從應用程式開啟後恢復原生連線。",
+    "cause_confirmed": false
+  },
+  "parameters": {
+    "context_size": 4096,
+    "temperature": 0,
+    "thinking": false,
+    "prefill_step_size": 128,
+    "mmap": false,
+    "kv_cache_quantization": false,
+    "max_tokens_short_reply": 16,
+    "chat_deadline_ms": 180000,
+    "preparation_deadline_ms": 180000,
+    "deadline_scope": "180 秒為測試工具期限；原生每層 120 秒期限未修改。",
+    "request_content": "本輪僅文字請求"
+  },
+  "mlx_runs": [
+    {
+      "model": "mlx-community/Qwen3-0.6B-4bit",
+      "revision": "73e3e38d981303bc594367cd910ea6eb48349da8",
+      "started_at": "2026-10-03T14:53:27.335Z",
+      "completed_at": "2026-10-03T14:55:53.359Z",
+      "world_size": 2,
+      "sharded_layers": 196,
+      "single_baseline": [
+        {
+          "name": "英文短句",
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 21,
+            "completion_tokens": 2,
+            "total_tokens": 23
+          },
+          "elapsed_ms": 69
+        },
+        {
+          "name": "中文多輪",
+          "content": "藍色松鼠",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 51,
+            "completion_tokens": 4,
+            "total_tokens": 55
+          },
+          "elapsed_ms": 38
+        },
+        {
+          "name": "48 Token 輸出",
+          "content": "紅色小鳥在林間飛舞，腳尖輕盈地掠過枝葉，眼神中帶著尋求的熱情。它飛過樹梢，尋找隱藏的草叢，時而停在",
+          "reasoning": "",
+          "finish_reason": "length",
+          "usage": {
+            "prompt_tokens": 41,
+            "completion_tokens": 48,
+            "total_tokens": 89
+          },
+          "elapsed_ms": 147
+        }
+      ],
+      "cluster_first_reply": {
+        "content": "Ring ready",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 2,
+          "total_tokens": 23
+        },
+        "elapsed_ms": 13500
+      },
+      "cluster_first_reply_mode": "非串流",
+      "completed_cluster_requests": 1,
+      "attempted_cluster_requests": 2,
+      "subsequent_failure": {
+        "request": "中文多輪非串流",
+        "native_operation_deadline_ms": 120000,
+        "phase": "線性運算／輸出匯集",
+        "layer": 121,
+        "input_shape": [
+          1,
+          51,
+          1024
+        ],
+        "dtype": "bfloat16",
+        "http_status": 502
+      },
+      "passed": false,
+      "cleanup_completed": true
+    },
+    {
+      "model": "lmstudio-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "c43ee1d65576a5d98de1e8405cac93c371a655c1",
+      "started_at": "2026-10-03T14:58:22.190Z",
+      "completed_at": "2026-10-03T15:01:04.380Z",
+      "world_size": 2,
+      "sharded_layers": 346,
+      "single_baseline": [
+        {
+          "name": "英文短句",
+          "content": "Ring ready",
+          "reasoning": "",
+          "finish_reason": "stop",
+          "usage": {
+            "prompt_tokens": 21,
+            "completion_tokens": 2,
+            "total_tokens": 23
+          },
+          "elapsed_ms": 165
+        }
+      ],
+      "cluster_first_reply": {
+        "content": "Ring ready",
+        "reasoning": "",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 2,
+          "total_tokens": 23
+        },
+        "elapsed_ms": 18292
+      },
+      "cluster_first_reply_mode": "SSE",
+      "first_content_ms": 10157,
+      "sse_done_received": true,
+      "completed_cluster_requests": 1,
+      "attempted_cluster_requests": 2,
+      "subsequent_failure": {
+        "request": "與 SSE 相同提示的非串流",
+        "native_operation_deadline_ms": 120000,
+        "phase": "線性運算／輸出匯集",
+        "layer": 2,
+        "input_shape": [
+          1,
+          21,
+          2560
+        ],
+        "dtype": "bfloat16",
+        "http_status": 502
+      },
+      "passed": false,
+      "cleanup_completed": true
+    }
+  ],
+  "http_static_control": {
+    "started_at": "2026-10-03T14:56:27.618Z",
+    "completed": true,
+    "duration_ms": 23627,
+    "received_bytes": 138413898,
+    "persistent_count": 128,
+    "fresh_count": 5,
+    "persistent_reused": 127,
+    "failures": 0
+  },
+  "gguf_sync": {
+    "model": "Qwen3.5-4B-Q4_0.gguf",
+    "mode": "一般 GGUF，使用發起端已轉換的模型快取",
+    "started_at": "2026-10-03T15:04:19.863Z",
+    "completed_at": "2026-10-03T15:07:38.981Z",
+    "local_conversion_cache_hit": true,
+    "single_baseline": {
+      "content": "Ring ready",
+      "reasoning": "",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 2,
+        "total_tokens": 23
+      },
+      "elapsed_ms": 202
+    },
+    "planned_bytes": 4791391597,
+    "last_received_bytes": 494346696,
+    "cluster_inference_started": false,
+    "error": "180 秒模型準備期限到達，同步未完成。",
+    "progress_window_ms": 20154,
+    "progress_window_bytes": 9500,
+    "observed_bytes_per_second": 471,
+    "samples": [
+      {
+        "at": "2026-10-03T15:06:01.842Z",
+        "bytes_done": 494301196,
+        "mss": 500,
+        "send_pending": 1808148,
+        "send_buffer": 1808148,
+        "receive_pending": 0,
+        "health_status": 200
+      },
+      {
+        "at": "2026-10-03T15:06:05.840Z",
+        "bytes_done": 494303196,
+        "mss": 500,
+        "send_pending": 1806148,
+        "send_buffer": 1806148,
+        "receive_pending": 0,
+        "health_status": 200
+      },
+      {
+        "at": "2026-10-03T15:06:09.844Z",
+        "bytes_done": 494304696,
+        "mss": 500,
+        "send_pending": 1804148,
+        "send_buffer": 1804148,
+        "receive_pending": 0,
+        "health_status": 200
+      },
+      {
+        "at": "2026-10-03T15:06:13.849Z",
+        "bytes_done": 494307196,
+        "mss": 500,
+        "send_pending": 1802148,
+        "send_buffer": 1802148,
+        "receive_pending": 0,
+        "health_status": 200
+      },
+      {
+        "at": "2026-10-03T15:06:17.862Z",
+        "bytes_done": 494308696,
+        "mss": 500,
+        "send_pending": 1800648,
+        "send_buffer": 1800648,
+        "receive_pending": 0,
+        "health_status": 200
+      },
+      {
+        "at": "2026-10-03T15:06:21.996Z",
+        "bytes_done": 494310696,
+        "mss": 500,
+        "send_pending": 1798648,
+        "send_buffer": 1798648,
+        "receive_pending": 0,
+        "health_status": 200
+      }
+    ],
+    "tcp_observation": {
+      "first": {
+        "at": "2026-10-03T15:06:01.780Z",
+        "bytes_out": 496205423,
+        "retransmitted_bytes": 1136660,
+        "peer_receive_window_bytes": 1661888
+      },
+      "last": {
+        "at": "2026-10-03T15:06:12.789Z",
+        "bytes_out": 496227423,
+        "retransmitted_bytes": 1158660,
+        "peer_receive_window_bytes": 1661824
+      },
+      "sample_count": 12,
+      "note": "本機 nettop 累積傳送量包含重傳，不等於接收端已驗證的模型 bytes；不是封包擷取。"
+    },
+    "cleanup_completed": true
+  },
+  "not_completed": [
+    "Qwen3 後續雙機 48 Token 與 SSE",
+    "實體雙機圖片推論",
+    "GGUF 雙機推論",
+    "Fast GGUF",
+    "DFlash",
+    "MTP",
+    "有線區網／Thunderbolt Bridge 對照",
+    "JACCL RDMA"
+  ],
+  "conclusion": "短請求與一次 HTTP 測量通過不能代表整輪驗收。MLX 之外的模型同步亦出現降速、重傳及塞滿的傳送緩衝區；仍需不同網路路徑對照，尚未鎖定根因。",
+  "final_state_verification": {
+    "checked_at": "2026-10-03T15:11:10.203Z",
+    "states": [
+      {
+        "running": false,
+        "ready": false,
+        "desired_running": false
+      },
+      {
+        "running": false,
+        "ready": false,
+        "desired_running": false
+      }
+    ],
+    "cluster_removed": true,
+    "temporary_profiles_removed": true
+  }
+}

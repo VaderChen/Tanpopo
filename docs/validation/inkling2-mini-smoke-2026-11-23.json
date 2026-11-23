@@ -1,0 +1,245 @@
+{
+  "date": "2026-11-23",
+  "status": "通過",
+  "scope": "Inkling-2-Mini 的 GGUF 與 Swift MLX 單機功能驗證",
+  "environment": {
+    "os": "macOS 27.2.1",
+    "processor": "Apple M4 Pro",
+    "memory_bytes": 68719476736,
+    "backend": "Metal",
+    "python_runtime": false
+  },
+  "runtime": {
+    "version": "custom-d2bceda3de6d-openloader.3-qwen4mtp2-inkling2mini1",
+    "upstream_commit": "d2bceda3de6d61429b885f4f012bc983c6dcfd50",
+    "additional_upstream_fix": "https://github.com/ggml-org/llama.cpp/pull/32807",
+    "binary_sha256": "cba3cdb4ac276d49fd7a680bc3eab43cb28f694fc172b7c008aefbc78f448353"
+  },
+  "model": {
+    "repository": "ggml-org/Inkling-2-Mini-GGUF",
+    "revision": "e8a2cecf0e78914f07cc27b9be711a9b2c7561d9",
+    "architecture": "inkling2_loop",
+    "filename": "Inkling-2-Mini-IQ4_NL.gguf",
+    "bytes": 17627940768,
+    "sha256": "cbdf3fa9dc50a4124977980f37da4f1fa764b0cfe800d275cd43d26ce2a81af4",
+    "projector": "mmproj-Inkling-2-Mini-Q8_0.gguf",
+    "projector_bytes": 345910944,
+    "projector_sha256": "233287272ec5ac39b4168677aba54a4c024f202410f5629fac1830e1059f8abb"
+  },
+  "launch": {
+    "profile": "inkling2-mini",
+    "context": 8192,
+    "parallel": 1,
+    "batch": 128,
+    "ubatch": 64,
+    "mmap": true,
+    "gpu_layers": -1
+  },
+  "build_checks": [
+    {
+      "command": "cmake --build .cache/inkling2-mini-20261123/project-build --target llama-server test-llama-archs -j 8",
+      "passed": true
+    },
+    {
+      "command": "go build -buildvcs=false ./...",
+      "passed": true
+    },
+    {
+      "command": "go test -buildvcs=false ./src/download ./src/startupcommand ./src/llamacpp ./src/api",
+      "passed": true,
+      "note": "分兩組執行這四個套件；包含下載別名、分片與 mmproj、啟動設定遷移及既有回歸檢查。"
+    },
+    {
+      "command": "node --check website/assets/download.js",
+      "passed": true
+    }
+  ],
+  "frontend_smoke": {
+    "passed": true,
+    "checks": [
+      ".gguf 與 .gguf_file 可見",
+      "快速選單保留指定 IQ4_NL 檔名、Runtime 與固定 Revision",
+      "實際 Hugging Face 主檔掃描排除 imatrix 與 mmproj"
+    ]
+  },
+  "architecture_smoke": {
+    "command": ".cache/inkling2-mini-20261123/project-build/bin/test-llama-archs -a \"^(inkling2_loop|qwen4exp|qwen35|llama)$\" -s 1 -b MTL0",
+    "passed": true,
+    "cases": 5,
+    "architectures": [
+      "llama Dense",
+      "llama MoE",
+      "qwen35 Dense",
+      "qwen4exp MoE",
+      "inkling2_loop MoE"
+    ],
+    "inkling_metal_vs_cpu_nmse": 3.72e-7,
+    "skipped": [
+      "上游對 inkling2_loop 未執行 cache roundtrip 與 mixed batch 檢查"
+    ]
+  },
+  "chat_parser_smoke": {
+    "command": "test-chat --template inkling",
+    "source_commit": "d2bceda3de6d61429b885f4f012bc983c6dcfd50",
+    "passed": true
+  },
+  "api_checks": [
+    {
+      "name": "主模型 SHA-256",
+      "passed": true
+    },
+    {
+      "name": "投影檔 SHA-256",
+      "passed": true
+    },
+    {
+      "name": "Tanpopo 啟動並就緒",
+      "passed": true,
+      "runtime": "llama-server"
+    },
+    {
+      "name": "缺少 API 金鑰會拒絕",
+      "passed": true
+    },
+    {
+      "name": "金鑰與白名單通過",
+      "passed": true
+    },
+    {
+      "name": "原生文字生成與思考分離",
+      "passed": true,
+      "answer": "42",
+      "has_reasoning": true
+    },
+    {
+      "name": "Tanpopo 簡易對話代理",
+      "passed": true,
+      "answer": "4",
+      "has_reasoning": true
+    },
+    {
+      "name": "Tanpopo SSE 串流",
+      "passed": true,
+      "answer": "OK",
+      "event_count": 69
+    },
+    {
+      "name": "圖片輸入與 mmproj",
+      "passed": true,
+      "answer": "red"
+    },
+    {
+      "name": "工具呼叫解析",
+      "passed": true,
+      "function_name": "get_temperature"
+    }
+  ],
+  "notes": [
+    "文字回覆 42 與思考區段分離；Tanpopo 簡易對話回覆 4；SSE 回覆 OK 且包含結束事件。",
+    "圖片測試使用 Swift 產生的 256×256 純紅色 PNG，模型回覆 red。",
+    "工具測試回傳 get_temperature({\"city\":\"Taipei\"})；未執行任何外部工具。",
+    "API 存取策略在啟動前設定，避免既有 10 秒政策快取影響測試；初次在啟動後立即變更策略的檢查已調整並重跑。",
+    "模型、投影檔與原始日誌保留在 .cache/inkling2-mini-20261123/；測試完成後停止隔離服務。"
+  ],
+  "not_validated": [
+    "Linux／Windows／CUDA／Vulkan",
+    "長 context、完整品質與效能測試",
+    "CPU 專家 offload 的實際大型模型推論",
+    "Qwen4-Exp 外部 MTP 實際權重與接受率"
+  ],
+  "not_implemented": [
+    "Inkling Fast GGUF",
+    "Inkling TCP Ring／RDMA",
+    "Inkling DFlash／MTP"
+  ],
+  "mlx_smoke": {
+    "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11-splash1-qwen4mtp1-disk1-inkling1",
+    "binary_sha256": "2010104b8032cf28a1c5af5c99dcf28116648b084997c249cbee4b567678879a",
+    "configuration": {
+      "context_size": 2048,
+      "temperature": 0,
+      "max_tokens": 160
+    },
+    "models": [
+      {
+        "repository": "mlx-community/Inkling-2-Mini-4bit",
+        "revision": "9c0e2960609ba7cb40daf92c6f7bf8ed56e1dd62",
+        "weight_bytes": 17308326283,
+        "verified_sha256_shards": 4,
+        "requests": [
+          {
+            "label": "text",
+            "text": "4",
+            "reasoningTokensPresent": true,
+            "finish": "stop",
+            "usage": {
+              "prompt_tokens": 28,
+              "completion_tokens": 52,
+              "total_tokens": 80,
+              "tokens_per_second": 25.39816494766247
+            }
+          },
+          {
+            "label": "image",
+            "text": "red",
+            "reasoningTokensPresent": true,
+            "finish": "stop",
+            "usage": {
+              "prompt_tokens": 80,
+              "completion_tokens": 43,
+              "total_tokens": 123,
+              "tokens_per_second": 24.91036760094147
+            }
+          },
+          {
+            "label": "stream",
+            "text": "Paris",
+            "frames": 46
+          }
+        ]
+      },
+      {
+        "repository": "pipenetwork/Inkling-2-Mini-MLX-8bit",
+        "revision": "685a389626af79520257d5dbc4bf493eb645182d",
+        "weight_bytes": 18094487911,
+        "verified_sha256_shards": 4,
+        "requests": [
+          {
+            "label": "text",
+            "text": "4",
+            "reasoningTokensPresent": true,
+            "finish": "stop",
+            "usage": {
+              "tokens_per_second": 20.804818391939623,
+              "completion_tokens": 52,
+              "total_tokens": 80,
+              "prompt_tokens": 28
+            }
+          },
+          {
+            "label": "image",
+            "text": "Red",
+            "reasoningTokensPresent": true,
+            "finish": "stop",
+            "usage": {
+              "tokens_per_second": 22.989910808488247,
+              "completion_tokens": 41,
+              "total_tokens": 121,
+              "prompt_tokens": 80
+            }
+          },
+          {
+            "label": "stream",
+            "text": "Paris",
+            "frames": 46
+          }
+        ]
+      }
+    ],
+    "additional_checks": [
+      "本機及 Local_AMD1 下載選單的 GGUF、MLX Q4／Q8 項目與指定 revision",
+      "Local_AMD1 的下載 API 列出指定的兩個 Unsloth 根目錄 GGUF",
+      "原生 Swift 串流測試區分思考與答案，僅送出已結束的工具呼叫"
+    ]
+  }
+}

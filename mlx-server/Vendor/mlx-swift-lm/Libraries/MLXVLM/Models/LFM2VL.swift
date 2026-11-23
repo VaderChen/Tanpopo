@@ -440,7 +440,7 @@ private enum Language {
         }
 
         func callAsFunction(_ x: MLXArray) -> MLXArray {
-            w2(silu(w1(x)) * w3(x))
+            w2(compiledSiluProduct(w1(x), w3(x)))
         }
     }
 

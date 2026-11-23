@@ -85,8 +85,13 @@ private func create<C: Decodable, P>(
 /// Typically called via ``VLMModelFactory/load(from:using:configuration:useLatest:progressHandler:)``.
 public enum VLMTypeRegistry {
 
+    /// 這些模型直接從一般模型設定建立影像前處理器。
+    public static let processorsUsingModelConfig = ["inkling2_loop": "Inkling2Processor"]
+
+
     /// Shared instance with default model types.
     public static let shared: ModelTypeRegistry<LanguageModel> = .init(creators: [
+        "inkling2_loop": create(Inkling2Configuration.self, Inkling2.init),
         "paligemma": create(PaliGemmaConfiguration.self, PaliGemma.init),
         "qwen2_vl": create(Qwen2VLConfiguration.self, Qwen2VL.init),
         "qwen2_5_vl": create(Qwen25VLConfiguration.self, Qwen25VL.init),
@@ -112,6 +117,7 @@ public enum VLMProcessorTypeRegistry {
 
     /// Shared instance with default processor types.
     public static let shared: ProcessorTypeRegistry = .init(creators: [
+        "Inkling2Processor": create(Inkling2ProcessorConfiguration.self, Inkling2Processor.init),
         "PaliGemmaProcessor": create(
             PaliGemmaProcessorConfiguration.self, PaliGemmaProcessor.init),
         "Qwen2VLProcessor": create(
@@ -393,7 +399,7 @@ public final class VLMModelFactory: GenericModelFactory {
         // but the config file is small and model loading is not a high-concurrency path.
         async let tokenizerTask = tokenizerLoader.load(
             from: configuration.tokenizerDirectory)
-        async let processorConfigTask = loadProcessorConfig(from: modelDirectory)
+        async let processorConfigTask = loadProcessorConfig(from: modelDirectory, modelType: baseConfig.modelType, configData: configData)
 
         try loadWeights(
             modelDirectory: modelDirectory, model: model,
@@ -457,9 +463,12 @@ private struct ProcessorConfigError: Error {
 /// Loads processor configuration, preferring preprocessor_config.json over processor_config.json.
 /// Marked async to enable parallel scheduling via async let, though the underlying I/O is synchronous.
 /// Throws ProcessorConfigError wrapping any underlying error with the filename.
-private func loadProcessorConfig(from modelDirectory: URL) async throws -> (
+private func loadProcessorConfig(from modelDirectory: URL, modelType: String, configData: Data) async throws -> (
     Data, BaseProcessorConfiguration
 ) {
+    if let processor = VLMTypeRegistry.processorsUsingModelConfig[modelType] {
+        return (configData, BaseProcessorConfiguration(processorClass: processor))
+    }
     let processorConfigURL = modelDirectory.appending(component: "processor_config.json")
     let preprocessorConfigURL = modelDirectory.appending(component: "preprocessor_config.json")
     let url =

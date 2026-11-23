@@ -124,6 +124,19 @@ func (m *Manager) startLocked(
 		return m.status, errors.New("模型服務已在執行中；請先停止目前模型")
 	}
 	settings := m.settings()
+	diskEnabled, _, diskErr := diskOffloadMode(startupCommand)
+	if diskErr != nil {
+		return m.status, diskErr
+	}
+	if diskEnabled && managedRing {
+		return m.status, errors.New("磁碟輔助模式目前不能與 TCP Ring 同時啟用")
+	}
+	if diskEnabled && startupCommand.Runtime == domain.RuntimeLlamaServer {
+		mmapEnabled = true
+		if startupCommand.MMapReserveGB == 0 {
+			startupCommand.MMapReserveGB = 4
+		}
+	}
 	if startupCommand.ClusterGGUFStrategy != "" {
 		settings.DefaultFastGGUFStrategy = startupCommand.ClusterGGUFStrategy
 	}
@@ -139,10 +152,20 @@ func (m *Manager) startLocked(
 	if !kvCacheQuantizationEnabled {
 		startupCommand.KVCacheQuantization = domain.KVCacheQuantizationNone
 	}
-	mtpEnabled := startupCommand.Runtime == domain.RuntimeMLXServer &&
-		hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
+	mtpEnabled := usesMTP(startupCommand)
 	embeddedMTPTarget := false
-	if mtpEnabled {
+	if mtpEnabled && startupCommand.Runtime == domain.RuntimeLlamaServer && strings.TrimSpace(draftModel) == "" {
+		path, err := resolveModelFile(settings.ModelDirectory, model, "模型")
+		if err != nil {
+			return m.status, err
+		}
+		profile, err := readGGUFModelProfile(path)
+		if err != nil {
+			return m.status, err
+		}
+		embeddedMTPTarget = profile.NextNPredictLayers > 0 && !profile.MTPDraft
+	}
+	if mtpEnabled && startupCommand.Runtime == domain.RuntimeMLXServer && strings.TrimSpace(draftModel) == "" {
 		modelArgument, isGGUF, err := resolveMLXTargetModel(settings, model, "模型")
 		if err != nil {
 			return m.status, err
@@ -165,7 +188,7 @@ func (m *Manager) startLocked(
 	}
 	if (dflashEnabled || mtpEnabled) && startupCommand.Runtime == domain.RuntimeMLXServer {
 		startupCommand.ExtraArgs = withoutDraftModelArguments(startupCommand.ExtraArgs)
-	} else {
+	} else if !mtpEnabled {
 		startupCommand.ExtraArgs = withoutDFlashArguments(startupCommand.ExtraArgs)
 	}
 	startupCommand.DraftModel = ""
@@ -198,6 +221,7 @@ func (m *Manager) startLocked(
 			return m.status, protectionErr
 		}
 	}
+	mtpEnabled = usesMTP(startupCommand)
 	conversionExpected := false
 	if startupCommand.Runtime == domain.RuntimeMLXServer && !skipGGUFConversionCache {
 		inspectionContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -207,6 +231,9 @@ func (m *Manager) startLocked(
 		cancel()
 		if inspectionErr != nil {
 			return m.status, fmt.Errorf("無法判斷 GGUF 是否需要轉換: %w", inspectionErr)
+		}
+		if inspection.RequiresConversion && diskEnabled {
+			return m.status, errors.New("磁碟模式需要已完成轉換的 Fast GGUF；請先轉換，或使用 safetensors／llama-server")
 		}
 		if inspection.RequiresConversion &&
 			strings.TrimSpace(conversionConfirmationKey) != inspection.CacheKey &&
@@ -240,7 +267,9 @@ func (m *Manager) startLocked(
 	}
 	m.status.DesiredRunning = true
 	m.status.DFlashEnabled = dflashEnabled
-	if m.status.DraftModel == "" {
+	if mtpEnabled {
+		m.status.DraftKind = "mtp"
+	} else if m.status.DraftModel == "" {
 		m.status.DraftKind = ""
 	} else if dflashEnabled {
 		m.status.DraftKind = "dflash"
@@ -298,7 +327,7 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	if err != nil {
 		return m.status, err
 	}
-	if isGGUFDFlashDraft(modelPath) {
+	if isGGUFDFlashDraft(modelPath) || isGGUFMTPDraft(modelPath) {
 		return m.status, errors.New("DFlash Draft 模型不可作為 Target 模型啟動")
 	}
 	var mmprojPath string
@@ -310,14 +339,18 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 	}
 	var draftModelPath string
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
-		if !isSupportedGGUFDFlashTarget(modelPath) {
+		if !usesMTP(startupCommand) && !isSupportedGGUFDFlashTarget(modelPath) {
 			return m.status, errors.New("目前 Target GGUF 架構不支援 DFlash")
 		}
 		draftModelPath, err = resolveModelFile(settings.ModelDirectory, draftModel, "Draft 模型")
 		if err != nil {
 			return m.status, err
 		}
-		if !isGGUFDFlashDraft(draftModelPath) {
+		if usesMTP(startupCommand) {
+			if err := validateGGUFMTPPair(modelPath, draftModelPath); err != nil {
+				return m.status, err
+			}
+		} else if !isGGUFDFlashDraft(draftModelPath) {
 			return m.status, errors.New("指定的 Draft GGUF 不是 DFlash Draft 架構")
 		}
 		if draftModelPath == modelPath {
@@ -331,6 +364,9 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		startupCommand.KVCacheQuantization,
 	)
 	args = withoutModelLoadModeArguments(args)
+	if enabled, _, _ := diskOffloadMode(startupCommand); enabled {
+		args = withLlamaDiskOffloadArguments(args)
+	}
 	managedMMapReserve := mmapEnabled && startupCommand.MMapReserveGB > 0
 	if managedMMapReserve {
 		args = withoutMMapMemoryArguments(args)
@@ -396,6 +432,9 @@ func (m *Manager) startLlamaLocked(settings domain.Settings, model, mmproj strin
 		MMProj:         filepath.ToSlash(strings.TrimSpace(mmproj)),
 		DraftModel:     filepath.ToSlash(strings.TrimSpace(startupCommand.DraftModel)),
 		DraftKind: func() string {
+			if usesMTP(startupCommand) {
+				return "mtp"
+			}
 			if strings.TrimSpace(startupCommand.DraftModel) != "" {
 				return "dflash"
 			}
@@ -451,7 +490,7 @@ func (m *Manager) startMLXLocked(
 	if fastGGUFEnabled && !isGGUF {
 		return m.status, errors.New("快速GGUF模式只適用於 mlx-server 載入 GGUF")
 	}
-	if (isGGUF && isGGUFDFlashDraft(modelArgument)) ||
+	if (isGGUF && (isGGUFDFlashDraft(modelArgument) || isGGUFMTPDraft(modelArgument))) ||
 		(!isGGUF && (isMLXDFlashDraftDirectory(modelArgument) || isMLXMTPDraftDirectory(modelArgument))) {
 		return m.status, errors.New("Draft 模型不可作為 Target 模型啟動")
 	}
@@ -460,7 +499,7 @@ func (m *Manager) startMLXLocked(
 	var draftModelArgument string
 	var draftKind string
 	mtpEnabled := hasAnyArgument(startupCommand.ExtraArgs, "--mtp-draft", "--mtp-block-size")
-	if mtpEnabled && isGGUF {
+	if mtpEnabled && isGGUF && strings.TrimSpace(startupCommand.DraftModel) == "" {
 		if isFastGGUFManifestPath(modelArgument) {
 			return m.status, errors.New("Fast GGUF fallback 目前不支援內嵌 MTP；請停用 MTP 後啟動")
 		}
@@ -470,29 +509,45 @@ func (m *Manager) startMLXLocked(
 		draftKind = "mtp"
 	}
 	if draftModel := strings.TrimSpace(startupCommand.DraftModel); draftModel != "" {
-		if isGGUF {
-			return m.status, errors.New("GGUF Target 目前不支援 MLX Draft 推測解碼；請搭配 MLX safetensors Target")
-		}
-		draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "MLX Draft 模型")
-		if err != nil {
-			return m.status, err
-		}
-		switch {
-		case isSupportedMLXMTPDraftDirectory(draftModelArgument):
-			draftKind = "mtp"
-			if !isSupportedMLXMTPTargetDirectory(modelArgument) {
-				return m.status, errors.New("目前 Target MLX 模型架構不支援 MTP")
-			}
-			if err := validateMLXMTPPair(modelArgument, draftModelArgument); err != nil {
+		if mtpEnabled && strings.HasPrefix(draftModel, mlxGGUFPathPrefix) {
+			draftModelArgument, err = resolveModelFile(settings.ModelDirectory, strings.TrimPrefix(draftModel, mlxGGUFPathPrefix), "MTP Draft")
+			if err != nil {
 				return m.status, err
 			}
-		case isSupportedMLXDFlashDraftDirectory(draftModelArgument):
-			draftKind = "dflash"
-			if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
-				return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
+			if !isGGUFMTPDraft(draftModelArgument) {
+				return m.status, errors.New("指定檔案不是 MTP Draft")
 			}
-		default:
-			return m.status, errors.New("指定的 MLX Draft 不是 Runtime 支援的 DFlash 或 MTP 模型")
+			if isGGUF && !isFastGGUFManifestPath(modelArgument) {
+				if err := validateGGUFMTPPair(modelArgument, draftModelArgument); err != nil {
+					return m.status, err
+				}
+			}
+			draftKind = "mtp"
+		} else {
+			if isGGUF {
+				return m.status, errors.New("GGUF Target 目前不支援 MLX Draft 推測解碼；請搭配 MLX safetensors Target")
+			}
+			draftModelArgument, err = resolveMLXModel(settings.MLXModelDirectory, draftModel, "MLX Draft 模型")
+			if err != nil {
+				return m.status, err
+			}
+			switch {
+			case isSupportedMLXMTPDraftDirectory(draftModelArgument):
+				draftKind = "mtp"
+				if !isSupportedMLXMTPTargetDirectory(modelArgument) {
+					return m.status, errors.New("目前 Target MLX 模型架構不支援 MTP")
+				}
+				if err := validateMLXMTPPair(modelArgument, draftModelArgument); err != nil {
+					return m.status, err
+				}
+			case isSupportedMLXDFlashDraftDirectory(draftModelArgument):
+				draftKind = "dflash"
+				if !isSupportedMLXDFlashTargetDirectory(modelArgument) {
+					return m.status, errors.New("目前 Target MLX 模型架構不支援 DFlash")
+				}
+			default:
+				return m.status, errors.New("指定的 MLX Draft 不是 Runtime 支援的 DFlash 或 MTP 模型")
+			}
 		}
 		if draftModelArgument == modelArgument {
 			return m.status, errors.New("Draft 模型不可與 Target 模型相同")
@@ -658,6 +713,9 @@ func resolveMLXTargetSelection(
 		return mlxTargetSelection{}, errors.New("GGUF 缺少 general.architecture，無法交由 mlx-server 載入")
 	}
 	if selection.statusMMProj != "" {
+		if architecture == "qwen4exp" {
+			return mlxTargetSelection{}, errors.New("原生 MLX Qwen4-Exp 目前支援文字推論，請清除 mmproj；影像輸入請使用 llama-server")
+		}
 		selection.mmprojArgument, err = resolveMLXGGUFFile(
 			settings.ModelDirectory, mmproj, "mmproj",
 		)
@@ -1400,7 +1458,7 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 			}
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") {
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".gguf") || isSecondaryGGUFShard(entry.Name()) {
 			return nil
 		}
 		info, err := entry.Info()
@@ -1422,6 +1480,7 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 		}
 		architecture := normalizeModelArchitecture(profile.Architecture)
 		isDraft := architecture == "dflash"
+		isMTP := profile.MTPDraft
 		result = append(result, domain.ModelFile{
 			Path:            filepath.ToSlash(relative),
 			Format:          "gguf",
@@ -1431,7 +1490,8 @@ func ListModels(directory string) ([]domain.ModelFile, error) {
 			DFlashSupported: !isDraft && isSupportedDFlashTargetArchitecture(architecture),
 			DFlashDraft:     isDraft,
 			DFlashVariant:   ggufDFlashVariant(entry.Name(), isDraft),
-			MTPSupported:    !isDraft && profile.NextNPredictLayers > 0 && canonicalMLXGGUFArchitecture(architecture) == "qwen35",
+			MTPSupported:    !isDraft && !isMTP && (architecture == "qwen4exp" || (profile.NextNPredictLayers > 0 && canonicalMLXGGUFArchitecture(architecture) == "qwen35")),
+			MTPDraft:        isMTP,
 			MTPEmbedded:     !isDraft && profile.NextNPredictLayers > 0 && canonicalMLXGGUFArchitecture(architecture) == "qwen35",
 		})
 		if len(result) >= 5000 {
@@ -1479,7 +1539,7 @@ func ListMLXRuntimeModels(mlxDirectory, ggufDirectory string) ([]domain.ModelFil
 		}
 		ggufModels = append(ggufModels, fallbackModels...)
 		for _, model := range ggufModels {
-			if model.DFlashDraft {
+			if model.DFlashDraft || model.MTPDraft {
 				continue
 			}
 			model.RuntimeUntested = !isMMProjGGUF(model.Path) &&
@@ -2666,7 +2726,7 @@ func (configuration mlxModelConfiguration) effectiveTextConfiguration() mlxModel
 
 func isMLXMTPDraftConfiguration(configuration mlxModelConfiguration) bool {
 	switch normalizeModelArchitecture(configuration.ModelType) {
-	case "qwen3_5_mtp", "gemma4_assistant":
+	case "qwen4_exp_mtp", "qwen3_5_mtp", "gemma4_assistant":
 		return true
 	default:
 		return false
@@ -2686,7 +2746,7 @@ func isSupportedMLXMTPConfiguration(configuration mlxModelConfiguration) bool {
 		return false
 	}
 	switch normalizeModelArchitecture(configuration.ModelType) {
-	case "qwen3_5", "qwen3_5_moe", "qwen3_5_text", "qwen3_5_moe_text", "gemma4", "gemma4_text":
+	case "qwen4_exp", "qwen4_exp_text", "qwen3_5", "qwen3_5_moe", "qwen3_5_text", "qwen3_5_moe_text", "gemma4", "gemma4_text":
 		return true
 	default:
 		return false
@@ -2749,6 +2809,13 @@ func validateMLXMTPPair(targetDirectory, draftDirectory string) error {
 		return nil
 	}
 
+	if draftType == "qwen4_exp_mtp" {
+		if targetType != "qwen4_exp" && targetType != "qwen4_exp_text" {
+			return errors.New("Qwen4 MTP 需要 Qwen4 Target")
+		}
+		// Swift 載入時再以完整 HC、QSA、MoE 設定驗證。
+		return nil
+	}
 	if draftType != "qwen3_5_mtp" ||
 		(targetType != "qwen3_5" && targetType != "qwen3_5_moe" &&
 			targetType != "qwen3_5_text" && targetType != "qwen3_5_moe_text") {

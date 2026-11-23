@@ -104,7 +104,7 @@ class Exaone4MLP: Module, UnaryLayer {
     }
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
-        down(silu(gate(x)) * up(x))
+        down(compiledSiluProduct(gate(x), up(x)))
     }
 }
 

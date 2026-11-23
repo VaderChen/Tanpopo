@@ -2,13 +2,17 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[Latest release: 1.26.1003 build 2049](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1003-build-2049) — generic cluster formats and function-level optimizations; native Runtime `rdma11`.
+[Latest release · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+
+Open **Model downloads → Popular models → 30B class** and select Inkling-2-Mini. Choose **UD-Q4_K_XL** or **UD-Q8_K_XL** for llama-server. On Apple Silicon, choose **4-bit MLX** or **8-bit MLX** for native text and image inference. Both MLX checkpoints passed text, image and streaming smoke tests on an M4 Pro. [Inkling setup and validation](docs/INKLING2-MINI.md)
 
 Tanpopo is a local model service manager written in Go. Its name is the Japanese word for dandelion (たんぽぽ): generated tokens spread outward like dandelion seeds. It manages a cross-platform `llama-server` for GGUF models and a native Swift/MLX `mlx-server` on Apple Silicon.
 
 ![Tanpopo TCP Ring discovery, multi-select pairing and streaming chat demo](images/tanpopo-demo.gif)
 
 DEMO uses simulated nodes, models and responses in the actual UI; it is not a speed benchmark or a physical RDMA test. [Distributed inference guide (繁體中文)](docs/MLX-RDMA.md) · [Recreate the demo](scripts/readme-demo/README.md)
+
+The disk-assisted launch profiles use a bounded weight cache for MLX and mmap with automatic GPU placement for llama-server. Small synthetic fixtures have been tested. [Disk-assisted inference and validation limits](docs/DISK-ASSISTED-INFERENCE.md)
 
 ## Highlights
 
@@ -107,6 +111,8 @@ The strategy applies without per-model special cases and helps most GGUF models 
 
 For mlx-server, enabling KV Cache quantization applies the profile's Q8 or Q4 mode with a group size of 64 and delayed quantization after 2,048 tokens. The profile Context Size becomes the quantized KV Cache limit.
 
+Qwen3.8-Flash-Next (`qwen4exp`) adds MTP code paths for llama-server and Swift MLX, including split GGUF files and external shared drafts. The MLX text path uses greedy sampling and a block size of two. Validation covers compilation and static checks. [Implementation and validation scope](docs/QWEN4-EXP-MTP.md)
+
 KV Cache, MMap, DFlash, and MTP are first-class Tanpopo features rather than undocumented command-line flags. Settings persist model-feature defaults, launch profiles define detailed parameters, and the runtime page can override them for one load. The backend validates incompatible combinations, builds the runtime arguments, persists state, and reports failures to the UI.
 
 Supported compatibility endpoints include:
@@ -138,17 +144,13 @@ The MLX runtime specification requires multi-user support, with a current limit 
 
 Non-streaming context or estimated-memory violations return HTTP 413, and memory-pressure violations during inference return HTTP 503. Errors after SSE starts are reported through SSE error events rather than successful completion. See the [MLX runtime specification](docs/MLX-RUNTIME-SPEC.md) and [API latency and cancellation troubleshooting](docs/MLX-RUNTIME-TROUBLESHOOTING.md), both in Traditional Chinese. These request-time checks are separate from the optional pre-launch memory pressure protection described below.
 
-## MLX 分散推論（實驗功能）
+## Distributed MLX inference (experimental)
 
-在各台 Apple Silicon Mac 開啟「執行狀態 → TCP Ring 叢集 → 搜尋節點」，由發起端選擇模型與一般 MLX 參數，勾選節點後按「配對並啟用」。系統會切換各台單機服務、核對完整模型內容，缺少或內容不同時自動向發起端下載獨立副本；相同內容可使用不同資料夾名稱。卡片顯示核對／下載進度，任一端停止會取消並清理整組。原有模型不會被覆寫。
+TCP Ring supports two to eight Apple Silicon Macs. JACCL RDMA uses two. Update participating servers to the same runtime. In the TCP Ring panel, discover the nodes, select the target model and peers, then pair and enable them. The initiating server checks model contents and sends a separate copy to peers when necessary. [Setup, protocol and validation](docs/MLX-RDMA.md)
 
-TCP Ring 支援 2–8 台，JACCL RDMA 維持兩台。各台需更新支援模型同步的 Server，並使用同一份原生 Runtime（本次原始碼版本尾碼 `rdma11`）。文字與影像模型共用原生註冊表及通用線性層分片；Qwen3.5 真實影像模型已通過同機雙 Server 的單機／叢集回答、Token 數與串流一致性檢查。註冊不代表所有 checkpoint 都已驗證，模型仍須通過切分計畫與記憶體檢查。
+Sharding covers compatible safetensors, GGUF, Fast GGUF and speculative decoding configurations. The coordinator runs the draft model and retains responsibility for special layers, experts and KV cache. Discovery and model transfers assume a trusted LAN. Inkling currently uses single-machine inference. [Format and cluster validation](docs/MLX-CLUSTER-FORMATS-VALIDATION.md)
 
-叢集已接入 safetensors、GGUF／Fast GGUF 與相容的 DFlash／MTP；草稿由主節點生成，Target 驗證使用分片。適用範圍與實測紀錄見[格式與推測解碼驗證](docs/MLX-CLUSTER-FORMATS-VALIDATION.md)。特殊層、專家運算、Attention、KV Cache 及直接權重存取仍由主節點負擔，不能把多機記憶體視為完整加總。探索與傳輸適用信任的區域網路；不同實體 Mac 的 Wi-Fi 長請求問題仍待驗證，亦尚未驗收 Thunderbolt RDMA。詳見[設定、協定與 Smoke 指南](docs/MLX-RDMA.md)。
-
-函式級最佳化已加入控制張量、worker 零值緩衝區及模型核對緩衝區的重用，並提供可關閉的耗時量測；前後版比較與 Smoke 紀錄見[最佳化報告](docs/MLX-FUNCTION-OPTIMIZATION.md)。
-
-全專案函式最佳化進一步涵蓋模型索引、GGUF metadata、日誌緩衝、聊天連線池、串流解析／排版及原生 IP 白名單。修改、前後基準與實際 Server 驗證見[全專案函式最佳化報告](docs/PROJECT-FUNCTION-OPTIMIZATION.md)；函式基準不代表整體推論加速比例。
+The runtime reuses control tensors and buffers. Additional changes reduce repeated model indexing, metadata reads and streaming work. Compatible SwiGLU layers share a fused implementation, and DFlash verification needs fewer intermediate synchronizations. [MLX measurements](docs/MLX-FUNCTION-OPTIMIZATION.md) · [Project benchmarks](docs/PROJECT-FUNCTION-OPTIMIZATION.md) · [Splash implementation notes](docs/SPLASH-MLX-OPTIMIZATION.md)
 
 ## Settings and model management
 

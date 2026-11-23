@@ -120,7 +120,7 @@ enum MLXGGUFConversionCache {
         recurrentPromotion: GGUFRecurrentPromotionPolicy,
         storageSignature: String
     ) throws -> Plan {
-        var sources = [try sourceIdentity(role: "model", url: weightURL)]
+        var sources = try MLXGGUFLoader.sourceURLs(from: weightURL).map { try sourceIdentity(role: "model", url: $0) }
         if let mmprojURL {
             sources.append(try sourceIdentity(role: "mmproj", url: mmprojURL))
         }
@@ -200,7 +200,7 @@ enum MLXGGUFConversionCache {
                     expectedCacheKey: plan.key,
                     memoryMapped: memoryMapped
                 )
-            } else if memoryMapped {
+            } else if memoryMapped && !DiskWeightLoading.enabled {
                 (shardWeights, _) = try MemoryMappedSafetensors.loadArraysAndMetadata(from: shardURL)
             } else {
                 shardWeights = try loadArrays(url: shardURL)

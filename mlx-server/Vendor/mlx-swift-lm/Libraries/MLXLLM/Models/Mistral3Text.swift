@@ -126,7 +126,7 @@ class Mistral3MLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        return down(silu(gate(x)) * up(x))
+        return down(compiledSiluProduct(gate(x), up(x)))
     }
 }
 

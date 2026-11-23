@@ -1,0 +1,69 @@
+{
+  "date": "2026-11-12",
+  "feature": "磁碟輔助大模型推論",
+  "runtime_version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11-splash1-qwen4mtp1-disk1",
+  "status": "編譯與合成資料 Smoke 通過；尚未進行真實超大型模型驗證",
+  "builds": [
+    {
+      "command": "go build -buildvcs=false ./...",
+      "result": "通過"
+    },
+    {
+      "command": "go build -buildvcs=false -o .cache/disk-offload-20261112/Tanpopo ./src/cmd/llamaloader",
+      "result": "通過"
+    },
+    {
+      "command": "bash scripts/build-mlx-server-runtime.sh",
+      "result": "通過",
+      "jaccl_compiled": true,
+      "sha256": "c4e511e011d671fb0bd1e53ca7aed1bf5503da8bbcc561239c1e8350d9eec557"
+    }
+  ],
+  "smoke": [
+    {
+      "command": "TANPOPO_MLX_JACCL=1 LLAMA_LOADER_PREBUILT_METALLIB=1 swift test --package-path mlx-server -c release -Xswiftc -suppress-warnings --filter DiskOffloadTests",
+      "cases": 6,
+      "failures": 0,
+      "coverage": [
+        "浮點／量化線性層",
+        "Embedding、重複索引與共用輸出頭",
+        "MoE 上下投影、排序與未排序路由",
+        "LRU 快取逐出後重讀與預算上限",
+        "完整權重直接存取與非整數索引防護",
+        "超過 2 GiB 偏移的稀疏檔案與大型 Embedding",
+        "小型 view 的巨大來源運算圖估算",
+        "LZFSE 單一及多段輸入緩衝串流解壓",
+        "不足預算拒絕載入"
+      ]
+    },
+    {
+      "command": "go test -buildvcs=false ./src/startupcommand ./src/llamacpp -run 'Test(Disk|LlamaDiskOffload)' -count=1",
+      "cases": 4,
+      "failures": 0,
+      "coverage": [
+        "磁碟旗標與快取數值驗證",
+        "llama 受管旗標轉換",
+        "可用記憶體預算檢查",
+        "設定檔遷移保留自訂參數且不重複新增預設"
+      ]
+    }
+  ],
+  "static_checks": [
+    "node --check website/assets/commands.js",
+    "git diff --check"
+  ],
+  "native_cli": [
+    "mlx-server --version 與 VERSION 一致",
+    "mlx-server --help 包含 --disk-cache-mb、--disk-tile-mb",
+    "llama-server --help 包含 --tensor-read-lazy、--load-mode、--fit-target"
+  ],
+  "limitations": [
+    "未執行真實大型模型、端到端推測解碼或效能基準",
+    "MLX 原始 GGUF 首次轉換需先建立 Fast GGUF 快取",
+    "MLX 磁碟模式未支援原始／內嵌 GGUF MTP 草稿",
+    "磁碟模式與 TCP Ring／RDMA 互斥",
+    "自訂融合層與無法直接按列讀取的大型張量需遵守常駐預算",
+    "權重快取上限不是整體 RAM／VRAM 硬上限"
+  ],
+  "publication": "僅更新工作目錄與開發用 Runtime，未發布 GitHub Release"
+}

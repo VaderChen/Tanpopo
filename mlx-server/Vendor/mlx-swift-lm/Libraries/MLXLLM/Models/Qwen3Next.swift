@@ -25,8 +25,10 @@ private func preciseSwiGLU(_ hiddenStates: MLXArray, gate: MLXArray, x: MLXArray
 final class Qwen3NextRMSNormGated: Module {
     @ParameterInfo(key: "weight") var weight: MLXArray
     let eps: Float
+    let sigmoidGate: Bool
 
-    init(dimensions: Int, eps: Float) {
+    init(dimensions: Int, eps: Float, sigmoidGate: Bool = false) {
+        self.sigmoidGate = sigmoidGate
         self.eps = eps
         self._weight.wrappedValue = MLXArray.ones([dimensions])
         super.init()
@@ -35,7 +37,9 @@ final class Qwen3NextRMSNormGated: Module {
     func callAsFunction(_ hiddenStates: MLXArray, gate: MLXArray? = nil) -> MLXArray {
         var x = MLXFast.rmsNorm(hiddenStates, weight: weight, eps: eps)
         if let gate {
-            x = preciseSwiGLU(hiddenStates, gate: gate, x: x)
+            x = sigmoidGate
+                ? (sigmoid(gate.asType(.float32)) * x.asType(.float32)).asType(hiddenStates.dtype)
+                : preciseSwiGLU(hiddenStates, gate: gate, x: x)
         }
         return x
     }
@@ -134,7 +138,7 @@ final class Qwen3NextMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        downProj(silu(gateProj(x)) * upProj(x))
+        downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
 }
 

@@ -158,8 +158,21 @@ func (m *Manager) ListGGUFFiles(ctx context.Context, request Request) ([]string,
 	return files, nil
 }
 
+// 部分發佈者以 .gguf_file 發佈標準 GGUF。遠端保留原名，落盤時才正規化副檔名。
+func isGGUFFilename(filename string) bool {
+	ext := path.Ext(filename)
+	return strings.EqualFold(ext, ".gguf") || strings.EqualFold(ext, ".gguf_file")
+}
+
+func canonicalGGUFFilename(filename string) string {
+	if strings.EqualFold(path.Ext(filename), ".gguf_file") {
+		return strings.TrimSuffix(filename, path.Ext(filename)) + ".gguf"
+	}
+	return filename
+}
+
 func isPrimaryGGUFFilename(filename string) bool {
-	if filename == "" || !strings.EqualFold(path.Ext(filename), ".gguf") {
+	if filename == "" || !isGGUFFilename(filename) {
 		return false
 	}
 	if _, err := SafeJoin(".", filename); err != nil {
@@ -169,12 +182,13 @@ func isPrimaryGGUFFilename(filename string) bool {
 	segments := strings.Split(normalized, "/")
 	for _, segment := range segments[:len(segments)-1] {
 		switch strings.TrimSpace(segment) {
-		case "draft", "dflash", "mtp", "mmproj":
+		case "draft", "dflash", "mtp", "mmproj", "imatrix":
 			return false
 		}
 	}
 	base := path.Base(normalized)
 	return !strings.Contains(base, "mmproj") &&
+		!strings.Contains(base, "imatrix") &&
 		!strings.HasPrefix(base, "draft-") &&
 		!strings.HasPrefix(base, "dflash-") &&
 		!strings.HasPrefix(base, "mtp-")
@@ -513,7 +527,11 @@ func normalizeRequest(request Request) Request {
 }
 
 func localDestination(request Request) string {
-	return path.Join(request.LocalDirectory, request.Filename)
+	filename := request.Filename
+	if request.Runtime == domain.RuntimeLlamaServer {
+		filename = canonicalGGUFFilename(filename)
+	}
+	return path.Join(request.LocalDirectory, filename)
 }
 
 func modelStorageDirectory(repository, revision, filename string) string {
@@ -1021,7 +1039,7 @@ func selectDFlashGGUF(mainFilename string, info repositoryInfo) string {
 	candidates := make([]string, 0)
 	for _, sibling := range info.Siblings {
 		filename := strings.TrimSpace(strings.ReplaceAll(sibling.Filename, "\\", "/"))
-		if filename == "" || !strings.EqualFold(path.Ext(filename), ".gguf") {
+		if filename == "" || !isGGUFFilename(filename) {
 			continue
 		}
 		if _, err := SafeJoin(".", filename); err != nil {
@@ -1104,12 +1122,13 @@ func mlxFilePriority(filename string) int {
 func selectCompanionFilenames(mainFilename string, info repositoryInfo) []string {
 	mainFilename = strings.TrimSpace(strings.ReplaceAll(mainFilename, "\\", "/"))
 	mainBase := strings.ToLower(path.Base(mainFilename))
-	if strings.Contains(mainBase, "mmproj") || strings.Contains(mainBase, "dflash") {
+	if strings.Contains(mainBase, "mmproj") || strings.Contains(mainBase, "dflash") || strings.HasPrefix(mainBase, "mtp-") {
 		return nil
 	}
 
 	mmprojCandidates := make([]string, 0)
 	dflashCandidates := make([]string, 0)
+	mtpCandidates := make([]string, 0)
 	templateCandidates := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, sibling := range info.Siblings {
@@ -1127,7 +1146,7 @@ func selectCompanionFilenames(mainFilename string, info repositoryInfo) []string
 			templateCandidates = append(templateCandidates, filename)
 			continue
 		}
-		if !strings.EqualFold(path.Ext(filename), ".gguf") {
+		if !isGGUFFilename(filename) {
 			continue
 		}
 		switch {
@@ -1135,10 +1154,23 @@ func selectCompanionFilenames(mainFilename string, info repositoryInfo) []string
 			mmprojCandidates = append(mmprojCandidates, filename)
 		case strings.Contains(base, "dflash"):
 			dflashCandidates = append(dflashCandidates, filename)
+		case strings.HasPrefix(base, "mtp-"):
+			mtpCandidates = append(mtpCandidates, filename)
 		}
 	}
 
-	selected := make([]string, 0, 4)
+	selected := make([]string, 0, 5)
+	if parts := splitGGUFFilenamePattern.FindStringSubmatch(canonicalGGUFFilename(mainFilename)); len(parts) == 4 {
+		for _, sibling := range info.Siblings {
+			other := splitGGUFFilenamePattern.FindStringSubmatch(canonicalGGUFFilename(sibling.Filename))
+			if len(other) == 4 && other[1] == parts[1] && other[3] == parts[3] && sibling.Filename != mainFilename {
+				selected = append(selected, sibling.Filename)
+			}
+		}
+	}
+	if filename := chooseMTPCompanion(mainFilename, mtpCandidates); filename != "" {
+		selected = append(selected, filename)
+	}
 	if filename := chooseBestCompanion(mainFilename, mmprojCandidates); filename != "" {
 		selected = append(selected, filename)
 	}
@@ -1872,3 +1904,37 @@ func (r *progressReader) Flush() {
 	r.report(r.pending)
 	r.pending = 0
 }
+
+// MTP 優先使用 shared Q8 頭，避免重複下載主模型 embedding／輸出頭。
+// 候選只來自主模型 repo；啟動時仍以 GGUF metadata／tensor contract 驗證。
+func chooseMTPCompanion(main string, candidates []string) string {
+	tokens := filenameTokenSet(main)
+	score := func(file string) int {
+		n := 0
+		for token := range filenameTokenSet(file) {
+			if tokens[token] && len(token) > 2 {
+				n += len(token)
+			}
+		}
+		if n == 0 {
+			return -1
+		}
+		lower := strings.ToLower(path.Base(file))
+		if strings.Contains(lower, "-shared-") {
+			n += 10000
+		}
+		if strings.Contains(lower, "q8_0") {
+			n += 1000
+		}
+		return n
+	}
+	best, bestScore := "", -1
+	for _, file := range candidates {
+		if n := score(file); n > bestScore || (n == bestScore && file < best) {
+			best, bestScore = file, n
+		}
+	}
+	return best
+}
+
+var splitGGUFFilenamePattern = regexp.MustCompile(`(?i)^(.*)-([0-9]{5})-of-([0-9]{5})\.gguf$`)

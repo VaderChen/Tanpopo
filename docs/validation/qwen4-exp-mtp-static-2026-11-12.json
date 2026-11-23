@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-12",
+  "scope": "Qwen4-Exp／Qwen3.8-Flash-Next 的 llama-server 與原生 Swift MLX MTP",
+  "validation": "僅建置與靜態標頭／邏輯檢查，未執行模型推論或 Smoke",
+  "sourceRevision": "084c631ac221016019d6e0a863afe92d90edd3b0",
+  "runtimeVersion": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11-splash1-qwen4mtp1",
+  "builds": {
+    "llamaServer": "CMake Release 通過",
+    "mlx": "Swift Release 通過",
+    "tanpopo": "go build -buildvcs=false ./... 通過",
+    "javascript": "node --check 通過",
+    "diff": "git diff --check 通過"
+  },
+  "staticArtifacts": {
+    "mainLayers": 48,
+    "draftLayers": 49,
+    "draftPredictLayers": 1,
+    "mainShardTensorCounts": [
+      0,
+      1223,
+      1
+    ],
+    "draftTensorCount": 32,
+    "pleTable": {
+      "name": "per_layer_token_embd.weight",
+      "dims": [
+        160,
+        320001536
+      ],
+      "type": 20,
+      "offset": 0
+    },
+    "headerSHA256": {
+      "main-header.gguf": "b0d883bb9464021f31074145af74bfc2aa2d4bf0cf506f26f6f5107f4ca6ce17",
+      "part2-header.gguf": "f56dfbedf00b13e5bee027c0528f68edd90d124e6b939abaf74cdc416a1f1151",
+      "part3-header.gguf": "491b3705309c869e6d5e2e1d6c8101db2309b5938b5a9b003ab546243577d4c3",
+      "mtp-header.gguf": "3393070130e3415460c625360c7c3eb3138ebb5fa0968626347de0628a7a5c74"
+    }
+  },
+  "notPerformed": [
+    "模型權重完整下載與載入",
+    "推論／Smoke",
+    "數值等價與接受率測試",
+    "效能與記憶體實測",
+    "雙機／RDMA 測試",
+    "App 安裝與 GitHub Release 發布"
+  ]
+}

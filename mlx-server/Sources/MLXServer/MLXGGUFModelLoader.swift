@@ -65,7 +65,7 @@ struct MLXGGUFArchitectureContract: Equatable, Sendable {
         switch modelType.lowercased() {
         // llama.cpp 的 Qwen Gated Delta Net GGUF 將 ssm_a 保存為
         // -exp(A_log)，而 mlx-swift-lm 的參數契約是 A_log。
-        case "qwen3_5", "qwen3_5_text", "qwen3_next":
+        case "qwen3_5", "qwen3_5_text", "qwen3_next", "qwen4_exp", "qwen4_exp_text":
             Self(stateSpaceParameterEncoding: .negativeExponential)
         default:
             // 未經架構契約確認時保留來源語意，避免把某一架構的公式套到
@@ -570,8 +570,8 @@ enum MLXGGUFLoader {
     static func inspect(from url: URL) throws -> GGUFBackendInspection {
         let inspectionData = try readInspectionData(from: url)
         let layout = inspectionData.layout
-        let fileSize = try fileSize(of: url)
-        let descriptors = layout.tensors.map { tensor in
+        let fileSize = try sourceURLs(from: url).reduce(UInt64(0)) { try $0 + self.fileSize(of: $1) }
+        let descriptors = try readTensorInspectionData(from: url).map { tensor in
             let elementCount = (try? checkedProduct(tensor.dimensions)) ?? 0
             let byteSize = try? tensorByteCount(
                 type: tensor.type,
@@ -616,7 +616,59 @@ enum MLXGGUFLoader {
         )
     }
 
+    /// 以 GGUF split metadata 與標準檔名共同驗證所有分片，不依賴模型名稱。
+    static func sourceURLs(from url: URL) throws -> [URL] {
+        let info = try metadata(from: url)
+        let count = info["split.count"]?.integerValue ?? 1
+        guard count > 0, count <= 1000 else { throw MLXGGUFLoaderError.invalidSize }
+        guard count > 1 else { return [url] }
+        let name = url.lastPathComponent
+        let pattern = try NSRegularExpression(pattern: "^(.*)-([0-9]{5})-of-([0-9]{5})\\.gguf$", options: .caseInsensitive)
+        guard let match = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+            let stemRange = Range(match.range(at: 1), in: name),
+            let countRange = Range(match.range(at: 3), in: name), Int(name[countRange]) == count
+        else { throw MLXGGUFLoaderError.invalidTensor("GGUF 分片檔名與 metadata 不一致") }
+        let stem = String(name[stemRange]), directory = url.deletingLastPathComponent()
+        return try (1...count).map { index in
+            let part = directory.appendingPathComponent(String(format: "%@-%05d-of-%05d.gguf", stem, index, count))
+            guard FileManager.default.fileExists(atPath: part.path) else { throw MLXGGUFLoaderError.invalidTensor("缺少 GGUF 分片：\(part.lastPathComponent)") }
+            let header = try metadata(from: part)
+            guard header["split.count"]?.integerValue == count,
+                header["split.no"]?.integerValue == index - 1,
+                (header["general.architecture"] == nil || info["general.architecture"] == nil || header["general.architecture"]?.stringValue == info["general.architecture"]?.stringValue)
+            else { throw MLXGGUFLoaderError.invalidTensor("GGUF 分片標頭不一致：\(part.lastPathComponent)") }
+            return part
+        }
+    }
+
     static func loadWeights(
+        from url: URL, targetGroupSize: Int? = nil,
+        quantizationProfile: GGUFQuantizationProfile = .automatic,
+        stateSpaceParameterEncoding: GGUFStateSpaceParameterEncoding = .native,
+        recurrentPromotion: GGUFRecurrentPromotionPolicy = .disabled,
+        memoryMapped: Bool = false, includingTensor: ((String) -> Bool)? = nil,
+        progress: ((Int64, Int64) -> Void)? = nil
+    ) throws -> [String: MLXArray] {
+        let urls = try sourceURLs(from: url)
+        let group = try quantizationStrategy(from: [url], requestedGroupSize: targetGroupSize, profile: quantizationProfile).groupSize
+        let total = try storedTensorByteCount(from: url)
+        var result = [String: MLXArray](), completed: Int64 = 0
+        for part in urls {
+            var partBytes: Int64 = 0
+            let weights = try loadSingleWeights(from: part, targetGroupSize: group, quantizationProfile: quantizationProfile,
+                stateSpaceParameterEncoding: stateSpaceParameterEncoding, recurrentPromotion: recurrentPromotion,
+                memoryMapped: memoryMapped, includingTensor: includingTensor, progress: { done, size in
+                    partBytes = size; progress?(completed + done, total)
+                })
+            for (name, weight) in weights {
+                guard result.updateValue(weight, forKey: name) == nil else { throw MLXGGUFLoaderError.duplicateWeight(name) }
+            }
+            completed += partBytes
+        }
+        return result
+    }
+
+    private static func loadSingleWeights(
         from url: URL,
         targetGroupSize: Int? = nil,
         quantizationProfile: GGUFQuantizationProfile = .automatic,
@@ -1098,7 +1150,11 @@ enum MLXGGUFLoader {
         // Mode 3 是例外：INT4 必須對齊 K-quant 的 32 元素 sub-block，group 64
         // 實測會產生亂碼，因此由策略固定為 32，不採用全域預設。
         let defaultGroupSize = profile == .mode3 ? 32 : 64
-        let resolvedGroupSize = requestedGroupSize ?? defaultGroupSize
+        var resolvedGroupSize = requestedGroupSize ?? defaultGroupSize
+        if requestedGroupSize == nil, resolvedGroupSize == 64,
+            firstIncompatibleTensor(groupSize: 64) != nil, firstIncompatibleTensor(groupSize: 32) == nil {
+            resolvedGroupSize = 32
+        }
         if let invalid = firstIncompatibleTensor(groupSize: resolvedGroupSize) {
             throw MLXGGUFLoaderError.invalidTensor(invalid.name)
         }
@@ -1156,9 +1212,21 @@ enum MLXGGUFLoader {
 
     /// 預檢只需要 tensor table；metadata 的大型 tokenizer 陣列直接略過，
     /// 不建立數十萬個 Swift value，避免顯示確認視窗前消耗大量 CPU／記憶體。
-    private static func readTensorInspectionData(
-        from url: URL
-    ) throws -> [MLXGGUFTensorInfo] {
+    static func readTensorInspectionData(from url: URL) throws -> [MLXGGUFTensorInfo] {
+        var tensors = [MLXGGUFTensorInfo](), names = Set<String>()
+        for part in try sourceURLs(from: url) {
+            for tensor in try readSingleTensorInspectionData(from: part) {
+                guard names.insert(tensor.name).inserted else { throw MLXGGUFLoaderError.duplicateWeight(tensor.name) }
+                tensors.append(tensor)
+            }
+        }
+        if let expected = try metadata(from: url)["split.tensors.count"]?.integerValue, expected != tensors.count {
+            throw MLXGGUFLoaderError.invalidTensor("GGUF 分片 tensor 總數不一致")
+        }
+        return tensors
+    }
+
+    private static func readSingleTensorInspectionData(from url: URL) throws -> [MLXGGUFTensorInfo] {
         let cacheKey = url.standardizedFileURL.path as NSString
         if let cached = inspectionCache.tensorInfos.object(forKey: cacheKey) {
             return cached.value
@@ -3366,6 +3434,7 @@ enum MLXGGUFModelLoader {
                     )
                 }
             } catch {
+                if DiskWeightLoading.enabled { throw error }
                 MLXGGUFConversionCache.invalidate(plan: cachePlan)
                 fputs(
                     "TANPOPO_GGUF_CACHE state=invalid key=\(cachePlan.key) "
@@ -3376,6 +3445,9 @@ enum MLXGGUFModelLoader {
         }
 
         if weights == nil {
+            if DiskWeightLoading.enabled {
+                throw DiskOffloadError.invalid("原始 GGUF 尚無可用的 Fast GGUF 快取。請先完成轉換，或改用 safetensors／llama-server 的磁碟映射模式；磁碟模式不會進行全量權重轉換。")
+            }
             if let cachePlan {
                 fputs(
                     "TANPOPO_GGUF_CACHE state=miss key=\(cachePlan.key)\n",
@@ -3558,6 +3630,9 @@ enum MLXGGUFModelLoader {
             modelType: modelType,
             configurationData: configurationData
         )
+        if modelType == "qwen4_exp" || modelType == "qwen4_exp_text" {
+            weights = try qwen4ExpWeightLayout(weights, configurationData: configurationData)
+        }
         weights = try MLXGGUFWeightNameNormalizer.normalize(
             weights,
             modelType: modelType,
@@ -3822,6 +3897,110 @@ enum MLXGGUFModelLoader {
     ///
     /// 生產載入與數值對照共用同一入口，避免診斷程式重寫一份
     /// 模型特例後，比對到與實際 Runtime 不同的資料。
+    static func qwen4ExpWeightLayout(_ weights: [String: MLXArray], configurationData: Data, draftLayer: Int? = nil) throws -> [String: MLXArray] {
+        let root = try JSONSerialization.jsonObject(with: configurationData) as! [String: Any]
+        let c = (root["text_config"] as? [String: Any]) ?? root
+        let pleLayer = ((c["ple_layer_ids"] as? [Int])?.first ?? 1) - 1
+        let layers = c["num_hidden_layers"] as? Int ?? 0
+        let hidden = c["hidden_size"] as? Int ?? 0
+        let raw = linearAttentionLayout(from: configurationData).map { reorderQwen35LinearAttentionWeights(weights, layout: $0) } ?? weights
+        let mapping: [String: String] = [
+            "hc_attn_norm":"attn_hyper_connection.hc_norm", "hc_attn_down":"attn_hyper_connection.input_mix_weight_down",
+            "hc_attn_up":"attn_hyper_connection.input_mix_weight_up", "hc_attn_inject":"attn_hyper_connection.block_inject_weight",
+            "hc_ffn_norm":"mlp_hyper_connection.hc_norm", "hc_ffn_down":"mlp_hyper_connection.input_mix_weight_down",
+            "hc_ffn_up":"mlp_hyper_connection.input_mix_weight_up", "hc_ffn_inject":"mlp_hyper_connection.block_inject_weight",
+            "ple_key":"ple.key_proj", "ple_value":"ple.value_proj", "ple_norm_key":"ple.norm_key",
+            "ple_norm_query":"ple.norm_query", "ple_norm_conv":"ple.norm_conv", "ple_conv1d":"ple.conv1d",
+            "indexer.q_proj":"self_attn.indexer.q_proj", "indexer.k_proj":"self_attn.indexer.k_proj",
+            "indexer.q_norm":"self_attn.indexer.q_layernorm", "indexer.k_norm":"self_attn.indexer.k_layernorm",
+            "ssm_dt":"linear_attn.dt_bias", "ffn_gate_inp":"mlp.gate", "ffn_gate_exps":"mlp.switch_mlp.gate_proj",
+            "ffn_up_exps":"mlp.switch_mlp.up_proj", "ffn_down_exps":"mlp.switch_mlp.down_proj",
+            "ffn_gate_shexp":"mlp.shared_expert.gate_proj", "ffn_up_shexp":"mlp.shared_expert.up_proj",
+            "ffn_down_shexp":"mlp.shared_expert.down_proj", "ffn_gate_inp_shexp":"mlp.shared_expert_gate",
+        ]
+        var out = [String: MLXArray]()
+        for (name, value) in raw {
+            var suffix = [".weight", ".scales", ".biases", ".bias"].first(where: { name.hasSuffix($0) }) ?? ""
+            let stem = String(name.dropLast(suffix.count))
+            var target: String?
+            if let layer = ggufLayerIndex(in: name) {
+                if let draftLayer { if layer != draftLayer { continue } }
+                else if layer >= layers { continue }
+                let tail = stem.split(separator: ".").dropFirst(2).joined(separator: ".")
+                let outputPrefix = draftLayer == nil ? "model.layers.\(layer)." : "mtp.layers.0."
+                if tail.hasPrefix("nextn.") {
+                    guard draftLayer != nil else { continue }
+                    switch tail {
+                    case "nextn.enorm": target = "mtp.pre_fc_norm_embedding"
+                    case "nextn.hnorm": target = "mtp.pre_fc_norm_hidden"
+                    case "nextn.hc_head_norm": target = "mtp.hyper_connection_mixer.hc_norm"
+                    case "nextn.hc_head_down": target = "mtp.hyper_connection_mixer.input_mix_weight_down"
+                    case "nextn.hc_head_up": target = "mtp.hyper_connection_mixer.input_mix_weight_up"
+                    case "nextn.eh_proj":
+                        // GGUF 將兩個 projection 沿輸入軸合併；量化資料與 scales 都平均切分。
+                        guard value.dim(-1) % 2 == 0, hidden > 0 else { throw MLXGGUFLoaderError.invalidSize }
+                        let pieces = value.split(parts: 2, axis: -1)
+                        out["mtp.fc_embedding" + suffix] = pieces[0]
+                        out["mtp.fc_hidden" + suffix] = pieces[1]
+                        continue
+                    default: throw MTPCompatibilityError.incompatibleConfiguration("不支援的 Qwen4 MTP tensor: \(name)")
+                    }
+                } else if let mapped = mapping[tail] { target = outputPrefix + mapped }
+                else if let standard = MLXGGUFWeightNameNormalizer.normalizedName(name) {
+                    target = draftLayer == nil ? standard : standard.replacingOccurrences(of: "model.layers.\(layer).", with: outputPrefix)
+                    if target == name { throw MLXGGUFLoaderError.duplicateWeight("無法對應 \(name)") }
+                    // normalizer 已附加 suffix。
+                    if !suffix.isEmpty { target = String(target!.dropLast(suffix.count)) }
+                }
+            } else if draftLayer == nil {
+                switch stem {
+                case "output_hc_norm": target = "model.hyper_connection_mixer.hc_norm"
+                case "output_hc_down": target = "model.hyper_connection_mixer.input_mix_weight_down"
+                case "output_hc_up": target = "model.hyper_connection_mixer.input_mix_weight_up"
+                case "per_layer_token_embd": target = "model.layers.\(pleLayer).ple.ple_embedding.ngram_embedding.shards.0"
+                default: target = String((MLXGGUFWeightNameNormalizer.normalizedName(name) ?? name).dropLast(suffix.count))
+                }
+            }
+            guard let target else { continue }
+            if target.hasSuffix("linear_attn.dt_bias") { suffix = "" }
+            var transformed = value
+            if target.hasSuffix("shared_expert_gate"), suffix == ".weight", value.ndim == 1 { transformed = value.reshaped(1, -1) }
+            if suffix == ".weight", target.hasSuffix("norm") || target.contains(".ple.norm_") || target.hasSuffix("layernorm") || target.hasSuffix("pre_fc_norm_embedding") || target.hasSuffix("pre_fc_norm_hidden") {
+                if !target.hasSuffix("linear_attn.norm") { transformed = value.reshaped(-1) - 1 }
+            }
+            if target.hasSuffix("conv1d"), suffix == ".weight", value.ndim == 2 { transformed = value.expandedDimensions(axis: -1) }
+            out[target + suffix] = transformed
+        }
+        for key in Array(out.keys) where key.contains(".indexer.q_proj.") {
+            let k = key.replacingOccurrences(of: ".indexer.q_proj.", with: ".indexer.k_proj.")
+            guard let keys = out.removeValue(forKey: k), let queries = out.removeValue(forKey: key) else { throw MLXGGUFLoaderError.invalidSize }
+            out[key.replacingOccurrences(of: ".indexer.q_proj.", with: ".indexer.index_qk_proj.")] = concatenated([queries, keys], axis: 0)
+        }
+        return out
+    }
+
+    static func loadQwen4ExpMTP(weightURL: URL, quantizationGroupSize: Int?, quantizationProfile: GGUFQuantizationProfile, recurrentPromotion: GGUFRecurrentPromotionPolicy, memoryMapped: Bool) async throws -> MTPDrafterContainer {
+        let metadata = try MLXGGUFLoader.metadata(from: weightURL)
+        guard metadata["general.architecture"]?.stringValue == "qwen4exp",
+            metadata["qwen4exp.nextn_predict_layers"]?.integerValue == 1,
+            let count = metadata["qwen4exp.block_count"]?.integerValue, count > 1
+        else { throw MTPCompatibilityError.incompatibleConfiguration("需要 Qwen4-Exp 單層 MTP GGUF") }
+        var config = try MLXGGUFEmbeddedAssets.qwen4ExpConfiguration(weightURL: weightURL, metadata: metadata)
+        config["ple_layer_ids"] = [Int]()
+        let data = try JSONSerialization.data(withJSONObject: config)
+        let c = try JSONDecoder().decode(Qwen4ExpConfiguration.self, from: data)
+        try c.validateModelConfiguration()
+        let model = Qwen4ExpMTPDraftModel(c)
+        let strategy = try MLXGGUFLoader.quantizationStrategy(from: [weightURL], requestedGroupSize: quantizationGroupSize, profile: quantizationProfile)
+        let raw = try MLXGGUFLoader.loadWeights(from: weightURL, targetGroupSize: strategy.groupSize, quantizationProfile: quantizationProfile,
+            recurrentPromotion: recurrentPromotion, memoryMapped: memoryMapped, includingTensor: { ggufLayerIndex(in: $0) == count - 1 })
+        let weights = try qwen4ExpWeightLayout(raw, configurationData: data, draftLayer: count - 1)
+        quantizeGGUFModel(model, weights: weights, groupSize: strategy.groupSize)
+        try model.update(parameters: ModuleParameters.unflattened(weights), verify: [.all])
+        eval(model)
+        return MTPDrafterContainer(context: MTPDrafterContext(configuration: ModelConfiguration(directory: weightURL.deletingLastPathComponent(),tokenizerSource:nil,defaultPrompt:""),model:model))
+    }
+
     static func applyArchitectureWeightLayout(
         _ weights: [String: MLXArray],
         modelType: String,

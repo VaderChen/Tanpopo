@@ -1,0 +1,402 @@
+{
+  "schema": 1,
+  "date": "2026-11-10",
+  "timezone": "Asia/Taipei",
+  "scope": "參考 Splash 的 FFN 融合與 DFlash GPU 同步最佳化；使用者指示暫停測試後，只完成編譯、語法與邏輯審查。",
+  "reference": {
+    "repository": "https://github.com/incoai/splash",
+    "commit": "9124ff2ce1e6d19dab6bb0f2aa94b214b1271ce2",
+    "license": "Apache-2.0",
+    "copied_source": false
+  },
+  "source_base_commit": "8380f02261ba4b4f444136a739626d58b3280f94",
+  "source_worktree_clean": false,
+  "hardware": {
+    "chip": "Apple M4 Pro",
+    "physical_memory_bytes": 68719476736,
+    "os": "macOS 27.2 (26B123)",
+    "swift": "6.4"
+  },
+  "changes": {
+    "ffn_files": 42,
+    "ffn_sites": 47,
+    "helper": "compiledSiluProduct",
+    "dflash": [
+      "驗證完成後讀回 proposal",
+      "Greedy 重用已讀取的 correction token",
+      "Residual 在 GPU 以安全分母正規化"
+    ],
+    "collective_protocol_changed": false
+  },
+  "artifacts": {
+    "baseline": {
+      "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11",
+      "sha256": "e97e6fb6c7979d5d49ec799864aeed4141fa283a4a680a1da38d20dfef2ffd3d",
+      "metal_fingerprint": "63c37f0fbf8e29445f099d5f3d758c73534669f4fdb6a4be98f1754cd276719d"
+    },
+    "candidate": {
+      "version": "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11-splash1",
+      "sha256": "76ce8030762da3aa35c4dd3bb5697f622866edc9332f8dcf326a7eb32509918b",
+      "metal_fingerprint": "63c37f0fbf8e29445f099d5f3d758c73534669f4fdb6a4be98f1754cd276719d"
+    }
+  },
+  "verification": {
+    "release_build": "passed",
+    "node_syntax": "passed",
+    "diff_whitespace": "passed",
+    "logic_review": "已對照原算式、dtype、抽樣 key 順序、接受 prefix、processor 更新及 cache 回滾流程",
+    "completed_before_pause": {
+      "swift_selected_tests": 4,
+      "failures": 0,
+      "numeric_combinations": 27,
+      "dflash_iterator_combinations": 16,
+      "residual_dtypes": [
+        "float32",
+        "float16",
+        "bfloat16"
+      ],
+      "seeded_residual_sampling": true
+    },
+    "not_run": [
+      "真實模型修改前後 HTTP／SSE 比較",
+      "新版多架構及分散 Server Smoke",
+      "實體雙機 TCP Ring／RDMA",
+      "真實 DFlash drafter 效能",
+      "多模態端到端推論"
+    ],
+    "reason": "使用者要求先不做測試，確認語法與邏輯即可。",
+    "final_build_note": "最後一次僅重新編譯，以確認 FalconH1 保留先 up、後 gate 的投影呼叫順序；未重跑測試。"
+  },
+  "benchmark_note": "下列微型基準在暫停測試指示之前完成。每組暖機 3 次，交錯順序量測 10 次，32 個相依乘積；並非完整 FFN 或模型吞吐量。桌面背景負載未受控制。",
+  "fusion_microbenchmark": [
+    {
+      "baseline_ms": [
+        0.519042,
+        0.694833,
+        0.3715,
+        0.379417,
+        0.389917,
+        0.377959,
+        0.37875,
+        0.411458,
+        0.354541,
+        0.3515
+      ],
+      "dependent_products": 32,
+      "dtype": "float32",
+      "fused_ms": [
+        0.434583,
+        0.434625,
+        0.31825,
+        0.320709,
+        0.321958,
+        0.320875,
+        0.453,
+        0.366125,
+        0.394292,
+        0.295625
+      ],
+      "shape": [
+        1,
+        1,
+        8192
+      ],
+      "baseline_median_ms": 0.3790835,
+      "fused_median_ms": 0.3440415,
+      "reduction_percent": 9.243873711200834
+    },
+    {
+      "baseline_ms": [
+        0.433833,
+        0.430875,
+        0.439958,
+        0.432,
+        0.713541,
+        0.427291,
+        0.428208,
+        0.450459,
+        0.428709,
+        0.414042
+      ],
+      "dependent_products": 32,
+      "dtype": "float32",
+      "fused_ms": [
+        0.374417,
+        0.351458,
+        0.373708,
+        0.371416,
+        0.424583,
+        0.359375,
+        0.350125,
+        0.346375,
+        0.36275,
+        0.350458
+      ],
+      "shape": [
+        1,
+        8,
+        8192
+      ],
+      "baseline_median_ms": 0.43143750000000003,
+      "fused_median_ms": 0.3610625,
+      "reduction_percent": 16.311748515138348
+    },
+    {
+      "baseline_ms": [
+        1.941125,
+        1.959167,
+        1.917625,
+        2.054208,
+        2.004584,
+        2.030875,
+        2.035125,
+        2.121792,
+        2.006208,
+        1.918708
+      ],
+      "dependent_products": 32,
+      "dtype": "float32",
+      "fused_ms": [
+        1.69125,
+        1.470916,
+        1.472916,
+        1.407916,
+        1.532208,
+        1.465458,
+        1.4745,
+        1.620875,
+        1.527792,
+        1.447833
+      ],
+      "shape": [
+        1,
+        128,
+        8192
+      ],
+      "baseline_median_ms": 2.005396,
+      "fused_median_ms": 1.4737079999999998,
+      "reduction_percent": 26.512868281376868
+    },
+    {
+      "baseline_ms": [
+        0.412,
+        0.439833,
+        0.393584,
+        0.497667,
+        0.396709,
+        0.424041,
+        0.427209,
+        0.457333,
+        0.484792,
+        0.437666
+      ],
+      "dependent_products": 32,
+      "dtype": "float16",
+      "fused_ms": [
+        0.344666,
+        0.3465,
+        0.33975,
+        0.344208,
+        0.526416,
+        0.357708,
+        0.367416,
+        0.357583,
+        0.359208,
+        0.357125
+      ],
+      "shape": [
+        1,
+        1,
+        8192
+      ],
+      "baseline_median_ms": 0.43243750000000003,
+      "fused_median_ms": 0.357354,
+      "reduction_percent": 17.362855904032383
+    },
+    {
+      "baseline_ms": [
+        0.451958,
+        0.45425,
+        0.458542,
+        0.452291,
+        0.455041,
+        0.419375,
+        0.416417,
+        0.425958,
+        0.439583,
+        0.477875
+      ],
+      "dependent_products": 32,
+      "dtype": "float16",
+      "fused_ms": [
+        0.383792,
+        0.37975,
+        0.35625,
+        0.395458,
+        0.391292,
+        0.356291,
+        0.349083,
+        0.346125,
+        0.541,
+        0.406125
+      ],
+      "shape": [
+        1,
+        8,
+        8192
+      ],
+      "baseline_median_ms": 0.45212450000000004,
+      "fused_median_ms": 0.38177099999999997,
+      "reduction_percent": 15.560647564995945
+    },
+    {
+      "baseline_ms": [
+        1.512416,
+        1.321583,
+        1.350458,
+        1.0485,
+        1.024458,
+        1.016458,
+        0.996375,
+        1.012916,
+        1.073041,
+        0.9995
+      ],
+      "dependent_products": 32,
+      "dtype": "float16",
+      "fused_ms": [
+        1.060125,
+        1.041208,
+        1.001084,
+        0.803334,
+        0.765542,
+        0.771917,
+        0.772542,
+        0.855333,
+        0.794208,
+        0.770416
+      ],
+      "shape": [
+        1,
+        128,
+        8192
+      ],
+      "baseline_median_ms": 1.036479,
+      "fused_median_ms": 0.798771,
+      "reduction_percent": 22.934183905317905
+    },
+    {
+      "baseline_ms": [
+        0.385667,
+        0.382,
+        0.3735,
+        0.414125,
+        0.509542,
+        0.376875,
+        0.449833,
+        0.439083,
+        0.434542,
+        0.448625
+      ],
+      "dependent_products": 32,
+      "dtype": "bfloat16",
+      "fused_ms": [
+        0.354,
+        0.340708,
+        0.365792,
+        0.3505,
+        0.342125,
+        0.350208,
+        0.39225,
+        0.408291,
+        0.388792,
+        0.383291
+      ],
+      "shape": [
+        1,
+        1,
+        8192
+      ],
+      "baseline_median_ms": 0.42433350000000003,
+      "fused_median_ms": 0.359896,
+      "reduction_percent": 15.185579267250882
+    },
+    {
+      "baseline_ms": [
+        0.516042,
+        0.525875,
+        0.514209,
+        0.524084,
+        0.508417,
+        0.53075,
+        0.481375,
+        0.662583,
+        0.59275,
+        0.531583
+      ],
+      "dependent_products": 32,
+      "dtype": "bfloat16",
+      "fused_ms": [
+        0.4275,
+        0.432417,
+        0.431917,
+        0.439916,
+        0.452125,
+        0.45925,
+        0.398792,
+        0.413375,
+        0.44425,
+        0.462958
+      ],
+      "shape": [
+        1,
+        8,
+        8192
+      ],
+      "baseline_median_ms": 0.5249794999999999,
+      "fused_median_ms": 0.4361665,
+      "reduction_percent": 16.917422489830546
+    },
+    {
+      "baseline_ms": [
+        1.693375,
+        1.604667,
+        1.152334,
+        1.094334,
+        1.072708,
+        1.179083,
+        1.155333,
+        1.127375,
+        1.169,
+        1.174917
+      ],
+      "dependent_products": 32,
+      "dtype": "bfloat16",
+      "fused_ms": [
+        1.185542,
+        1.259625,
+        0.872167,
+        0.893666,
+        0.848458,
+        0.9845,
+        0.876,
+        0.873542,
+        0.870209,
+        0.851375
+      ],
+      "shape": [
+        1,
+        128,
+        8192
+      ],
+      "baseline_median_ms": 1.1621665,
+      "fused_median_ms": 0.874771,
+      "reduction_percent": 24.7292879290532
+    }
+  ],
+  "compare_script": {
+    "path": "scripts/compare-mlx-runtimes.mjs",
+    "sha256": "f97ed6ce7028d4c1986f08fb903f44c1a6552c4dd3f2aaca8b86f8c0cbfe4286",
+    "execution_status": "僅語法檢查，尚未執行完整推論比較"
+  }
+}

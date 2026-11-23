@@ -11,6 +11,16 @@
     );
   }
 
+  function commandUsesDisk(command) {
+    const args = command.extra_args || [];
+    if (command.runtime === LLAMA_RUNTIME) return args.includes("--tanpopo-disk-offload");
+    let cache = 0;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--disk-cache-mb") cache = Number(args[++i]);
+    }
+    return cache > 0;
+  }
+
   function commandPayload() {
     return {
       runtime: variants.family(byId("commandRuntime").value),
@@ -67,10 +77,11 @@
       const summary = document.createElement("span");
       const runtimeLabel = variants.label(variants.optionValue(command), command);
       const mmapReserve = command.mmap_reserve_gb > 0 ? ` · ${t("MMap 保留")} ${command.mmap_reserve_gb} GB` : "";
+      const diskMode = commandUsesDisk(command);
       const kvCache = command.kv_cache_quantization
         ? ` · KV Cache ${command.kv_cache_quantization.toUpperCase()}`
         : "";
-      summary.textContent = `${runtimeLabel} · ${command.server_host}:${command.server_port} · Context ${command.context_size}${command.draft_model ? " · Draft" : ""}${mmapReserve}${kvCache}`;
+      summary.textContent = `${runtimeLabel} · ${command.server_host}:${command.server_port} · Context ${command.context_size}${command.draft_model ? " · Draft" : ""}${mmapReserve}${kvCache}${diskMode ? " · 磁碟輔助" : ""}`;
       const reason = state.unavailableReasons[command.id];
       if (reason) summary.textContent += ` · 不可用：${reason}`;
       button.append(name, summary);
@@ -84,6 +95,26 @@
     variants.updateLabel(byId("commandRuntime"), command);
     const isMLX = command.runtime === MLX_RUNTIME;
     let extraArgs = command.extra_args;
+    const llamaDiskMode = !isMLX && extraArgs.includes("--tanpopo-disk-offload");
+    if (llamaDiskMode) {
+      const filtered = [];
+      for (let i = 0; i < extraArgs.length; i++) {
+        const arg = extraArgs[i];
+        const name = arg.split("=", 1)[0];
+        if (["--load-mode", "-lm", "--tensor-read-lazy", "--fit-target", "-fitt", "--n-gpu-layers", "--gpu-layers", "-ngl"].includes(name)) {
+          if (!arg.includes("=")) i++;
+          continue;
+        }
+        if (["--fit", "-fit"].includes(name)) {
+          if (!arg.includes("=") && ["on", "off"].includes(extraArgs[i + 1]?.toLowerCase())) i++;
+          continue;
+        }
+        if (["--tanpopo-disk-offload", "--no-warmup", "--mmap", "--no-mmap", "--mlock", "--direct-io", "--no-direct-io", "-dio", "-ndio"].includes(name)) continue;
+        filtered.push(arg);
+      }
+      extraArgs = filtered;
+      extraArgs.push("--load-mode", "mmap", "--tensor-read-lazy", "on", "--no-warmup");
+    }
     if (variants.isVariant(command.runtime_variant)) {
       extraArgs = extraArgs.filter((argument, index, all) => {
         const managed = (value) => /^(?:--parallel|-np|--device|-dev|--tanpopo-amd-mode)(?:=|$)/.test(value);
@@ -122,10 +153,10 @@
         const cacheType = command.kv_cache_quantization === "q4" ? "q4_0" : "q8_0";
         args.push("--cache-type-k", cacheType, "--cache-type-v", cacheType, "--flash-attn", "on");
       }
-      if (command.mmap_reserve_gb > 0) {
+      if (command.mmap_reserve_gb > 0 || llamaDiskMode) {
         args.push(
           "--fit", "on",
-          "--fit-target", String(command.mmap_reserve_gb * 1024)
+          "--fit-target", String((command.mmap_reserve_gb || 4) * 1024)
         );
       } else {
         args.push("--n-gpu-layers", String(Number.isFinite(command.gpu_layers) ? command.gpu_layers : "<GPU Layers>"));
@@ -140,11 +171,11 @@
     byId("gpuLayersField").hidden = isMLX;
     byId("threadsField").hidden = isMLX;
     byId("commandDraftLabel").textContent = isMLX
-      ? "DFlash／MTP Draft 模型目錄（選用）"
+      ? "DFlash／MTP Draft 模型（目錄或 GGUF）"
       : "Draft GGUF（選用）";
     byId("commandDraftHelp").textContent = isMLX
       ? "選擇 MLX 模型根目錄內與 Target 相容的 Draft；含 --mtp-block-size 時使用 MTP，其他 Draft Profile 使用 DFlash。留空時使用一般生成。"
-      : "DFlash 等需要 Draft 模型的模式，請選擇模型目錄內相容且配對的 GGUF；MTP 不需要填寫。";
+      : "DFlash／外部 MTP 請選擇配對的 Draft GGUF；Qwen4-Exp MTP 使用同模型的 shared 頭。";
     byId("commandDraftModel").placeholder = isMLX
       ? "例如 mlx-community/qwen3-6-35b-a3b-mtp-4bit"
       : "例如 Qwen3-4B-DFlash.gguf";

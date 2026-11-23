@@ -12,6 +12,8 @@ Tanpopo 使用或整合多項第三方開放原始碼。這些內容不因 Tanpo
 
 `mlx-server` 透過 Swift Package Manager 使用 MLX Swift、MLX Swift LM、Swift Transformers、SwiftNIO 及其遞移相依套件。本儲存庫不宣稱擁有這些套件的著作權；實際套件與精確版本以 [`mlx-server/Package.swift`](mlx-server/Package.swift) 及 [`mlx-server/Package.resolved`](mlx-server/Package.resolved) 為準，使用與再散布時應遵循各上游專案隨附的授權。
 
+Inkling 的 Swift 模型、影像處理器及 Metal 核心移植自 [mlx-swift-lm PR #821](https://github.com/ml-explore/mlx-swift-lm/pull/821)，隨附 [mlx-swift-lm MIT 授權](docs/licenses/mlx-swift-lm.txt)。Qwen4-Exp 移植保留[上游授權](docs/licenses/Qwen4Exp.txt)。GGUF 引擎的 [llama.cpp 授權](docs/licenses/llama.cpp.txt) 亦隨安裝包分發。
+
 為提供原生 Swift DFlash，中間層擷取與 speculative iterator 所需的 `mlx-swift-lm 3.31.4` fork 固定保存在 `mlx-server/Vendor/mlx-swift-lm/`，其 MIT 授權保留於該目錄的 `LICENSE`。DFlash 演算法與模型結構參考上游公開論文及官方實作；DFlash 上游的授權與聲明仍以其儲存庫為準。
 
 主要上游專案：

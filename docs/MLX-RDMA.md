@@ -1,6 +1,6 @@
 # MLX 分散推論與 RDMA 使用指南
 
-狀態：實驗功能；2026-10-03。發行版 [1.26.1003 build 2049](releases/v1.26.1003-build-2049.md) 內附 `rdma11` Runtime；所有參與節點需更新完整 App／Server 後重新配對。
+本功能為實驗性質。參與節點須使用相同 Runtime 並重新配對。現行套件為 [1.26.1123 build 1005](releases/v1.26.1123-build-1005.md)。Inkling 此次驗證範圍為單機。
 
 本功能讓多台 Mac 共同執行同一個模型。正式程式仍是 Go、Swift 與 C++，不需要 Python、pip 或 `mlx_lm.server`。
 
@@ -145,6 +145,29 @@ go test ./src/modelbundle -run '^$' \
 `TANPOPO_DISTRIBUTED_PROFILE=1` 須在啟動 Server／原生 Runtime 前設定，預設關閉。啟用後，原生 `/health` 的 `distributed.function_profile` 提供 `control`、`input`、`gather` 的累積 `calls`、`input_bytes`、`input_eval_ms` 與 `collective_ms`；工具保存暖機後與量測後的快照。程序重啟即歸零，兩次快照的差值可能包含期間的心跳。
 
 `input_eval_ms` 是 collective 前完成輸入張量求值的時間；`gather.input_eval_ms` 包含本地線性層運算。`collective_ms` 包含 CPU stream、傳輸與等待其他 Rank，不能視為純網路延遲；`input_bytes` 是本 Rank 傳入 collective 的張量大小，不能視為網卡傳輸量。worker 零值快取最多保留 16 MiB／32 筆，這是保留張量的上限，不是整個程序或 Metal allocator 的記憶體上限。
+
+<a name="lan-validation-2049"></a>
+
+### build 2049／rdma11 的實體雙 Mac 驗證
+
+2026-10-03 使用兩端正式發行的 build 2049，在既有區網路徑重測。設備為 M4 Pro／64 GiB 與 M4／16 GiB；前次使用者確認此路徑經過 5 GHz Wi-Fi，本輪尚未完成有線對照。兩端原生版本一致，兩組 MLX 案例的模型內容與分片計畫核對均通過。本輪請求只包含文字，未驗證實體雙機圖片推論。詳細數據見[去除位址、主機名稱及本機路徑的驗證紀錄](validation/tcp-ring-lan-2049-2026-10-03.json)。
+
+遠端更新後，HTTP／UDP 探索可用，但原生 TCP 一度回報 error 65 `No route to host`；使用者完整結束並從「應用程式」重新開啟後，恢復原生連線。這是啟動方式的觀察差異，尚未證實原因，也沒有消除後續傳輸停滯。
+
+| 案例 | 實際結果 | 驗收狀態 |
+| --- | --- | --- |
+| Qwen3-0.6B Q4，196 個分片層 | 第一筆英文非串流完整回覆 `Ring ready`，13.500 秒；回答、輸入 21／輸出 2 Token 及結束原因與單機一致 | 第二筆中文多輪在第 121 層的輸出匯集發生原生 120 秒期限錯誤，整輪未通過 |
+| Qwen3.5-4B MLX Q4，346 個分片層 | 第一筆 SSE 首內容 10.157 秒、完成 18.292 秒，`Ring ready`、Token 數及結束原因與單機一致，收到 `[DONE]` | 第二筆相同提示的非串流請求在第 2 層輸出匯集逾時，整輪未通過 |
+| Qwen3.5-4B GGUF Q4_0，一般模式 | 單機短回覆完成；發起端使用現有轉換快取，遠端開始同步約 4.79 GB 的選定模型內容 | 同步在約 494 MB 後降速，180 秒模型準備期限到達，未進入雙機推論 |
+
+上述請求使用 Context 4096、temperature 0、關閉思考、Prefill 128，未啟用 KV 量化與 MMap；SSE 每 10 秒的 keep-alive 未計入首內容。Qwen3 的後續雙機 48 Token／SSE 案例尚未執行，GGUF 的雙機推論、Fast GGUF、DFlash 與 MTP 也不能算作本輪通過。原有同機測試結果仍屬各自獨立的驗證範圍。
+
+同一輪另取得兩種 HTTP 對照：
+
+- 停止模型後，`scripts/diagnose-lan-tcp.mjs` 完成 128 筆持續連線請求與 5 筆新連線對照，共 138,413,898 bytes、23.627 秒。這項通過只能證明該次量測成功。
+- GGUF 同步期間，兩端 MLX 尚未啟動，一般 Go HTTP 模型傳輸仍出現停滯。約 20.15 秒內進度只增加 9,500 bytes，平均約 471 bytes/s；本機傳送緩衝區約 1.8 MB，六次取樣皆已塞滿。另一段 11 秒的 `nettop` 取樣中，同一傳輸連線的重傳計數持續增加，且對端公布的 TCP 接收視窗仍非零。這是不同於模型計算的傳輸異常，尚不足以鎖定哪個網路元件或系統軟體。
+
+180 秒是本次測試工具的模型準備期限，不是產品的下載大小或時間限制；原生每層的 120 秒期限未更動。失敗後兩端模型已停止、叢集租約與暫時 Profile 已回收，管理服務仍可使用。本輪沒有修改網路設定或將延長期限當作修復。下一步以同一 Runtime、模型和提示對照有線區網或 Thunderbolt Bridge，先檢查持續傳輸，再重跑連續請求與 SSE；Thunderbolt Bridge 上的 TCP Ring 仍不同於 JACCL RDMA。
 
 ### 2026-10-03 較早版本驗證紀錄
 

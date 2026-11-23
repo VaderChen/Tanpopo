@@ -7,7 +7,7 @@ import Tokenizers
 enum MLXGGUFEmbeddedAssets {
     /// 專屬處理的架構；與 `configurationData` 的 switch 保持一致。
     private static let dedicatedArchitectures = [
-        "apertus", "gemma3", "gemma4", "qwen35", "qwen3", "qwen2", "llama"
+        "qwen4exp", "apertus", "gemma3", "gemma4", "qwen35", "qwen3", "qwen2", "llama"
     ]
 
     /// 這個 Runtime 能從 GGUF metadata 直接組出設定的架構（正規化後的名稱）。
@@ -26,6 +26,9 @@ enum MLXGGUFEmbeddedAssets {
 
         var configuration: [String: Any]
         switch normalizedArchitecture(architecture) {
+        case "qwen4exp":
+            guard mmprojURL == nil else { throw MLXGGUFLoaderError.embeddedConfigurationUnavailable(weightURL) }
+            configuration = try qwen4ExpConfiguration(weightURL: weightURL, metadata: metadata)
         case "apertus":
             let tensorNames = try MLXGGUFLoader.tensorNames(from: weightURL)
             configuration = try apertusConfiguration(
@@ -500,6 +503,66 @@ enum MLXGGUFEmbeddedAssets {
         }
         let modelType = root["model_type"] as? String
         return modelType == "qwen3_5" || modelType == "qwen3_5_text" ? root : nil
+    }
+
+    static func qwen4ExpConfiguration(weightURL: URL, metadata: [String: MLXGGUFMetadataValue]) throws -> [String: Any] {
+        let prefix = "qwen4exp."
+        func required(_ key: String) throws -> Int {
+            guard let n = integer(prefix + key, in: metadata), n > 0 else { throw MLXGGUFLoaderError.invalidSize }
+            return n
+        }
+        let hidden = try required("embedding_length"), heads = try required("attention.head_count")
+        let dim = try required("attention.key_length"), state = try required("ssm.state_size")
+        let layers = try required("block_count") - (integer(prefix + "nextn_predict_layers", in: metadata) ?? 0)
+        let interval = integer(prefix + "full_attention_interval", in: metadata) ?? 4
+        guard layers > 0, interval > 0 else { throw MLXGGUFLoaderError.invalidSize }
+        let ratios = arrayOfIntegers(prefix + "attention.compress_ratios", in: metadata) ?? []
+        let compress = ratios.first(where: { $0 > 0 }) ?? 4
+        guard ratios.allSatisfy({ $0 == 0 || $0 == compress }) else { throw MLXGGUFLoaderError.invalidSize }
+        var result: [String: Any] = [
+            "model_type": "qwen4_exp_text", "hidden_size": hidden, "num_hidden_layers": layers,
+            "num_attention_heads": heads, "num_key_value_heads": try required("attention.head_count_kv"),
+            "head_dim": dim, "vocab_size": metadata["tokenizer.ggml.tokens"]?.arrayValue?.count ?? 0,
+            "linear_num_value_heads": try required("ssm.time_step_rank"),
+            "linear_num_key_heads": try required("ssm.group_count"),
+            "linear_key_head_dim": state, "linear_value_head_dim": try required("ssm.inner_size") / required("ssm.time_step_rank"),
+            "linear_conv_kernel_dim": try required("ssm.conv_kernel"),
+            "num_experts": try required("expert_count"), "num_experts_per_tok": try required("expert_used_count"),
+            "moe_intermediate_size": try required("expert_feed_forward_length"),
+            "shared_expert_intermediate_size": try required("expert_shared_feed_forward_length"),
+            "rms_norm_eps": float(prefix + "attention.layer_norm_rms_epsilon", in: metadata) ?? 1e-6,
+            "full_attention_interval": interval, "max_position_embeddings": integer(prefix + "context_length", in: metadata) ?? 262144,
+            "hc_count": try required("hyper_connection.count"), "hc_lowrank": try required("hyper_connection.low_rank"),
+            "indexer_n_heads": try required("attention.indexer.head_count"),
+            "indexer_head_dim": try required("attention.indexer.key_length"),
+            "indexer_budget": try required("attention.indexer.top_k"), "indexer_compress_ratio": compress,
+            "rope_parameters": ["type": "default", "rope_theta": float(prefix + "rope.freq_base", in: metadata) ?? 10000000,
+                "partial_rotary_factor": Float(integer(prefix + "rope.dimension_count", in: metadata) ?? dim/4)/Float(dim)],
+            "output_gate_type": "sigmoid", "tie_word_embeddings": false,
+        ]
+        if let recurrent = metadata[prefix + "attention.recurrent_layers"]?.arrayValue {
+            guard recurrent.count >= layers else { throw MLXGGUFLoaderError.invalidSize }
+            result["layer_types"] = recurrent.prefix(layers).map { $0.booleanValue == true ? "linear_attention" : "qwen_sparse_attention" }
+        }
+        let pleLayers = arrayOfIntegers(prefix + "ple.layers", in: metadata) ?? []
+        result["ple_layer_ids"] = pleLayers.map { $0 + 1 }
+        if !pleLayers.isEmpty {
+            guard pleLayers.count == 1,
+                let table = try MLXGGUFLoader.readTensorInspectionData(from: weightURL).first(where: { $0.name == "per_layer_token_embd.weight" }), table.dimensions.count == 2,
+                let sizes = arrayOfIntegers(prefix + "ple.head_vocab_sizes", in: metadata),
+                let offsets = arrayOfIntegers(prefix + "ple.head_offsets", in: metadata),
+                let multipliers = arrayOfIntegers(prefix + "ple.layer_multipliers", in: metadata)
+            else { throw MLXGGUFLoaderError.invalidSize }
+            let ngram = try required("ple.ngram_size"), h = try required("ple.heads_per_ngram")
+            result["ngram_size"] = ngram; result["heads_per_ngram"] = h
+            result["ple_embed_dim"] = try required("embedding_length_per_layer_input") * (ngram-1)*h
+            result["ple_conv_kernel_size"] = try required("ple.conv_kernel")
+            result["eos_token_id"] = integer(prefix + "ple.eos_token_id", in: metadata)
+            result["ple_head_vocab_sizes"] = sizes; result["ple_head_offsets"] = offsets
+            result["ple_layer_multipliers"] = multipliers; result["ple_table_rows"] = table.dimensions[1]
+            result["split_ngram_parts"] = 1; result["make_ngram_vocab_size_divisible_by"] = 1
+        }
+        return result
     }
 
     private static func qwen35TextConfiguration(

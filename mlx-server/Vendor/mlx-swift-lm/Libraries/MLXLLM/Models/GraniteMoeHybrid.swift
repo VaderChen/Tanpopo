@@ -339,7 +339,7 @@ class GraniteMoeHybridSharedMLP: Module, UnaryLayer {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let splits = inputLinear(x).split(parts: 2, axis: -1)
-        return outputLinear(silu(splits[0]) * splits[1])
+        return outputLinear(compiledSiluProduct(splits[0], splits[1]))
     }
 }
 
@@ -356,7 +356,7 @@ class GraniteMoeHybridMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        down(silu(gate(x)) * up(x))
+        down(compiledSiluProduct(gate(x), up(x)))
     }
 }
 

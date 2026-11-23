@@ -43,6 +43,13 @@ public enum RoPEOffset {
 /// Interface for Key/Value cache for LLMs.
 ///
 /// See ``LanguageModel/newCache(parameters:)``
+/// 可保存及還原一次推測驗證的 recurrent／附屬狀態，不依特定 cache 類別判斷。
+public protocol SpeculativeCheckpointCache: KVCache {
+    var hasSpeculativeCheckpoint: Bool { get }
+    func restoreSpeculativeCheckpoint() -> Bool
+    func discardSpeculativeCheckpoint()
+}
+
 public protocol KVCache: Evaluatable {
     /// get the current offset
     var offset: Int { get }
@@ -522,6 +529,10 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     private var maxCacheSize: Int
     private var step: Int
     private var idx: Int = 0
+
+    package var ringWriteIndex: Int? {
+        offset > maxCacheSize && idx < maxCacheSize ? idx : nil
+    }
 
     public override var maxSize: Int? { maxCacheSize }
 
@@ -1396,7 +1407,7 @@ public class ArraysCache: BaseKVCache {
 }
 
 /// Simple cache for Mamba-style state space models
-public class MambaCache: ArraysCache {
+public class MambaCache: ArraysCache, SpeculativeCheckpointCache {
     private struct SpeculativeCheckpoint {
         var state: [MLXArray?]
         var offset: Int
@@ -1424,12 +1435,12 @@ public class MambaCache: ArraysCache {
             lengths: lengths.map { $0 - tokenCount })
     }
 
-    package var hasSpeculativeCheckpoint: Bool {
+    public var hasSpeculativeCheckpoint: Bool {
         speculativeCheckpoint != nil
     }
 
     @discardableResult
-    package func restoreSpeculativeCheckpoint() -> Bool {
+    public func restoreSpeculativeCheckpoint() -> Bool {
         guard let checkpoint = speculativeCheckpoint else { return false }
         cache = checkpoint.state
         offset = checkpoint.offset
@@ -1439,7 +1450,7 @@ public class MambaCache: ArraysCache {
         return true
     }
 
-    package func discardSpeculativeCheckpoint() {
+    public func discardSpeculativeCheckpoint() {
         speculativeCheckpoint = nil
     }
 
@@ -1762,6 +1773,18 @@ private func restoreCacheFromMetaState(
         cache.metaState = metaState
         return cache
 
+    case "IndexedKVCache":
+        let cache = IndexedKVCache()
+        cache.state = state
+        cache.metaState = metaState
+        return cache
+
+    case "RecurrentAuxiliaryCache":
+        let cache = RecurrentAuxiliaryCache()
+        cache.state = state
+        cache.metaState = metaState
+        return cache
+
     case "MambaCache":
         let cache = MambaCache()
         cache.restoreFromMetaState(state: state, savedMetaState: metaState)
@@ -1928,7 +1951,7 @@ package func rewindSpeculativePromptCache(
             if entry.isTrimmable {
                 return entry.offset >= numTokens
             }
-            return (entry as? MambaCache)?.hasSpeculativeCheckpoint == true
+            return (entry as? any SpeculativeCheckpointCache)?.hasSpeculativeCheckpoint == true
         })
     else { return 0 }
 
@@ -1938,7 +1961,7 @@ package func rewindSpeculativePromptCache(
                 preconditionFailure("Speculative cache validation and rewind diverged")
             }
         } else {
-            guard (entry as? MambaCache)?.restoreSpeculativeCheckpoint() == true else {
+            guard (entry as? any SpeculativeCheckpointCache)?.restoreSpeculativeCheckpoint() == true else {
                 preconditionFailure("Missing recurrent speculative checkpoint")
             }
         }
@@ -1947,7 +1970,7 @@ package func rewindSpeculativePromptCache(
 }
 
 package func discardSpeculativePromptCacheCheckpoints(_ cache: [KVCache]) {
-    for case let entry as MambaCache in cache {
+    for case let entry as any SpeculativeCheckpointCache in cache {
         entry.discardSpeculativeCheckpoint()
     }
 }

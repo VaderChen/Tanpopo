@@ -43,6 +43,22 @@ func (m *Manager) applyMemoryPressureProtectionLocked(
 		)
 	}
 	budgetBytes := snapshot.AvailableBytes - reserveBytes
+	if enabled, cacheMB, err := diskOffloadMode(command); err != nil {
+		return command, draftModel, dflashEnabled, result, err
+	} else if enabled {
+		minimum := uint64(cacheMB)*1024*1024 + gibibyte
+		if minimum > budgetBytes {
+			return command, draftModel, dflashEnabled, result, fmt.Errorf("磁碟快取與運算預留需要 %s，可用預算僅 %s", formatMemoryBytes(minimum), formatMemoryBytes(budgetBytes))
+		}
+		// 檔案大小不是實際常駐量；MLX 逐參數檢查，llama 交由 fit 與 mmap 分頁。
+		// 這不是整體 RSS 上限，KV／暫存仍需空間；Profile 使用較保守的 8K Context。
+		if command.Runtime == domain.RuntimeMLXServer {
+			result.Actions = []string{"磁碟模式由 MLX 檢查常駐參數、權重快取與請求記憶體預算"}
+		} else {
+			result.Actions = []string{"磁碟模式啟用 mmap／GPU 自動 fit；CPU 分頁與 KV 暫存另占記憶體"}
+		}
+		return command, draftModel, dflashEnabled, result, nil
+	}
 	if command.Runtime == domain.RuntimeMLXServer && hasAnyArgument(command.ExtraArgs, "--distributed-config", "--distributed-config-base64") {
 		// 分片大小只有模型載入器能依 tensor 契約精確決定，不能用完整模型檔案
 		// 大小擋下原本就需要雙機容量的模型。Runtime 在複製分片前逐節點檢查，
@@ -56,8 +72,7 @@ func (m *Manager) applyMemoryPressureProtectionLocked(
 	if err != nil {
 		return command, draftModel, dflashEnabled, result, fmt.Errorf("記憶體壓力保護無法估算模型: %w", err)
 	}
-	mtpEnabled := command.Runtime == domain.RuntimeMLXServer &&
-		hasAnyArgument(command.ExtraArgs, "--mtp-draft", "--mtp-block-size")
+	mtpEnabled := usesMTP(command)
 	batchSize := runtimeBatchSize(command)
 	contexts := contextCandidates(command.ContextSize)
 	chooseContext := func(currentDraftBytes uint64, currentBatch int) (int, uint64, bool) {
@@ -138,7 +153,7 @@ func runtimeModelFootprintBytes(
 			}
 		}
 		if value := strings.TrimSpace(draftModel); value != "" {
-			path, resolveErr = resolveMLXModel(settings.MLXModelDirectory, value, "Draft 模型")
+			path, _, resolveErr = resolveMLXTargetModel(settings, value, "Draft 模型")
 			if resolveErr != nil {
 				return 0, 0, 0, resolveErr
 			}
@@ -176,6 +191,9 @@ func runtimeModelFootprintBytes(
 }
 
 func pathFootprintBytes(path string) (uint64, error) {
+	if isGGUFPath(path) {
+		return ggufFootprintBytes(path)
+	}
 	if isFastGGUFManifestPath(path) {
 		fastGGUFPackage, err := readStandaloneFastGGUFPackage(path)
 		if err != nil {
@@ -298,6 +316,7 @@ func setManagedIntegerArgument(arguments []string, name string, value int) []str
 func withoutSpeculativeDecodingArguments(arguments []string) []string {
 	arguments = withoutDFlashArguments(arguments)
 	arguments = withoutDraftModelArguments(arguments)
+	arguments = withoutNamedValueArguments(arguments, "--spec-type", "--spec-draft-n-max")
 	filtered := make([]string, 0, len(arguments))
 	for index := 0; index < len(arguments); index++ {
 		argument := strings.TrimSpace(arguments[index])

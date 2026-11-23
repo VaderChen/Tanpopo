@@ -8,6 +8,10 @@ enum DistributedWeightLoading {
     @TaskLocal static var enabled = false
 }
 
+enum DiskWeightLoading {
+    @TaskLocal static var enabled = false
+}
+
 final class DistributedWeightFile {
     private let reader: UnsafeMutableRawPointer
 

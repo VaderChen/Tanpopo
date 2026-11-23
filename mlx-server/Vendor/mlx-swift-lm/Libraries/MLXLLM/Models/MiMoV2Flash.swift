@@ -221,7 +221,7 @@ class MiMoV2FlashMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        downProj(silu(gateProj(x)) * upProj(x))
+        downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
 }
 

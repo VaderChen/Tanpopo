@@ -134,11 +134,11 @@
   function sortedGGUFFiles(files) {
     return [...new Set((Array.isArray(files) ? files : [])
       .map((filename) => String(filename || "").trim())
-      .filter((filename) => filename.toLowerCase().endsWith(".gguf")))]
+      .filter((filename) => /\.gguf(?:_file)?$/i.test(filename)))]
       .sort((left, right) => MODEL_NAME_COLLATOR.compare(left, right));
   }
 
-  async function loadGGUFFilenames({ preserveSelection = false, notify = false } = {}) {
+  async function loadGGUFFilenames({ preserveSelection = false, notify = false, preferredFilename = "" } = {}) {
     if (!canScanGGUFFiles()) {
       replaceGGUFFileOptions("請先輸入 Repository");
       updateGGUFRefreshButton();
@@ -167,14 +167,23 @@
       }));
       select.disabled = false;
       const defaultFilename = files.find((filename) => Q4_0_PATTERN.test(filename)) || files[0];
+      if (preferredFilename) {
+        select.value = preferredFilename;
+        if (!files.includes(preferredFilename)) {
+          showMessage(t("找不到可下載的 GGUF 主模型檔案") + " · " + preferredFilename, "error");
+          return false;
+        }
+        return true;
+      }
       select.value = previousSelection && files.includes(previousSelection)
         ? previousSelection
         : defaultFilename;
       if (notify) showMessage(t("GGUF 檔案清單已更新"));
+      return true;
     } catch (error) {
       if (requestSequence !== ggufFileRequestSequence) return;
       replaceGGUFFileOptions("無法載入 GGUF 檔案清單");
-      if (notify) showMessage(error.message, "error");
+      if (notify || preferredFilename) showMessage(error.message, "error");
     } finally {
       if (requestSequence === ggufFileRequestSequence) updateGGUFRefreshButton();
     }
@@ -451,6 +460,7 @@
       name,
       repository,
       revision,
+      filename: format === "gguf" ? String(entry.filename || "").trim() : "",
       parameterSizeB,
       description: localizedCatalogText(entry.description)
     };
@@ -470,7 +480,9 @@
     byId("revision").value = model.revision;
     renderRuntimeFields();
     closeQuickModelPopover();
-    if (format === "gguf") await loadGGUFFilenames();
+    if (format === "gguf") {
+      if (!await loadGGUFFilenames({ preferredFilename: model.filename })) return;
+    }
     showMessage(t("已填入快速下載資訊"));
   }
 
@@ -592,10 +604,11 @@
     const list = document.createElement("div");
     list.className = "quick-model-list";
     favorites.forEach((favorite) => {
-      const catalogModel = (quickModelCatalog?.[format] || []).find((model) =>
+      const matchingModels = (quickModelCatalog?.[format] || []).filter((model) =>
         model.repository.toLowerCase() === favorite.repository.toLowerCase()
           && model.revision === favorite.revision
       );
+      const catalogModel = matchingModels.length === 1 ? matchingModels[0] : null;
       const item = document.createElement("div");
       item.className = "quick-model-option quick-favorite-option";
       const button = document.createElement("button");
@@ -615,7 +628,7 @@
       }
       button.append(content);
       button.addEventListener("click", () => {
-        applyQuickModel(format, favorite).catch((error) => showMessage(error.message, "error"));
+        applyQuickModel(format, catalogModel || favorite).catch((error) => showMessage(error.message, "error"));
       });
       const removeButton = document.createElement("button");
       removeButton.className = "quick-model-star is-favorite";
@@ -670,7 +683,14 @@
     const content = byId("quickModelContent");
     const format = byId("downloadRuntime").value === MLX_RUNTIME ? "mlx" : "gguf";
     const title = format === "mlx" ? t("MLX 模型") : t("GGUF 模型");
-    const availableModels = catalog[format].filter((model) => !isFavoriteModel(format, model));
+    const keyFor = (model) => model.repository.toLowerCase() + "@" + model.revision;
+    const variants = new Map();
+    for (const model of catalog[format]) {
+      const key = keyFor(model);
+      variants.set(key, (variants.get(key) || 0) + 1);
+    }
+    const availableModels = catalog[format].filter((model) =>
+      variants.get(keyFor(model)) > 1 || !isFavoriteModel(format, model));
     content.replaceChildren(
       quickFavoriteGroup(format),
       quickModelGroup(format, title, availableModels)

@@ -1,5 +1,7 @@
 #include "MLXDistributedBridge.h"
 #include <string>
+#include <limits>
+#include <unordered_set>
 #include "mlx/c/private/mlx.h"
 #include "mlx/c/error.h"
 #include "mlx/distributed/distributed.h"
@@ -156,5 +158,80 @@ extern "C" int tanpopo_distributed_copy_rows(mlx_array* result, mlx_array input,
         begins[0] = start;
         ends[0] = end;
         mlx_array_set_(*result, mlx::core::copy(mlx::core::slice(source, begins, ends)));
+    });
+}
+
+namespace {
+// 保留參數形狀供模型檢查；繞過模組直接取完整權重的融合運算必須明確失敗。
+class DiskWeightGuard : public mlx::core::UnaryPrimitive {
+public:
+    DiskWeightGuard() : UnaryPrimitive(mlx::core::default_stream(mlx::core::Device::cpu)) {}
+    void eval_cpu(const std::vector<mlx::core::array>&, mlx::core::array&) override {
+        throw std::runtime_error("磁碟輔助模式不支援此運算直接讀取完整權重；請使用模組的分塊推論入口。");
+    }
+    void eval_gpu(const std::vector<mlx::core::array>& in, mlx::core::array& out) override { eval_cpu(in, out); }
+    const char* name() const override { return "TanpopoDiskWeightGuard"; }
+};
+}
+extern "C" bool tanpopo_disk_is_file_tensor(mlx_array input) {
+    bool result = false;
+    checked([&] {
+#ifdef TANPOPO_MLX_LOAD_ROW_SLICE
+        const auto& source = mlx_array_get_(input);
+        result = !source.is_available() && source.ndim() >= 2 && source.has_primitive()
+            && dynamic_cast<mlx::core::Load*>(&source.primitive());
+#endif
+    });
+    return result;
+}
+extern "C" int tanpopo_disk_read_rows(mlx_array* result, mlx_array input, size_t start, int count) {
+    return checked([&] {
+#ifdef TANPOPO_MLX_LOAD_ROW_SLICE
+        const auto& source = mlx_array_get_(input);
+        if (source.ndim() < 2 || source.shape(-1) <= 0 || count <= 0 || !source.has_primitive()) {
+            throw std::runtime_error("Invalid disk weight row descriptor");
+        }
+        auto* loader = dynamic_cast<mlx::core::Load*>(&source.primitive());
+        const auto rows = source.size() / source.shape(-1);
+        if (!loader || start > rows || static_cast<size_t>(count) > rows - start) {
+            throw std::runtime_error("Disk weight row range exceeds source tensor");
+        }
+        const auto row_bytes = static_cast<size_t>(source.shape(-1)) * source.itemsize();
+        if (static_cast<size_t>(count) > std::numeric_limits<int>::max() / row_bytes) {
+            throw std::runtime_error("Disk weight tile exceeds 2 GiB; reduce --disk-tile-mb");
+        }
+        mlx_array_set_(*result, mlx::core::array({count, source.shape(-1)}, source.dtype(),
+            loader->with_byte_offset(start * row_bytes), std::vector<mlx::core::array>{}));
+#else
+        throw std::runtime_error("Disk offload requires the MLX file row loading patch");
+#endif
+    });
+}
+extern "C" int tanpopo_disk_guard(mlx_array* result, mlx_array input) {
+    return checked([&] {
+        const auto& source = mlx_array_get_(input);
+        mlx_array_set_(*result, mlx::core::array(source.shape(), source.dtype(),
+            std::make_shared<DiskWeightGuard>(), std::vector<mlx::core::array>{}));
+    });
+}
+extern "C" int tanpopo_disk_resident_graph_bytes(mlx_array input, size_t* result) {
+    return checked([&] {
+        std::unordered_set<std::uintptr_t> seen;
+        std::vector<mlx::core::array> pending{mlx_array_get_(input)};
+        size_t bytes = 0;
+        while (!pending.empty()) {
+            auto source = std::move(pending.back());
+            pending.pop_back();
+            if (!seen.insert(source.id()).second) continue;
+            if (source.nbytes() > std::numeric_limits<size_t>::max() - bytes) {
+                throw std::runtime_error("Resident graph size overflow");
+            }
+            bytes += source.nbytes();
+            // 小型 slice 也可能引用巨大 Load；不能只用輸出 nbytes 判斷能否全量求值。
+            if (!source.is_available()) {
+                pending.insert(pending.end(), source.inputs().begin(), source.inputs().end());
+            }
+        }
+        *result = bytes;
     });
 }

@@ -4,6 +4,11 @@ import Foundation
 import MLX
 import MLXNN
 
+public protocol ModelCheckpointPreparing {
+    func checkpointPath(for modulePath: String) -> String
+    func prepareCheckpoint(_ weights: [String: MLXArray]) throws -> [String: MLXArray]
+}
+
 /// Load model weights.
 ///
 /// This is typically called via ``GenericModelFactory/load(from:using:configuration:useLatest:progressHandler:)``.
@@ -57,6 +62,9 @@ public func loadWeights(
     }
 
     // per-model cleanup (models can inspect metadata to customize behavior)
+    if let preparer = model as? ModelCheckpointPreparing {
+        weights = try preparer.prepareCheckpoint(weights)
+    }
     weights = model.sanitize(weights: weights, metadata: metadata)
     ModelWeightLoadingContext.progressHandler?(65, 100)
 
@@ -65,7 +73,8 @@ public func loadWeights(
         quantize(model: model) { path, module in
             if weights["\(path).scales"] != nil {
                 if let perLayerQuantization {
-                    return perLayerQuantization.quantization(layer: path)?.asTuple
+                    let checkpointPath = (model as? ModelCheckpointPreparing)?.checkpointPath(for: path) ?? path
+                    return perLayerQuantization.quantization(layer: checkpointPath)?.asTuple
                 } else {
                     return quantization?.asTuple
                 }

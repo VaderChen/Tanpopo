@@ -106,7 +106,7 @@ final class Lille130mMLP: Module, UnaryLayer {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         let h = norm(x)
-        return down(silu(gate(h)) * up(h))
+        return down(compiledSiluProduct(gate(h), up(h)))
     }
 }
 

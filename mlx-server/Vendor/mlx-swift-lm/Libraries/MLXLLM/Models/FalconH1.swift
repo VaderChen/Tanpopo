@@ -560,7 +560,8 @@ class FalconH1MLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let y = upProj(x) * silu(gateProj(x))
+        let up = upProj(x)
+        let y = compiledSiluProduct(gateProj(x), up)
         return downProj(y)
     }
 }

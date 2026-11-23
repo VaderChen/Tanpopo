@@ -116,7 +116,7 @@ class FeedForwardNetwork: Module, UnaryLayer {
         let b = split(a, parts: 2, axis: -1)
         let gate = b[0]
         let x = b[1]
-        return proj_2(silu(gate) * x)
+        return proj_2(compiledSiluProduct(gate, x))
     }
 }
 

@@ -263,7 +263,7 @@ private enum Language {
 
         func callAsFunction(_ x: MLXArray) -> MLXArray {
             let g = gate_proj(x)
-            let r = down_proj(silu(g) * up_proj(x))
+            let r = down_proj(compiledSiluProduct(g, up_proj(x)))
             return r
         }
     }

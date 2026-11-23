@@ -1,7 +1,43 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-09-02",
+  "updated_at": "2026-11-23",
   "gguf": [
+    {
+      "name": "Inkling 2 Mini · UD-Q4_K_XL",
+      "parameter_size_b": 26.4,
+      "repository": "unsloth/Inkling-2-Mini-GGUF",
+      "revision": "45fd08764f2b0bf16b03a5483a80e5c7aaec8772",
+      "filename": "Mainline_Support/Inkling-2-Mini-UD-Q4_K_XL.gguf_file",
+      "description": {
+        "zh-Hant": "Unsloth 動態量化 GGUF，適用於 llama-server。",
+        "en": "Dynamic GGUF quantization by Unsloth for llama-server.",
+        "ja": "llama-server 向けの Unsloth 動的量子化 GGUF。",
+        "ko": "llama-server용 Unsloth 동적 양자화 GGUF입니다."
+      }
+    },
+    {
+      "name": "Inkling 2 Mini · UD-Q8_K_XL",
+      "parameter_size_b": 26.4,
+      "repository": "unsloth/Inkling-2-Mini-GGUF",
+      "revision": "45fd08764f2b0bf16b03a5483a80e5c7aaec8772",
+      "filename": "Mainline_Support/Inkling-2-Mini-UD-Q8_K_XL.gguf_file",
+      "description": {
+        "zh-Hant": "Unsloth 動態量化 GGUF，適用於 llama-server。",
+        "en": "Dynamic GGUF quantization by Unsloth for llama-server.",
+        "ja": "llama-server 向けの Unsloth 動的量子化 GGUF。",
+        "ko": "llama-server용 Unsloth 동적 양자화 GGUF입니다."
+      }
+    },
+    {
+      "name": "Inkling 2 Mini · IQ4_NL",
+      "parameter_size_b": 26.4,
+      "repository": "ggml-org/Inkling-2-Mini-GGUF",
+      "revision": "e8a2cecf0e78914f07cc27b9be711a9b2c7561d9",
+      "filename": "Inkling-2-Mini-IQ4_NL.gguf",
+      "description": {
+        "zh-Hant": "循環式 MoE 文字／視覺模型；選用 llama-server 與 Inkling-2-Mini（8K）啟動參數，圖片需 mmproj。"
+      }
+    },
     {
       "name": "Qwen 3.5 0.8B MTP · Q4_0",
       "parameter_size_b": 0.8,
@@ -264,6 +300,30 @@
     }
   ],
   "mlx": [
+    {
+      "name": "Inkling 2 Mini · 4-bit MLX",
+      "parameter_size_b": 26.4,
+      "repository": "mlx-community/Inkling-2-Mini-4bit",
+      "revision": "9c0e2960609ba7cb40daf92c6f7bf8ed56e1dd62",
+      "description": {
+        "zh-Hant": "Apple Silicon 原生 MLX 版本，保留混合精度專家權重。",
+        "en": "Native MLX for Apple Silicon with mixed-precision experts.",
+        "ja": "混合精度のエキスパートを保持した Apple Silicon 向け MLX 版。",
+        "ko": "혼합 정밀도 전문가 가중치를 유지한 Apple Silicon용 MLX 버전입니다."
+      }
+    },
+    {
+      "name": "Inkling 2 Mini · 8-bit MLX",
+      "parameter_size_b": 26.4,
+      "repository": "pipenetwork/Inkling-2-Mini-MLX-8bit",
+      "revision": "685a389626af79520257d5dbc4bf493eb645182d",
+      "description": {
+        "zh-Hant": "Apple Silicon 原生 MLX 版本，保留混合精度專家權重。",
+        "en": "Native MLX for Apple Silicon with mixed-precision experts.",
+        "ja": "混合精度のエキスパートを保持した Apple Silicon 向け MLX 版。",
+        "ko": "혼합 정밀도 전문가 가중치를 유지한 Apple Silicon용 MLX 버전입니다."
+      }
+    },
     {
       "name": "Qwen 3.5 4B · 4-bit MLX",
       "parameter_size_b": 4,

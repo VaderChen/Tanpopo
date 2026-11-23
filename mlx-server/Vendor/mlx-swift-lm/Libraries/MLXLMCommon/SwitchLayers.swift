@@ -220,6 +220,8 @@ public class FusedGateUpSwitchGLU: Module {
 // MARK: - SwitchLinear
 
 public class SwitchLinear: Module, Quantizable {
+    /// Runtime 可提供保持相同張量契約的檔案分塊執行器；一般模式維持原運算。
+    public var inferenceOverride: ((MLXArray, MLXArray, Bool) -> MLXArray)?
     @ModuleInfo(key: "weight") var weight: MLXArray
     @ModuleInfo(key: "bias") var bias: MLXArray?
 
@@ -265,6 +267,7 @@ public class SwitchLinear: Module, Quantizable {
     public func callAsFunction(
         _ x: MLXArray, _ indices: MLXArray, sortedIndices: Bool = false
     ) -> MLXArray {
+        if let inferenceOverride { return inferenceOverride(x, indices, sortedIndices) }
         let weightT = self.weight.swappedAxes(-1, -2)
         var result = MLX.gatherMM(x, weightT, rhsIndices: indices, sortedIndices: sortedIndices)
 
@@ -311,6 +314,7 @@ public class QuantizedSwitchLinear: SwitchLinear, Quantized {
     override public func callAsFunction(
         _ x: MLXArray, _ indices: MLXArray, sortedIndices: Bool = false
     ) -> MLXArray {
+        if let inferenceOverride { return inferenceOverride(x, indices, sortedIndices) }
         var result = MLX.gatherQuantizedMM(
             x,
             self.weight,

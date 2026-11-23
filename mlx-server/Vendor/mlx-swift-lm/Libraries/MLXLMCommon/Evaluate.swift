@@ -2069,6 +2069,7 @@ public struct GenerateCompletionInfo: Sendable {
 /// - `.toolCall`: A tool call parsed from the generated output.
 /// - `.info`: Metadata and performance statistics about the generation process.
 public enum Generation: Sendable {
+    case reasoning(String)
     /// A generated text chunk as a String.
     case chunk(String)
 
@@ -2081,6 +2082,7 @@ public enum Generation: Sendable {
     /// Generated text or nil
     public var chunk: String? {
         switch self {
+        case .reasoning: nil
         case .chunk(let string): string
         case .info: nil
         case .toolCall: nil
@@ -2090,7 +2092,7 @@ public enum Generation: Sendable {
     /// Completion info or nil
     public var info: GenerateCompletionInfo? {
         switch self {
-        case .chunk: nil
+        case .reasoning, .chunk: nil
         case .info(let info): info
         case .toolCall: nil
         }
@@ -2099,7 +2101,7 @@ public enum Generation: Sendable {
     /// Tool call or nil
     public var toolCall: ToolCall? {
         switch self {
-        case .chunk: nil
+        case .reasoning, .chunk: nil
         case .info: nil
         case .toolCall(let toolCall): toolCall
         }
@@ -2267,6 +2269,7 @@ struct StopStringFilter {
 private struct TextToolTokenLoopHandler: TokenLoopHandler {
     typealias Output = Generation
 
+    var inklingDecoder: InklingFrameDecoder?
     var detokenizer: NaiveStreamingDetokenizer
     var stopStringFilter: StopStringFilter
     let toolCallProcessor: ToolCallProcessor
@@ -2275,6 +2278,7 @@ private struct TextToolTokenLoopHandler: TokenLoopHandler {
         tokenizer: Tokenizer, stopStrings: Set<String> = [], format: ToolCallFormat,
         tools: [[String: any Sendable]]? = nil
     ) {
+        inklingDecoder = format == .inkling ? InklingFrameDecoder(tokenizer: tokenizer) : nil
         detokenizer = NaiveStreamingDetokenizer(tokenizer: tokenizer)
         stopStringFilter = StopStringFilter(stopStrings: stopStrings)
         toolCallProcessor = ToolCallProcessor(format: format, tools: tools)
@@ -2284,6 +2288,16 @@ private struct TextToolTokenLoopHandler: TokenLoopHandler {
         _ token: Int,
         emit: (sending Generation) -> AsyncStream<Generation>.Continuation.YieldResult
     ) -> TokenLoopDisposition {
+        if inklingDecoder != nil {
+            guard let event = inklingDecoder?.push(token) else { return .more }
+            if case .chunk(let text) = event {
+                let filtered = stopStringFilter.process(text)
+                if let text = filtered.text, case .terminated = emit(.chunk(text)) { return .cancelled }
+                return filtered.stopped ? .stop : .more
+            }
+            if case .terminated = emit(event) { return .cancelled }
+            return .more
+        }
         detokenizer.append(token: token)
         if let chunk = detokenizer.next() {
             let result = stopStringFilter.process(chunk)
@@ -2312,6 +2326,10 @@ private struct TextToolTokenLoopHandler: TokenLoopHandler {
     mutating func onGenerationEnd(
         emit: (sending Generation) -> AsyncStream<Generation>.Continuation.YieldResult
     ) {
+        if inklingDecoder != nil {
+            if let text = stopStringFilter.finish() { _ = emit(.chunk(text)) }
+            return
+        }
         if let text = stopStringFilter.finish() {
             guard case .more = processText(text, emit: emit) else {
                 return

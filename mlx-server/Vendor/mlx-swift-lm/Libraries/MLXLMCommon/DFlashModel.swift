@@ -144,6 +144,33 @@ public func dflashSample(
     categorical(log(probabilities), key: randomState)
 }
 
+/// 被拒絕位置的 residual 分布；輸入為單列 vocabulary／selector probability。
+///
+/// Sparse selector 的 indices 必須唯一。保留 Target 未被 selector 選中的機率，
+/// 並在 GPU 上完成正規化，避免為判斷 residual 總和而同步讀回 CPU。
+public func dflashResidualDistribution(
+    target: MLXArray,
+    draft: MLXArray,
+    indices: MLXArray? = nil
+) -> MLXArray {
+    var residual: MLXArray
+    if let indices {
+        let existing = takeAlong(target[.newAxis], indices[.newAxis], axis: -1)
+        residual = putAlong(
+            target[.newAxis], indices[.newAxis],
+            values: existing - draft[.newAxis], axis: -1
+        )[0]
+    } else {
+        residual = target - draft
+    }
+    residual = maximum(residual, MLXArray(0))
+    let total = residual.sum()
+    let positive = total .> 0
+    // where 的兩個分支都可能求值；先使用安全分母，零總和時回到 Target。
+    let denominator = MLX.where(positive, total, MLXArray(1))
+    return MLX.where(positive, residual / denominator, target)
+}
+
 /// 可提供 DFlash 中間層特徵的 target model。
 public protocol DFlashTargetModel: LanguageModel {
     var dflashModelType: String { get }

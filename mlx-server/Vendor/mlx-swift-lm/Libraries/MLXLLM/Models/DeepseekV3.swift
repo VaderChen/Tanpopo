@@ -245,7 +245,7 @@ class DeepseekV3MLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        self.downProj(silu(self.gateProj(x)) * self.upProj(x))
+        self.downProj(compiledSiluProduct(self.gateProj(x), self.upProj(x)))
     }
 }
 

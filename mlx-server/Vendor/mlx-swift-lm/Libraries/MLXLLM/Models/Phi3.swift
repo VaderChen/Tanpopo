@@ -113,7 +113,7 @@ class Phi3MLP: Module, UnaryLayer {
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
         let gu = split(gate_up(x), parts: 2, axis: -1)
-        return down(silu(gu[0]) * gu[1])
+        return down(compiledSiluProduct(gu[0], gu[1]))
     }
 }
 

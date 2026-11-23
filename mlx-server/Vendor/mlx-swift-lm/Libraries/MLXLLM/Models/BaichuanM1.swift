@@ -169,7 +169,7 @@ class BaichuanM1MLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        return downProj(silu(gateProj(x)) * upProj(x))
+        return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
 }
 

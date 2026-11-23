@@ -195,7 +195,7 @@ enum FastGGUFContainer {
         try validate(header: header, fileSize: fileSize)
 
         // 分散式載入不把完整模型實體化：raw 直接 lazy 讀檔，壓縮部分逐張量落盤。
-        let source = DistributedWeightLoading.enabled ? try DistributedWeightFile(url: url) : nil
+        let source = DistributedWeightLoading.enabled || DiskWeightLoading.enabled ? try DistributedWeightFile(url: url) : nil
         let scratchURL = FileManager.default.temporaryDirectory.appendingPathComponent("tanpopo-weights-" + UUID().uuidString)
         var scratch: FileHandle?
         var scratchReader: DistributedWeightFile?
@@ -241,6 +241,21 @@ enum FastGGUFContainer {
             case "lzfse":
                 compressedTensorCount += 1
                 try handle.seek(toOffset: UInt64(absoluteOffset))
+                if DiskWeightLoading.enabled {
+                    if scratch == nil {
+                        guard FileManager.default.createFile(atPath: scratchURL.path, contents: nil,
+                            attributes: [.posixPermissions: 0o600]) else {
+                            throw ContainerError.createFailed(scratchURL.lastPathComponent)
+                        }
+                        scratch = try FileHandle(forWritingTo: scratchURL)
+                        scratchReader = try DistributedWeightFile(url: scratchURL)
+                    }
+                    let offset = try scratch!.offset()
+                    try streamDecodeLZFSE(input: handle, output: scratch!, storedBytes: Int(tensor.storedBytes),
+                        rawBytes: Int(tensor.rawBytes), name: tensor.name)
+                    value = try scratchReader!.array(offset: Int(offset), shape: tensor.shape, dtype: dtype)
+                    break
+                }
                 let encoded = try readExact(handle: handle, count: Int(tensor.storedBytes))
                 let decoded = try decodeLZFSE(
                     encoded,
@@ -318,6 +333,54 @@ enum FastGGUFContainer {
             }
             previousEnd = end
         }
+    }
+
+    /// 固定 64 KiB 輸入／輸出緩衝；不為單一壓縮張量配置完整解壓空間。
+    private static func streamDecodeLZFSE(input: FileHandle, output: FileHandle,
+        storedBytes: Int, rawBytes: Int, name: String) throws {
+        let capacity = 64 * 1024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+        defer { buffer.deallocate() }
+        var stream = compression_stream(dst_ptr: buffer, dst_size: capacity,
+            src_ptr: UnsafePointer(buffer), src_size: 0, state: nil)
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_LZFSE) != COMPRESSION_STATUS_ERROR else {
+            throw ContainerError.invalidTensor(name)
+        }
+        defer { compression_stream_destroy(&stream) }
+        var remaining = storedBytes
+        var written = 0
+        var ended = false
+        while remaining > 0, !ended {
+            let data = try readExact(handle: input, count: min(capacity, remaining))
+            remaining -= data.count
+            try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                stream.src_ptr = bytes.bindMemory(to: UInt8.self).baseAddress!
+                stream.src_size = data.count
+                repeat {
+                    stream.dst_ptr = buffer
+                    stream.dst_size = capacity
+                    let before = stream.src_size
+                    let status = compression_stream_process(&stream,
+                        remaining == 0 ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0)
+                    let produced = capacity - stream.dst_size
+                    guard status != COMPRESSION_STATUS_ERROR, produced <= rawBytes - written else {
+                        throw ContainerError.invalidTensor(name)
+                    }
+                    if produced > 0 { try output.write(contentsOf: Data(bytes: buffer, count: produced)) }
+                    written += produced
+                    if status == COMPRESSION_STATUS_END {
+                        guard remaining == 0, stream.src_size == 0 else { throw ContainerError.invalidTensor(name) }
+                        ended = true
+                        break
+                    }
+                    if produced == 0, stream.src_size == before {
+                        if stream.src_size == 0, remaining > 0 { break }
+                        throw ContainerError.invalidTensor(name)
+                    }
+                } while stream.src_size > 0 || remaining == 0 || stream.dst_size == 0
+            }
+        }
+        guard ended, written == rawBytes else { throw ContainerError.invalidTensor(name) }
     }
 
     private static func encodeIfWorthwhile(_ data: Data) -> Data? {

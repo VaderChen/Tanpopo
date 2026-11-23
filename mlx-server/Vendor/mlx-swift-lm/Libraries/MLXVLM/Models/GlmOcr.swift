@@ -216,7 +216,7 @@ private enum Language {
         public func callAsFunction(_ x: MLXArray) -> MLXArray {
             let x = gateUpProj(x)
             let parts = split(x, parts: 2, axis: -1)
-            return down(silu(parts[0]) * parts[1])
+            return down(compiledSiluProduct(parts[0], parts[1]))
         }
     }
 
@@ -547,7 +547,7 @@ private enum Vision {
         }
 
         public func callAsFunction(_ x: MLXArray) -> MLXArray {
-            down(silu(gate(x)) * up(x))
+            down(compiledSiluProduct(gate(x), up(x)))
         }
     }
 
@@ -599,7 +599,7 @@ private enum Vision {
         func callAsFunction(_ x: MLXArray) -> MLXArray {
             var h = proj(x)
             h = gelu(postProjectionNorm(h))
-            return down(silu(gate(h)) * up(h))
+            return down(compiledSiluProduct(gate(h), up(h)))
         }
     }
 

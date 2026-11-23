@@ -36,7 +36,7 @@ enum GGUFRecurrentPromotionPolicy: String, Sendable {
 }
 
 struct ServerConfiguration: Sendable {
-    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11"
+    static let version = "1.5.0-mlxswiftlm-3.31.4-gguf-dflash2-mtp-mmap-fastgguf-cache12-rdma11-splash1-qwen4mtp1-disk1-inkling1"
 
     var modelPath = ""
     var mmprojPath: String?
@@ -88,6 +88,8 @@ struct ServerConfiguration: Sendable {
     // Tanpopo 進階設定控制是否啟用，Profile 則提供記憶體保留目標。
     var memoryMappingEnabled = false
     var mmapReserveGB = 0
+    var diskCacheMB = 0
+    var diskTileMB = 32
     var distributed: DistributedConfiguration?
     var distributedRank = 0
     var distributedSmoke = false
@@ -268,6 +270,10 @@ struct ServerConfiguration: Sendable {
                 result.memoryMappingEnabled = true
             case "--no-mmap":
                 result.memoryMappingEnabled = false
+            case "--disk-cache-mb":
+                result.diskCacheMB = try parseInteger(nextValue(for: option), option: option, range: 0...131072)
+            case "--disk-tile-mb":
+                result.diskTileMB = try parseInteger(nextValue(for: option), option: option, range: 1...512)
             case "--mmap-reserve-gb":
                 let value = try parseInteger(
                     nextValue(for: option), option: option, range: 0...128)
@@ -347,7 +353,7 @@ struct ServerConfiguration: Sendable {
             var isDraftDirectory: ObjCBool = false
             guard FileManager.default.fileExists(
                 atPath: mtpDraftPath, isDirectory: &isDraftDirectory),
-                isDraftDirectory.boolValue else {
+                (isDraftDirectory.boolValue || URL(fileURLWithPath: mtpDraftPath).pathExtension.lowercased() == "gguf") else {
                 throw ConfigurationError.invalidDraftDirectory(mtpDraftPath)
             }
         }
@@ -356,6 +362,14 @@ struct ServerConfiguration: Sendable {
         }
         if result.mmapReserveGB > 0, !result.memoryMappingEnabled {
             throw ConfigurationError.mmapReserveRequiresMMap
+        }
+        if result.diskCacheMB > 0 {
+            guard result.diskCacheMB >= result.diskTileMB * 2 else {
+                throw DiskOffloadError.invalid("--disk-cache-mb 至少必須是 --disk-tile-mb 的兩倍。")
+            }
+            guard result.distributed == nil else {
+                throw DiskOffloadError.invalid("磁碟輔助模式目前不能與 TCP Ring／RDMA 同時啟用。")
+            }
         }
         return result
     }
@@ -419,6 +433,8 @@ struct ServerConfiguration: Sendable {
       --mmap                        以檔案映射載入支援的模型權重
       --no-mmap                     關閉模型權重檔案映射（預設）
       --mmap-reserve-gb <數值>      記憶體保留目標：0、4、8、16、24、32、48、64、96 或 128 GB
+      --disk-cache-mb <MiB>         磁碟輔助權重快取上限；0 停用，建議 1024
+      --disk-tile-mb <MiB>          每次讀取的權重區塊上限，預設 32；快取至少需容納兩塊
       --max-tokens <數量>          預設最大輸出 Token，預設 4096
       --max-kv-size <數量>         KV Cache 最大 Token 數
       --context-size <數量>        請求上下文上限，不改變 KV Cache 類型
@@ -440,7 +456,7 @@ struct ServerConfiguration: Sendable {
                                    Tanpopo 金鑰與 IP 白名單策略快照
       --dflash-draft <模型目錄>    啟用原生 MLX DFlash 1／2（Qwen3／Qwen3.5）
       --dflash-block-size <數量>   DFlash block size，預設 5，且不超過訓練值
-      --mtp-draft <模型目錄>       啟用原生 MLX Multi-Token Prediction 草稿模型
+      --mtp-draft <目錄或 GGUF>       啟用原生 MLX Multi-Token Prediction 草稿模型
       --mtp-block-size <數量>      MTP 驗證區塊大小，預設 2，且不超過模型上限
     """
 }

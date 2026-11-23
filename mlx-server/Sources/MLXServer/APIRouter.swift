@@ -97,6 +97,7 @@ actor APIRouter {
                 var health: [String: Any] = ["status": "ok"]
                 try await runtime.distributedHealth()
                 if let distributed = runtime.distributedSession { health["distributed"] = distributed.summary }
+                if let disk = runtime.diskOffloadSession { health["disk_offload"] = disk.summary }
                 return .json(object: addingContextLimit(to: health))
             case ("GET", "/models"), ("GET", "/v1/models"):
                 return await modelsResponse()
@@ -158,6 +159,7 @@ actor APIRouter {
             "modalities": kind == ModelKind.vision.rawValue ? ["text", "image"] : ["text"]
         ])
         if let distributed = runtime.distributedSession { props["distributed"] = distributed.summary }
+        if let disk = runtime.diskOffloadSession { props["disk_offload"] = disk.summary }
         if let limit = runtime.contextLimit {
             props["default_generation_settings"] = ["n_ctx": limit]
         }
@@ -201,6 +203,7 @@ actor APIRouter {
             "role": "assistant",
             "content": result.text
         ]
+        if !result.reasoning.isEmpty { message["reasoning_content"] = result.reasoning }
         if !toolCalls.isEmpty {
             message["content"] = result.text.isEmpty ? NSNull() : result.text
             message["tool_calls"] = toolCalls
@@ -259,6 +262,8 @@ actor APIRouter {
                             return
                         }
                         switch event {
+                        case .reasoning(let text):
+                            continuation.yield(chatContentChunk(id: id, created: created, model: model, text: text, field: "reasoning_content"))
                         case .chunk(let text):
                             let filtered = textFilter.append(text)
                             if !filtered.text.isEmpty {
@@ -467,7 +472,7 @@ actor APIRouter {
                                 stoppedByRequest = true
                                 finishReason = "stop"
                             }
-                        case .toolCall:
+                        case .reasoning, .toolCall:
                             break
                         case .info(let info):
                             await runtime.logCompletion(info)
@@ -565,7 +570,8 @@ actor APIRouter {
         id: String,
         created: Int,
         model: String,
-        text: String
+        text: String,
+        field: String = "content"
     ) -> Data {
         sseData([
             "id": id,
@@ -574,7 +580,7 @@ actor APIRouter {
             "model": model,
             "choices": [[
                 "index": 0,
-                "delta": ["content": text],
+                "delta": [field: text],
                 "finish_reason": NSNull()
             ]]
         ])

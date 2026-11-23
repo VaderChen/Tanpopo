@@ -85,7 +85,7 @@ final class MiniCPMMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        down(silu(gate(x)) * up(x))
+        down(compiledSiluProduct(gate(x), up(x)))
     }
 }
 

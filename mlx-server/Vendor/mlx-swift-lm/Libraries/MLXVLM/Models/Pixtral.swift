@@ -325,7 +325,7 @@ internal enum PixtralVision {
         }
 
         func callAsFunction(_ x: MLXArray) -> MLXArray {
-            downProj(silu(gateProj(x)) * upProj(x))
+            downProj(compiledSiluProduct(gateProj(x), upProj(x)))
         }
     }
 
@@ -598,7 +598,7 @@ private enum PixtralLanguage {
         }
 
         func callAsFunction(_ x: MLXArray) -> MLXArray {
-            down(silu(gate(x)) * up(x))
+            down(compiledSiluProduct(gate(x), up(x)))
         }
     }
 

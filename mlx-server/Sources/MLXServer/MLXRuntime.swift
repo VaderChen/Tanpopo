@@ -18,6 +18,7 @@ actor MLXRuntime {
     private let fastGGUFManifestURL: URL?
     private let ggufMMProjURL: URL?
     private let memoryMapPlan: MLXMemoryMapPlan?
+    nonisolated let diskOffloadSession: DiskOffloadSession?
     private let modelGenerationDefaults: ModelGenerationDefaults
     private var container: ModelContainer?
     private var memoryGuard: Task<Void, Never>?
@@ -37,9 +38,14 @@ actor MLXRuntime {
         ggufWeightURL = isGGUF && !isFastGGUF ? modelURL : nil
         fastGGUFManifestURL = isFastGGUF ? modelURL : nil
         ggufMMProjURL = configuration.mmprojPath.map(URL.init(fileURLWithPath:))
-        memoryMapPlan = configuration.memoryMappingEnabled
+        let memoryPlan = configuration.memoryMappingEnabled || configuration.diskCacheMB > 0
             ? try MLXMemoryMapPlan(reserveGB: configuration.mmapReserveGB)
             : nil
+        memoryMapPlan = memoryPlan
+        diskOffloadSession = configuration.diskCacheMB > 0
+            ? try DiskOffloadSession(cacheBytes: configuration.diskCacheMB * DiskOffloadSession.mib,
+                tileBytes: configuration.diskTileMB * DiskOffloadSession.mib,
+                runtimeBytes: memoryPlan!.runtimeLimitBytes) : nil
         let resolvedModelDirectory = isGGUF ? modelURL.deletingLastPathComponent() : modelURL
         modelDirectory = resolvedModelDirectory
         contextLimit = ModelContextLimit.resolve(
@@ -64,6 +70,23 @@ actor MLXRuntime {
 
     func prepare() async throws {
         guard container == nil else { return }
+        if let diskOffloadSession {
+            if configuration.mtpEnabled,
+                configuration.mtpDraftPath == nil || URL(fileURLWithPath: configuration.mtpDraftPath!).pathExtension.lowercased() == "gguf" {
+                throw DiskOffloadError.invalid("磁碟模式的 MTP 草稿需使用 safetensors；原始 GGUF 草稿轉換尚未提供分塊載入。")
+            }
+            memoryMapPlan?.applyBeforeLoading()
+            try await ModelWeightLoadingContext.$mode.withValue(.eager) {
+                try await ModelWeightLoadingContext.$beforeEvaluate.withValue({ model in
+                    try diskOffloadSession.prepareModel(model)
+                }) {
+                    try await DiskWeightLoading.$enabled.withValue(true) { try await prepareModels() }
+                }
+            }
+            memoryMapPlan?.finishLoading()
+            memoryGuard = memoryMapPlan?.startMemoryGuard()
+            return
+        }
         if let distributedSession {
             memoryMapPlan?.applyBeforeLoading()
             // MLX Core 的 safetensors Load 是 lazy；C++ bridge 直接調整讀取範圍，
@@ -118,7 +141,7 @@ actor MLXRuntime {
             container = try await MLXGGUFModelLoader.loadFastGGUFContainer(
                 from: modelDirectory,
                 manifestURL: fastGGUFManifestURL,
-                memoryMapped: configuration.memoryMappingEnabled
+                memoryMapped: configuration.memoryMappingEnabled && configuration.diskCacheMB == 0
             )
         } else if let ggufWeightURL {
             switch kind {
@@ -131,7 +154,7 @@ actor MLXRuntime {
                     recurrentPromotion: configuration.ggufRecurrentPromotion,
                     conversionCacheDirectory: configuration.ggufCacheDirectory,
                     conversionCacheEnabled: configuration.ggufCacheEnabled,
-                    memoryMapped: configuration.memoryMappingEnabled
+                    memoryMapped: configuration.memoryMappingEnabled && configuration.diskCacheMB == 0
                 )
             case .vision:
                 guard let ggufMMProjURL else {
@@ -146,7 +169,7 @@ actor MLXRuntime {
                     recurrentPromotion: configuration.ggufRecurrentPromotion,
                     conversionCacheDirectory: configuration.ggufCacheDirectory,
                     conversionCacheEnabled: configuration.ggufCacheEnabled,
-                    memoryMapped: configuration.memoryMappingEnabled
+                    memoryMapped: configuration.memoryMappingEnabled && configuration.diskCacheMB == 0
                 )
             }
             let requestedGroupSize = configuration.ggufGroupSize.map(String.init) ?? "auto"
@@ -216,7 +239,10 @@ actor MLXRuntime {
 
             let draftContainer: MTPDrafterContainer
             let draftDescription: String
-            if let draftPath = configuration.mtpDraftPath {
+            if let draftPath = configuration.mtpDraftPath, URL(fileURLWithPath: draftPath).pathExtension.lowercased() == "gguf" {
+                draftContainer = try await MLXGGUFModelLoader.loadQwen4ExpMTP(weightURL: URL(fileURLWithPath: draftPath), quantizationGroupSize: configuration.ggufGroupSize, quantizationProfile: configuration.ggufProfile, recurrentPromotion: configuration.ggufRecurrentPromotion, memoryMapped: configuration.memoryMappingEnabled && configuration.diskCacheMB == 0)
+                draftDescription = URL(fileURLWithPath: draftPath).lastPathComponent
+            } else if let draftPath = configuration.mtpDraftPath {
                 let draftDirectory = URL(fileURLWithPath: draftPath, isDirectory: true)
                 draftContainer = try await MTPDrafterModelFactory.shared.loadContainer(
                     from: draftDirectory,
@@ -230,7 +256,7 @@ actor MLXRuntime {
                     quantizationGroupSize: configuration.ggufGroupSize,
                     quantizationProfile: configuration.ggufProfile,
                     recurrentPromotion: configuration.ggufRecurrentPromotion,
-                    memoryMapped: configuration.memoryMappingEnabled)
+                    memoryMapped: configuration.memoryMappingEnabled && configuration.diskCacheMB == 0)
                 draftDescription = "embedded:\(ggufWeightURL.lastPathComponent)"
             } else {
                 throw MTPCompatibilityError.incompatibleConfiguration(
@@ -258,6 +284,7 @@ actor MLXRuntime {
         options: GenerationOptions
     ) async throws -> GenerationResult {
         let stream = try await generationStream(messages: messages, options: options)
+        var reasoning = ""
         var output = ""
         var promptTokens = 0
         var completionTokens = 0
@@ -266,6 +293,8 @@ actor MLXRuntime {
         var toolCalls: [ToolCall] = []
         for try await event in stream {
             switch event {
+            case .reasoning(let text):
+                reasoning += text
             case .chunk(let text):
                 output += text
             case .info(let info):
@@ -296,6 +325,7 @@ actor MLXRuntime {
         }
         return GenerationResult(
             text: output,
+            reasoning: reasoning,
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             tokensPerSecond: tokensPerSecond,
@@ -718,6 +748,7 @@ actor MLXRuntime {
             || object["mm_projector_type"] != nil
             || object["image_token_index"] != nil
         let modelType = object["model_type"] as? String ?? ""
+        if VLMTypeRegistry.processorsUsingModelConfig[modelType] != nil { return .vision }
         let architectures = object["architectures"] as? [String] ?? []
         let signature = ([modelType] + architectures).joined(separator: " ").lowercased()
         let markers = ["vision", "vl", "llava", "paligemma", "pixtral", "idefics", "florence"]
