@@ -382,7 +382,7 @@ func findBinary() (string, error) {
 	candidates := make([]string, 0, len(roots)*4)
 	for _, root := range roots {
 		candidates = append(candidates,
-			// 安裝包只注入閉源執行檔；macOS .app 與 Windows MSI 都使用固定資源位置。
+			// 安裝包只注入閉源執行檔；macOS .app 與 Windows ZIP 都使用固定資源位置。
 			filepath.Join(root, "netpass-client", filename),
 			filepath.Join(root, "netpass-client", "prebuilt", platform, "bin", filename),
 			filepath.Join(root, "Resources", "netpass-client", filename),

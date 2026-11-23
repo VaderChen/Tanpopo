@@ -20,7 +20,7 @@ import (
 func releaseFixture(body []byte, platform string) (officialRelease, releaseAsset) {
 	digest := sha256.Sum256(body)
 	release := officialRelease{Tag: "v9.0.0-build-0100"}
-	suffix := map[string]string{"darwin-arm64": "arm64.dmg", "darwin-amd64": "x64.dmg", "linux-amd64": "linux-x64.zip", "linux-arm64": "linux-arm64.zip", "windows-amd64": "x64.msi"}[platform]
+	suffix := map[string]string{"darwin-arm64": "arm64.dmg", "darwin-amd64": "x64.dmg", "linux-amd64": "linux-x64.zip", "linux-arm64": "linux-arm64.zip", "windows-amd64": "windows-x64.zip"}[platform]
 	name := "Tanpopo-9.0.0-build-0100-" + suffix
 	asset := releaseAsset{Name: name, State: "uploaded", Size: int64(len(body)), Digest: "sha256:" + hex.EncodeToString(digest[:]), URL: "https://github.com/trusted/project/releases/download/" + release.Tag + "/" + name}
 	release.Assets = []releaseAsset{asset}

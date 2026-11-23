@@ -16,8 +16,8 @@ import (
 
 func prepareAutomaticPayload(p automaticPlan, archive string) (string, error) {
 	switch runtime.GOOS {
-	case "linux":
-		payload, _, err := extractAndValidate(archive, filepath.Join(p.Workspace, "extracted"))
+	case "linux", "windows":
+		payload, _, err := extractPlatformArchive(archive, filepath.Join(p.Workspace, "extracted"), p.Platform)
 		if err != nil {
 			return "", err
 		}
@@ -27,6 +27,9 @@ func prepareAutomaticPayload(p automaticPlan, archive string) (string, error) {
 		}
 		if comparison, err := updatecheck.CompareVersions(tag, p.Tag); err != nil || comparison != 0 {
 			return "", errors.New("ZIP 內版本與官方發布不符")
+		}
+		if runtime.GOOS == "windows" {
+			return payload, nil
 		}
 		installer := updateInstaller(payload)
 		if err := installer.Run(); err != nil {
@@ -38,8 +41,6 @@ func prepareAutomaticPayload(p automaticPlan, archive string) (string, error) {
 		return payload, nil
 	case "darwin":
 		return prepareMacBundle(p, archive)
-	case "windows":
-		return archive, nil
 	default:
 		return "", errors.New("目前平台不支援自動安裝")
 	}
@@ -138,14 +139,6 @@ func verifyMacBundle(current, candidate, tag string) error {
 }
 
 func installAndRestart(p automaticPlan, payload string, status func(string, string) error) error {
-	if runtime.GOOS == "windows" {
-		if err := installMSI(p, payload); err != nil {
-			restartErr := restartAutomatic(p, "")
-			return errors.Join(err, restartErr)
-		}
-		_ = status("restarting", "安裝完成，正在重新啟動程式…")
-		return restartAutomatic(p, p.Tag)
-	}
 	// Linux 使用者資料位於部署目錄內；macOS 資料已位於 Application Support。
 	if runtime.GOOS == "linux" {
 		paths, err := persistentPaths(p)
@@ -164,15 +157,18 @@ func installAndRestart(p automaticPlan, payload string, status func(string, stri
 			}
 		}
 	}
-	return swapAndRestart(p.Target, payload, filepath.Join(filepath.Dir(p.Target), ".Tanpopo-backups", automaticBackupName()),
-		func(newVersion bool) error {
-			tag := ""
-			if newVersion {
-				tag = p.Tag
-			}
-			_ = status("restarting", "安裝完成，正在重新啟動程式…")
-			return restartAutomatic(p, tag)
-		})
+	launch := func(newVersion bool) error {
+		tag := ""
+		if newVersion {
+			tag = p.Tag
+		}
+		_ = status("restarting", "安裝完成，正在重新啟動程式…")
+		return restartAutomatic(p, tag)
+	}
+	if runtime.GOOS == "windows" {
+		return installPortableFiles(p.Target, payload, filepath.Join(p.Workspace, "backup"), launch)
+	}
+	return swapAndRestart(p.Target, payload, filepath.Join(filepath.Dir(p.Target), ".Tanpopo-backups", automaticBackupName()), launch)
 }
 
 func persistentPaths(p automaticPlan) ([]string, error) {
@@ -260,21 +256,4 @@ func restartAutomatic(p automaticPlan, tag string) error {
 	}
 	command.Dir = p.Directory
 	return launchReadyCommand(command, p.StatusDir, 15*time.Minute, tag)
-}
-
-func installMSI(p automaticPlan, archive string) error {
-	// 路徑經環境變數傳入，不能插入 PowerShell 程式文字。Windows 原生 UAC 仍由系統處理。
-	script := `$ErrorActionPreference='Stop'; try {
-  $argsList=@('/i', ('"'+$env:TANPOPO_UPDATE_MSI+'"'), '/passive', '/norestart', ('INSTALLFOLDER="'+$env:TANPOPO_UPDATE_TARGET+'"'), '/L*v', ('"'+$env:TANPOPO_UPDATE_LOG+'"'))
-  $p=Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList $argsList -Verb RunAs -Wait -PassThru
-  if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {exit 0}; exit $p.ExitCode
-} catch {Write-Error $_; exit 1}`
-	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	command.Env = append(os.Environ(), "TANPOPO_UPDATE_MSI="+archive, "TANPOPO_UPDATE_TARGET="+p.Target, "TANPOPO_UPDATE_LOG="+filepath.Join(p.StatusDir, "app-update-msi.log"))
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("Windows MSI 安裝失敗或系統授權被取消: %w", err)
-	}
-	return nil
 }

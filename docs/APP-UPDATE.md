@@ -7,8 +7,8 @@
 ## 共用流程
 
 1. 重新取得編譯時指定 GitHub repository 的最新穩定 Release，比較版本與 build。拒絕同版、降版、draft、prerelease、缺少平台附件或摘要的發布。
-2. 選擇精確符合版本與作業系統／架構的 DMG、MSI 或 ZIP；以 HTTPS 下載，限制 GitHub 的下載重新導向，核對完整長度與 SHA-256。下載失敗或內容不符時，原程式保持執行。
-3. 在安裝目錄以外啟動獨立更新助手，持有更新鎖並再次核對官方發布資訊與下載檔案。前端不能提交下載網址、命令或安裝路徑。
+2. 選擇精確符合版本與作業系統／架構的 DMG 或 ZIP；以 HTTPS 下載，限制 GitHub 的下載重新導向，核對完整長度與 SHA-256。下載失敗或內容不符時，原程式保持執行。
+3. 從暫存目錄啟動獨立更新助手，持有更新鎖並再次核對官方發布資訊與下載檔案。前端不能提交下載網址、命令或安裝路徑。
 4. 完成平台驗證與安裝準備後，助手才通知主程序正常關閉原生視窗、模型、叢集、下載工作及其他受管服務。等待原程序結束，最長兩分鐘；未結束就取消切換。
 5. 安裝並以原設定路徑及工作目錄啟動新版。新版完成初始化與實際 HTTP health 檢查後，回報 PID、隨機 nonce 及版本，助手才判定成功。大型模型恢復可能較久，啟動確認上限十五分鐘。
 
@@ -20,11 +20,15 @@
 | --- | --- |
 | macOS | 以唯讀方式掛載 DMG，檢查 App 完整簽章、相同 Developer ID 團隊、Bundle ID、版本及 Gatekeeper。更新助手保留完整 App 結構，避免單獨複製已簽章主執行檔造成系統拒絕執行。使用者資料保留於 Application Support；安裝目錄切換前備份，啟動失敗會停止新版並嘗試還原舊版。 |
 | Linux | 延用發行 ZIP 的路徑／類型／容量驗證，在暫存目錄先完成隔離 Runtime 建置。正常停止後，保留設定、data 與設定中位於安裝目錄內的資料／模型路徑，再切換目錄與重新啟動。啟動失敗會嘗試還原。 |
-| Windows | 以獨立助手啟動原生 MSI，沿用安裝位置，使用被動安裝畫面並禁止安裝器自行重啟作業系統。可能出現系統 UAC 授權。取消或 MSI 失敗時，會嘗試重新啟動現有程式；MSI 本身處理交易回復。MSI 成功但新版健康檢查失敗時會回報失敗，**不宣稱可自動降版還原 MSI**。 |
+| Windows x64 | 可攜 ZIP。更新助手在可寫入的程式目錄內驗證並解壓套件，再關閉主程式，備份並替換套件列出的檔案。啟動或替換失敗時會嘗試還原並重啟舊版。設定、模型與其他使用者檔案留在原位。 |
+
+### Windows 從 MSI 移轉到 ZIP
+
+舊版更新器只辨識 MSI，首次移轉需手動操作。下載檔名結尾為 `-windows-x64.zip` 的附件，完整解壓到自己的可寫入資料夾，例如 `%LOCALAPPDATA%\Programs` 下的全新 Tanpopo 資料夾。關閉舊版後，將現有的 `agent.properties`、`data` 及使用相對路徑的自訂模型資料夾複製到新的 `Tanpopo.exe` 旁。外部模型可沿用原絕對路徑。請從新資料夾啟動 `Tanpopo.exe`，確認設定與模型後，後續可在「系統設定 → 關於」更新。
 
 只有完整發行安裝可啟用自動更新；`go run`、原始碼工作區與缺少套件結構的執行檔會停用按鈕。macOS／Linux 必須具有安裝目錄旁的寫入權限，並有足夠空間放置下載、新版及備份；Linux 安裝目錄內的使用者資料也需要複製空間。Linux 若需新增系統套件或 GPU 權限，仍需先完成相依環境準備。未提供對應平台附件時會顯示失敗原因，不會改抓其他架構。
 
-macOS／Linux 的舊版目錄保留在安裝目錄旁的 `.Tanpopo-backups/`；更新暫存位於 `.tanpopo-update-*`。Windows 助手使用本機資料目錄中的暫存資料夾，安裝完成後保留供查核。更新狀態寫入設定檔旁 `data/automatic-update-status.json`；啟動及安裝訊息可查 `data/app-update.log`，Windows MSI 詳細日誌為 `data/app-update-msi.log`。
+macOS／Linux 的舊版目錄保留在安裝目錄旁的 `.Tanpopo-backups/`；更新暫存位於 `.tanpopo-update-*`。Windows 的暫存與備份位於程式目錄中的 `.tanpopo-update-*/`。更新狀態寫入設定檔旁 `data/automatic-update-status.json`；啟動及安裝訊息可查 `data/app-update.log`。
 
 ## macOS 更新後的區網連線觀察
 
@@ -67,4 +71,4 @@ TANPOPO_UPDATE_SMOKE_DMG="/絕對路徑/Tanpopo-版本-build-編號-arm64.dmg" \
 
 若要驗證外接磁碟的安裝暫存，可另設 `TANPOPO_UPDATE_SMOKE_WORKSPACE="/外接磁碟上的測試資料夾"`。測試只建立並移除自己產生的子目錄。DMG 使用系統暫存目錄掛載，App 仍複製至指定磁碟，避免磁碟映像服務拒絕外接磁碟上的掛載點。
 
-跨平台建置使用 `-buildvcs=false`，以相容同時有 Git／SVN 中繼資料的工作區。Windows MSI／UAC 與 Linux 發行 ZIP 的完整安裝仍需在對應作業系統驗收；交叉編譯與 macOS 隔離 Smoke 不等同這兩個平台的實機安裝測試。
+跨平台建置使用 `-buildvcs=false`，以相容同時有 Git／SVN 中繼資料的工作區。Windows 與 Linux 發行 ZIP 的完整安裝仍需在對應作業系統驗收；交叉編譯與 macOS 隔離 Smoke 不等同這兩個平台的實機安裝測試。

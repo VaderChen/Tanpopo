@@ -165,7 +165,7 @@ func (a *Automatic) prepare(lock *os.File) error {
 	}
 	workspaceRoot := filepath.Dir(a.target)
 	if runtime.GOOS == "windows" {
-		workspaceRoot = a.statusDir
+		workspaceRoot = a.target
 	}
 	if err := os.MkdirAll(workspaceRoot, 0700); err != nil {
 		return err
@@ -311,7 +311,11 @@ func RunAutomaticHelper(planPath string) (result error) {
 			return errors.New("更新計畫路徑無效")
 		}
 	}
-	if runtime.GOOS != "windows" && filepath.Dir(p.Workspace) != filepath.Dir(p.Target) {
+	workspaceRoot := filepath.Dir(p.Target)
+	if runtime.GOOS == "windows" {
+		workspaceRoot = p.Target
+	}
+	if filepath.Dir(p.Workspace) != workspaceRoot {
 		return errors.New("更新暫存與安裝目錄必須位於相同檔案系統")
 	}
 	var lock *os.File

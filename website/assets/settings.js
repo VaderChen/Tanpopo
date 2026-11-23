@@ -447,7 +447,7 @@
     const runtimeMessage = byId("netPassRuntimeMessage");
     runtimeMessage.classList.toggle("error", Boolean(status.last_error));
     runtimeMessage.textContent = status.last_error || (status.runtime_checked && !status.available
-      ? t("NetPassClient 為閉源元件，必須由正式 .app 或 MSI 安裝包提供。")
+      ? t("NetPassClient 為閉源元件，必須由正式 .app 或 ZIP 發行包提供。")
       : "");
     updateNetPassControls();
   }

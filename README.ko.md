@@ -2,7 +2,7 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[최신 릴리스 · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+[최신 릴리스 · Tanpopo 1.26.1123 build 1131](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1131)
 
 모델 다운로드 화면의 자주 사용하는 모델 목록에서 30B급 **Inkling-2-Mini**를 선택할 수 있습니다. llama-server에서는 **UD-Q4_K_XL** 또는 **UD-Q8_K_XL**을, Apple Silicon에서는 **4-bit MLX** 또는 **8-bit MLX**를 선택하세요. 두 MLX 모델 모두 M4 Pro에서 텍스트 생성, 이미지 인식, 스트리밍을 확인했습니다. [설치 및 검증 가이드(번체 중국어)](docs/INKLING2-MINI.md)
 
@@ -35,7 +35,7 @@ DEMO: 노드, 모델, 응답은 모의 데이터입니다. 추론 성능이나 �
 - 민들레, 맑은 하늘 파랑, 벚꽃 분홍, 어두운 Midnight Purple의 4가지 테마 제공.
 - 하단 상태 표시줄에서 CPU, GPU, MEMORY, 네트워크 상태를 3초마다 갱신하고 50%/80%를 기준으로 저채도 녹색, 노란색, 빨간색으로 표시.
 - **시스템 설정 → 시스템 정보**에서 OS, Kernel, Architecture, Host 이름, CPU, GPU, Memory, Network interface 및 접근 가능한 관리 URL을 읽기 전용으로 표시. Loopback URL은 공유 URL 목록에서 제외합니다.
-- 시작 시와 매시간 GitHub의 최신 정식 Release를 build 번호까지 비교합니다. **시스템 설정 → 정보 → 업데이트 후 재시작**을 누르면 플랫폼에 맞는 패키지를 자동 다운로드하고 SHA-256을 검증한 뒤 앱 종료, 설치, 재시작을 수행합니다. macOS는 서명과 Gatekeeper도 확인하며 macOS/Linux는 새 버전 시작 실패 시 이전 버전 복원을 시도합니다. Windows는 MSI를 사용하며 UAC 승인이 필요할 수 있습니다. 원격 업데이트에는 관리자 로그인이 필요합니다. [자동 업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md).
+- 시작 시와 매시간 GitHub의 최신 정식 Release를 build 번호까지 비교합니다. **시스템 설정 → 정보 → 업데이트 후 재시작**을 누르면 플랫폼에 맞는 패키지를 자동 다운로드하고 SHA-256을 검증한 뒤 앱 종료, 설치, 재시작을 수행합니다. macOS는 서명과 Gatekeeper도 확인하며 macOS/Linux는 새 버전 시작 실패 시 이전 버전 복원을 시도합니다. Windows x64에서는 ZIP 전체를 쓰기 가능한 폴더에 압축 해제한 뒤 `Tanpopo.exe`를 실행하세요. 기존 MSI 사용자는 처음 한 번 수동으로 이전한 뒤 앱에서 업데이트할 수 있습니다. 원격 업데이트에는 관리자 로그인이 필요합니다. [자동 업데이트 가이드(중국어 번체)](docs/APP-UPDATE.md).
 - Linux 패키지는 Vulkan llama.cpp 빌드 경로, 의존성 및 GPU 권한 검사, `build-llama-server.sh`, ROCm 도구가 없을 때의 DRM GPU 사용률 수집을 포함합니다.
 - macOS에서 AppKit/WKWebView 네이티브 UI와 시스템 메뉴 막대 상주 모드 제공.
 

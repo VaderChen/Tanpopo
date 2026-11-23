@@ -106,7 +106,7 @@ func (s releaseSource) release(ctx context.Context, tag string) (officialRelease
 }
 
 func selectReleaseAsset(release officialRelease, platform string) (releaseAsset, error) {
-	suffixes := map[string]string{"darwin-arm64": "arm64.dmg", "darwin-amd64": "x64.dmg", "windows-amd64": "x64.msi", "windows-arm64": "arm64.msi", "linux-amd64": "linux-x64.zip", "linux-arm64": "linux-arm64.zip"}
+	suffixes := map[string]string{"darwin-arm64": "arm64.dmg", "darwin-amd64": "x64.dmg", "windows-amd64": "windows-x64.zip", "windows-arm64": "windows-arm64.zip", "linux-amd64": "linux-x64.zip", "linux-arm64": "linux-arm64.zip"}
 	suffix, ok := suffixes[platform]
 	if !ok {
 		return releaseAsset{}, errors.New("目前平台不支援自動更新")

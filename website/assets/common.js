@@ -424,7 +424,7 @@
     ["開啟時檢查", "Checked when enabled", "有効化時に確認", "활성화할 때 확인"],
     ["執行中", "Running", "実行中", "실행 중"],
     ["安裝包未包含 NetPassClient", "NetPassClient is not included in this installation", "このインストールには NetPassClient が含まれていません", "이 설치에는 NetPassClient가 포함되어 있지 않습니다"],
-    ["NetPassClient 為閉源元件，必須由正式 .app 或 MSI 安裝包提供。", "NetPassClient is closed-source and must be supplied by the official .app or MSI installer.", "NetPassClient はクローズドソースであり、正式な .app または MSI インストーラーから提供する必要があります。", "NetPassClient는 비공개 구성 요소이며 공식 .app 또는 MSI 설치 프로그램에서 제공해야 합니다."],
+    ["NetPassClient 為閉源元件，必須由正式 .app 或 ZIP 發行包提供。", "NetPassClient is closed-source and must be supplied by the official .app or ZIP package.", "NetPassClient はクローズドソースであり、正式な .app または ZIP パッケージから提供する必要があります。", "NetPassClient는 비공개 구성 요소이며 공식 .app 또는 ZIP 패키지에서 제공해야 합니다."],
     ["儲存連線設定", "Save connection settings", "接続設定を保存", "연결 설정 저장"],
     ["停止反向代理", "Stop reverse proxy", "リバースプロキシを停止", "리버스 프록시 중지"],
     ["開啟反向代理", "Enable reverse proxy", "リバースプロキシを有効化", "리버스 프록시 켜기"],

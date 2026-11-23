@@ -2,7 +2,7 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[Latest release · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+[Latest release · Tanpopo 1.26.1123 build 1131](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1131)
 
 Open **Model downloads → Popular models → 30B class** and select Inkling-2-Mini. Choose **UD-Q4_K_XL** or **UD-Q8_K_XL** for llama-server. On Apple Silicon, choose **4-bit MLX** or **8-bit MLX** for native text and image inference. Both MLX checkpoints passed text, image and streaming smoke tests on an M4 Pro. [Inkling setup and validation](docs/INKLING2-MINI.md)
 
@@ -39,7 +39,7 @@ The disk-assisted launch profiles use a bounded weight cache for MLX and mmap wi
 - View CPU, GPU, MEMORY, and network status in a bottom bar refreshed every three seconds. Utilization uses muted green, yellow, and red bands at 50% and 80%.
   On macOS, MEMORY excludes file-backed cache and purgeable pages, while retaining wired and physical compressed memory. Pre-launch memory protection uses a separate available-memory reading, not the displayed percentage. See [System memory metrics](docs/SYSTEM-METRICS.md) (Traditional Chinese) for calculation details and the distinction from memory pressure.
 - Inspect read-only OS, kernel, architecture, hostname, CPU, GPU, memory, network interface, and reachable management URL details under **System settings → System information**. Loopback URLs are omitted from shared URL lists.
-- Check the latest stable GitHub Release at startup and every hour, including same-day build numbers. Under **System settings → About**, choose **Update and restart** to download and verify the platform package, close the app, install, and relaunch. macOS also checks signing identity and Gatekeeper; macOS/Linux attempt rollback if the new app fails startup checks. Windows uses MSI and may request UAC approval. Remote updates require administrator sign-in. [Automatic update guide (Traditional Chinese)](docs/APP-UPDATE.md).
+- Check the latest stable GitHub Release at startup and every hour, including same-day build numbers. Under **System settings → About**, choose **Update and restart** to download and verify the platform package, close the app, install, and relaunch. macOS also checks signing identity and Gatekeeper; macOS/Linux attempt rollback if the new app fails startup checks. On Windows x64, extract the entire ZIP into a writable folder and run `Tanpopo.exe`. Existing MSI users must migrate manually once before using in-app updates. Remote updates require administrator sign-in. [Automatic update guide (Traditional Chinese)](docs/APP-UPDATE.md).
 - Linux packages include a Vulkan-enabled llama.cpp build path, dependency and GPU-permission checks, a reusable `build-llama-server.sh`, and DRM GPU-utilization fallback when ROCm tools are unavailable.
 - On macOS, run as a native AppKit/WKWebView app and optionally remain in the system menu bar.
   In resident mode, the menu-bar dandelion follows GPU utilization only while a managed model is loaded and ready: green below 50%, yellow from 50% to below 80%, and red at 80% or above. No model, loading, startup failure, or unavailable data keeps the original system monochrome icon. It refreshes independently of the web view, including when the main window is hidden. Hover to see the current GPU percentage.

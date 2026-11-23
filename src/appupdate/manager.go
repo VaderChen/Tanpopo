@@ -217,6 +217,10 @@ func (m *Manager) statusPath() string {
 }
 
 func extractAndValidate(archivePath, extractRoot string) (string, string, error) {
+	return extractPlatformArchive(archivePath, extractRoot, "linux-"+runtime.GOARCH)
+}
+
+func extractPlatformArchive(archivePath, extractRoot, platform string) (string, string, error) {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", "", fmt.Errorf("無法開啟更新 ZIP: %w", err)
@@ -264,7 +268,11 @@ func extractAndValidate(archivePath, extractRoot string) (string, string, error)
 		}
 		totalBytes += entry.UncompressedSize64
 
-		destination := filepath.Join(extractRoot, filepath.FromSlash(cleanName))
+		local, err := filepath.Localize(cleanName)
+		if err != nil {
+			return "", "", fmt.Errorf("更新 ZIP 路徑不適用於目前平台: %w", err)
+		}
+		destination := filepath.Join(extractRoot, local)
 		if entry.FileInfo().IsDir() {
 			if err := os.MkdirAll(destination, 0755); err != nil {
 				return "", "", fmt.Errorf("建立更新目錄失敗: %w", err)
@@ -299,7 +307,7 @@ func extractAndValidate(archivePath, extractRoot string) (string, string, error)
 	}
 
 	payloadDir := filepath.Join(extractRoot, filepath.FromSlash(topLevel))
-	version, err := validatePayload(payloadDir)
+	version, err := validatePlatformPayload(payloadDir, platform)
 	if err != nil {
 		return "", "", err
 	}
@@ -322,26 +330,25 @@ func validateArchiveName(name string) (string, string, error) {
 }
 
 func validatePayload(payloadDir string) (string, error) {
-	platformBinary := ""
-	expectedPlatform := ""
-	switch runtime.GOARCH {
-	case "amd64":
-		platformBinary = "bin/Tanpopo_linux_x64"
-		expectedPlatform = "linux-amd64"
-	case "arm64":
+	return validatePlatformPayload(payloadDir, "linux-"+runtime.GOARCH)
+}
+
+func validatePlatformPayload(payloadDir, expectedPlatform string) (string, error) {
+	requiredFiles := []string{"VERSION", "BUILD_INFO.txt", "agent.sample.properties", "website/settings.html"}
+	var platformBinary string
+	switch expectedPlatform {
+	case "linux-amd64", "linux-arm64":
 		platformBinary = "bin/Tanpopo_linux_arm64"
-		expectedPlatform = "linux-arm64"
+		if expectedPlatform == "linux-amd64" {
+			platformBinary = "bin/Tanpopo_linux_x64"
+		}
+		requiredFiles = append(requiredFiles, "install.sh", "run.sh")
+	case "windows-amd64", "windows-arm64":
+		requiredFiles = append(requiredFiles, "Tanpopo.exe", "netpass-client/NetPassClient.exe", "llama-runtime/prebuilt/"+expectedPlatform+"/bin/llama-server.exe")
 	default:
-		return "", fmt.Errorf("ZIP 更新不支援目前 Linux 架構: %s", runtime.GOARCH)
+		return "", fmt.Errorf("ZIP 更新不支援平台: %s", expectedPlatform)
 	}
-	for _, required := range []string{
-		"VERSION",
-		"BUILD_INFO.txt",
-		"agent.sample.properties",
-		"install.sh",
-		"run.sh",
-		"website/settings.html",
-	} {
+	for _, required := range requiredFiles {
 		if !isRegularFile(filepath.Join(payloadDir, filepath.FromSlash(required))) {
 			return "", fmt.Errorf("更新 ZIP 缺少必要檔案: %s", required)
 		}
@@ -362,14 +369,14 @@ func validatePayload(payloadDir string) (string, error) {
 		return "", errors.New("此 ZIP 不是 Tanpopo 發布套件")
 	}
 	packagePlatform := strings.TrimSpace(values["platform"])
-	if packagePlatform != "" && packagePlatform != expectedPlatform {
+	if packagePlatform != expectedPlatform && (packagePlatform != "" || platformBinary == "") {
 		return "", fmt.Errorf("更新 ZIP 平台不符: 套件為 %s，目前需要 %s", packagePlatform, expectedPlatform)
 	}
-	if packagePlatform == expectedPlatform {
+	if platformBinary != "" && packagePlatform == expectedPlatform {
 		if !isRegularFile(filepath.Join(payloadDir, "Tanpopo")) {
 			return "", errors.New("單平台 Linux 更新 ZIP 缺少 Tanpopo 執行檔")
 		}
-	} else if !isRegularFile(filepath.Join(payloadDir, filepath.FromSlash(platformBinary))) {
+	} else if packagePlatform == "" && !isRegularFile(filepath.Join(payloadDir, filepath.FromSlash(platformBinary))) {
 		return "", fmt.Errorf("多平台更新 ZIP 缺少目前架構執行檔: %s", platformBinary)
 	}
 	version := strings.TrimSpace(values["app_display_version"])

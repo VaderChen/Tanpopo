@@ -2,7 +2,7 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[最新リリース · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+[最新リリース · Tanpopo 1.26.1123 build 1131](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1131)
 
 「モデルのダウンロード」のよく使うモデル一覧から、30B クラスの **Inkling-2-Mini** を選択できます。llama-server 用には **UD-Q4_K_XL** と **UD-Q8_K_XL**、Apple Silicon 用には **4-bit MLX** と **8-bit MLX** を用意しました。両方の MLX 版でテキスト生成、画像認識、ストリーミングを M4 Pro 上で確認しました。[セットアップと検証結果（繁体字中国語）](docs/INKLING2-MINI.md)
 
@@ -35,7 +35,7 @@ DEMO：ノード、モデル、応答は模擬データです。推論性能や�
 - 蒲公英、晴空ブルー、桜ピンク、ダークテーマの深夜パープルという 4 種類の配色を選択可能。
 - 画面下部の状態バーで CPU、GPU、MEMORY、ネットワークを 3 秒ごとに更新し、50%／80% を境に低彩度の緑・黄・赤で表示。
 - 「システム設定 → システム情報」に OS、Kernel、Architecture、Host 名、CPU、GPU、Memory、Network interface、到達可能な管理 URL を読み取り専用で表示。Loopback URL は共有用一覧に表示しません。
-- 起動時と毎時、GitHub の最新正式 Release を build 番号まで比較します。**システム設定 → このアプリについて → 更新して再起動**で、対応パッケージの自動ダウンロード・SHA-256 検証・アプリ終了・インストール・再起動を実行します。macOS は署名と Gatekeeper も検証し、macOS/Linux は起動失敗時に旧版への復元を試みます。Windows は MSI を使用し、UAC の承認が必要な場合があります。リモート更新には管理者ログインが必要です。[自動更新ガイド（繁体字中国語）](docs/APP-UPDATE.md)。
+- 起動時と毎時、GitHub の最新正式 Release を build 番号まで比較します。**システム設定 → このアプリについて → 更新して再起動**で、対応パッケージの自動ダウンロード・SHA-256 検証・アプリ終了・インストール・再起動を実行します。macOS は署名と Gatekeeper も検証し、macOS/Linux は起動失敗時に旧版への復元を試みます。Windows x64 では ZIP 全体を書き込み可能なフォルダーに展開し、`Tanpopo.exe` を起動してください。旧 MSI 版からは初回のみ手動移行が必要です。以降はアプリ内で更新できます。リモート更新には管理者ログインが必要です。[自動更新ガイド（繁体字中国語）](docs/APP-UPDATE.md)。
 - Linux パッケージは Vulkan 対応 llama.cpp のビルド経路、依存関係と GPU 権限の確認、`build-llama-server.sh`、ROCm がない場合の DRM GPU 使用率取得を含みます。
 - macOS では AppKit／WKWebView のネイティブ UI とメニューバー常駐モードを提供。
 

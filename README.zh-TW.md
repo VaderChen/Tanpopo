@@ -2,7 +2,7 @@
 
 [English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[最新發行 · Tanpopo 1.26.1123 build 1005](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1005)
+[最新發行 · Tanpopo 1.26.1123 build 1131](https://github.com/VaderChen/Tanpopo/releases/tag/v1.26.1123-build-1131)
 
 在「模型下載 → 常用模型 → 30B 級」選取 **Inkling-2-Mini**。使用 llama-server 時可選 **UD-Q4_K_XL** 或 **UD-Q8_K_XL**。Apple Silicon 可選 **4-bit MLX** 或 **8-bit MLX** 進行原生文字與圖片推論。兩種 MLX 權重均已在 M4 Pro 通過文字、圖片及串流測試。[安裝與驗證](docs/INKLING2-MINI.md)
 
@@ -46,7 +46,7 @@ DEMO 使用真實介面與模擬節點、模型、回答；不代表推論效能
 - 視窗底部狀態列每 3 秒更新 CPU、GPU、MEMORY 與網路狀態，使用率依 50%／80% 分為低彩度綠、黃、紅三個區間。內框捲軸不與標題或狀態列重疊，停止捲動後會淡出。
   macOS 的 MEMORY 排除檔案快取與可清除頁面，保留 wired 與壓縮器的實體記憶體用量；啟動前的記憶體保護另外使用可用記憶體讀值，不從顯示百分比反推。計算方式、資料缺漏處理及與記憶體壓力的區別見 [系統記憶體指標](docs/SYSTEM-METRICS.md)。
 - 「系統設定 → 系統資訊」以唯讀方式顯示作業系統、Kernel、架構、主機名稱、CPU、GPU、記憶體、網路介面與目前可供其他裝置使用的管理網址；不顯示 loopback 管理網址。
-- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。在「系統設定 → 關於」按 **更新並重新啟動**，會自動下載對應平台的官方套件、驗證 SHA-256、關閉程式、安裝並重新啟動。macOS 另核對簽章、簽署團隊及 Gatekeeper；macOS／Linux 新版啟動失敗會嘗試還原。Windows 由 MSI 安裝，可能需要系統 UAC 授權。本機免登入模式可更新；遠端操作需登入管理帳號。[自動更新與測試說明](docs/APP-UPDATE.md)。
+- APP 啟動時及每小時會檢查 GitHub 最新正式 Release；版本比較包含同日發布的 build 編號。在「系統設定 → 關於」按 **更新並重新啟動**，會自動下載對應平台的官方套件、驗證 SHA-256、關閉程式、安裝並重新啟動。macOS 另核對簽章、簽署團隊及 Gatekeeper；macOS／Linux 新版啟動失敗會嘗試還原。Windows x64 請將整個 ZIP 解壓到可寫入的資料夾，再執行 `Tanpopo.exe`。舊 MSI 使用者首次需手動移轉，之後可使用程式內更新。本機免登入模式可更新；遠端操作需登入管理帳號。[自動更新與測試說明](docs/APP-UPDATE.md)。
 - 原生選單與「系統設定 → 關於」會顯示 `1.YY.MMDD build HHmm` 版本、目前可達的管理頁面網址、可複製的模型 API `/v1` URL，以及 GitHub 快速連結；本機 `127.0.0.1` 管理網址不列入公開資訊清單。
 - llama-server 與 mlx-server 直接監聽 Profile 指定的 Host／Port，兩個 Runtime 內部使用同一份 Tanpopo 安全策略快照驗證請求，不增加反向代理層。
 - 模型 API 可選擇不限制、只使用核發金鑰、只使用 IP 白名單，或同時使用兩種限制。
